@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Space Rocks · Arcade Reactor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  /* ================================================================
+     SPACE ROCKS v2 — original styles (unmodified except where marked)
+     ================================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: #000;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    /* ARCADE REACTOR: reserve 48px at the top for the shell top bar */
+    height: calc(100% - 48px);
+    margin-top: 48px;
+    background: #000;
+  }
+
+  canvas { display: block; flex-shrink: 0; }
+
+  #controls {
+    display: none;
+    flex-shrink: 0;
+    width: 100%;
+    background: #000;
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    height: 100%;
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .ctrl-left-group {
+    display: flex;
+    gap: 6px;
+    flex: 1.8;
+  }
+
+  .ctrl-mid {
+    flex: 1.2;
+    display: flex;
+  }
+
+  .ctrl-right {
+    flex: 1.4;
+    display: flex;
+  }
+
+  .btn {
+    flex: 1;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.05s, border-color 0.05s;
+  }
+
+  .btn.active {
+    background: rgba(255,255,255,0.18);
+    border-color: rgba(255,255,255,0.7);
+  }
+
+  .btn-icon { font-size: 20px; line-height: 1; }
+  .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
+
+  #btn-fire { border-color: rgba(255,160,60,0.5); }
+  #btn-fire.active {
+    background: rgba(255,140,20,0.22);
+    border-color: rgba(255,160,60,0.9);
+  }
+
+  /* ================================================================
+     ARCADE REACTOR shell — top bar (namespaced with .ar- prefix)
+     ================================================================ */
+  .ar-topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    background: rgba(10, 14, 20, 0.92);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid #1f2937;
+    z-index: 9999;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    color: #e6edf3;
+  }
+  .ar-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #8b98a8;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #1f2937;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .ar-back:hover { color: #22d3ee; border-color: #22d3ee; }
+  .ar-back svg { width: 14px; height: 14px; }
+  .ar-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .ar-score {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: #8b98a8;
+    letter-spacing: 0.12em;
+    min-width: 90px;
+    text-align: right;
+  }
+  .ar-score-value { color: #22d3ee; font-weight: 700; }
+  @media (max-width: 480px) {
+    .ar-title { font-size: 11px; letter-spacing: 0.15em; }
+    .ar-back span { display: none; }
+    .ar-back { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     ARCADE REACTOR shell — top bar
+     ================================================================ -->
+<div class="ar-topbar">
+  <a href="../index.html" class="ar-back" aria-label="Back to Arcade Reactor">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    <span>Arcade Reactor</span>
+  </a>
+  <div class="ar-title">Space Rocks</div>
+  <div class="ar-score">
+    SCORE <span class="ar-score-value" id="ar-score-value">0</span>
+  </div>
+</div>
+
+<!-- ================================================================
+     SPACE ROCKS v2 — original body (unmodified)
+     ================================================================ -->
+<div id="wrap">
+  <canvas id="c"></canvas>
+
+  <div id="controls">
+    <div class="ctrl-row">
+      <div class="ctrl-left-group">
+        <div class="btn" id="btn-left">
+          <span class="btn-icon">◁</span>
+          <span class="btn-label">LEFT</span>
+        </div>
+        <div class="btn" id="btn-right">
+          <span class="btn-icon">▷</span>
+          <span class="btn-label">RIGHT</span>
+        </div>
+      </div>
+      <div class="ctrl-mid">
+        <div class="btn" id="btn-thrust">
+          <span class="btn-icon">△</span>
+          <span class="btn-label">THRUST</span>
+        </div>
+      </div>
+      <div class="ctrl-right">
+        <div class="btn" id="btn-fire">
+          <span class="btn-icon">◉</span>
+          <span class="btn-label">FIRE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   SPACE ROCKS v2 — Responsive + Touch
+   Keyboard: Arrows / WASD to move, Space to shoot, Enter to start
+   Touch: on-screen buttons shown when touch input is detected
+   ================================================================ */
+
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const wrap_el = document.getElementById('wrap');
+const ctrlBar = document.getElementById('controls');
+
+// ── ARCADE REACTOR: reserved height for the shell top bar ────────
+const AR_TOPBAR_H = 48;
+
+// ── Logical game dimensions (internal coordinate space) ──────────
+// The canvas *element* is resized to fill the screen, but game
+// objects always live in this fixed logical space. We scale the
+// canvas context to match, so physics/spawn code needs no changes.
+const GW = 900, GH = 650;   // logical game width / height
+
+// Current CSS pixel size of the canvas element (set by resize())
+let canvasW = GW, canvasH = GH;
+
+// ── Responsive resize ────────────────────────────────────────────
+const CTRL_BAR_H = 110;   // px — height reserved for touch buttons
+
+let touchMode = false;
+
+function resize() {
+  const availW = window.innerWidth;
+  // ARCADE REACTOR: subtract top bar height from the usable play area
+  const availH = window.innerHeight - AR_TOPBAR_H;
+  const barH   = touchMode ? CTRL_BAR_H : 0;
+  const playH  = availH - barH;
+
+  // Fit logical space into available area, preserving aspect ratio
+  const scale  = Math.min(availW / GW, playH / GH);
+  canvasW = Math.round(GW * scale);
+  canvasH = Math.round(GH * scale);
+
+  // Canvas resolution = logical size (crisp, no CSS blur)
+  canvas.width  = GW;
+  canvas.height = GH;
+
+  // CSS display size = scaled size
+  canvas.style.width  = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+
+  if (touchMode) {
+    ctrlBar.style.display = 'block';
+    ctrlBar.style.height  = CTRL_BAR_H + 'px';
+    ctrlBar.style.width   = availW + 'px';
+  } else {
+    ctrlBar.style.display = 'none';
+  }
+}
+
+window.addEventListener('resize', resize);
+resize();
+
+// ── Activate touch mode on first touch ───────────────────────────
+function activateTouch() {
+  if (touchMode) return;
+  touchMode = true;
+  resize();
+}
+
+// ── Tuning constants (unchanged from v1) ─────────────────────────
+const SHIP_SIZE       = 14;
+const BULLET_SPEED    = 7;
+const BULLET_LIFE     = 60;
+const TURN_SPEED      = 0.055;
+const THRUST          = 0.18;
+const FRICTION        = 0.985;
+const INVINCIBLE_TIME = 180;
+
+const ROCK_SIZES  = { large: 38, medium: 20, small: 11 };
+const ROCK_SCORES = { large: 20, medium: 50,  small: 100 };
+const ROCK_SPEEDS = { large: 0.9, medium: 1.5, small: 2.4 };
+const ROCK_VERTS  = { large: 12, medium: 9,   small: 7   };
+
+// ── Input state ───────────────────────────────────────────────────
+// keys{} covers keyboard; touch{} covers on-screen buttons.
+// update() merges both — no other code cares which source.
+const keys  = {};
+const touch = { left: false, right: false, thrust: false, fire: false };
+
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space','ArrowUp','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Enter: start / restart (keyboard)
+document.addEventListener('keydown', e => {
+  if (e.code === 'Enter' && (!state || state.phase === 'gameover')) startGame();
+});
+
+// ── Touch button wiring ───────────────────────────────────────────
+function wireBtn(id, prop) {
+  const el = document.getElementById(id);
+
+  function press(e) {
+    e.preventDefault();
+    activateTouch();
+    touch[prop] = true;
+    el.classList.add('active');
+    // Tapping any button also starts / restarts the game
+    if (!state || state.phase === 'gameover') startGame();
+  }
+  function release(e) {
+    e.preventDefault();
+    touch[prop] = false;
+    el.classList.remove('active');
+  }
+
+  el.addEventListener('touchstart',  press,   { passive: false });
+  el.addEventListener('touchend',    release, { passive: false });
+  el.addEventListener('touchcancel', release, { passive: false });
+
+  // Mouse fallback (for testing on desktop)
+  el.addEventListener('mousedown', press);
+  el.addEventListener('mouseup',   release);
+  el.addEventListener('mouseleave',release);
+}
+
+wireBtn('btn-left',   'left');
+wireBtn('btn-right',  'right');
+wireBtn('btn-thrust', 'thrust');
+wireBtn('btn-fire',   'fire');
+
+// Also show touch controls if a touchstart happens anywhere
+document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
+
+// ── Utilities ─────────────────────────────────────────────────────
+function randBetween(a, b) { return a + Math.random() * (b - a); }
+function wrapVal(v, max)   { return ((v % max) + max) % max; }
+
+// ================================================================
+// ENTITY FACTORIES  (identical to v1 — GW/GH used for spawn space)
+// ================================================================
+
+function makeRockShape(verts, radius) {
+  const pts = [];
+  for (let i = 0; i < verts; i++) {
+    const angle = (i / verts) * Math.PI * 2;
+    const r = radius * randBetween(0.72, 1.28);
+    pts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+  }
+  return pts;
+}
+
+function spawnRock(x, y, size) {
+  const radius = ROCK_SIZES[size];
+  const speed  = ROCK_SPEEDS[size] * randBetween(0.7, 1.4);
+  const angle  = Math.random() * Math.PI * 2;
+  return {
+    x, y, size,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    angle: 0,
+    spin:  randBetween(-0.02, 0.02),
+    radius,
+    shape: makeRockShape(ROCK_VERTS[size], radius)
+  };
+}
+
+function safeSpawnPos(ship) {
+  const margin = 140;
+  let x, y, attempts = 0;
+  do {
+    x = Math.random() * GW;
+    y = Math.random() * GH;
+    attempts++;
+  } while (attempts < 50 && Math.hypot(x - ship.x, y - ship.y) < margin);
+  return { x, y };
+}
+
+function initRocks(ship, count) {
+  const rocks = [];
+  for (let i = 0; i < count; i++) {
+    const pos = safeSpawnPos(ship);
+    rocks.push(spawnRock(pos.x, pos.y, 'large'));
+  }
+  return rocks;
+}
+
+function resetShip() {
+  return {
+    x: GW / 2, y: GH / 2,
+    vx: 0, vy: 0,
+    angle: -Math.PI / 2,
+    invincible: INVINCIBLE_TIME,
+    thrusting: false
+  };
+}
+
+// ================================================================
+// GAME STATE
+// ================================================================
+
+// ARCADE REACTOR: declared with `var` (instead of `let`) so the
+// shell score bridge at the bottom of this file can read state.score
+// from window.state. No gameplay change.
+var state = null;
+
+function startGame() {
+  const ship = resetShip();
+  state = {
+    phase: 'play',
+    ship,
+    bullets:       [],
+    rocks:         initRocks(ship, 4),
+    particles:     [],
+    score:         0,
+    lives:         3,
+    level:         1,
+    shootCooldown: 0
+  };
+}
+
+function nextLevel() {
+  state.level++;
+  state.ship  = resetShip();
+  state.rocks = initRocks(state.ship, 3 + state.level);
+}
+
+// ================================================================
+// PARTICLES
+// ================================================================
+
+function spawnParticles(x, y, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = randBetween(0.5, 3.5);
+    state.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: randBetween(20, 55)
+    });
+  }
+}
+
+// ================================================================
+// UPDATE — identical physics to v1, reads merged input
+// ================================================================
+
+function update() {
+  if (!state || state.phase !== 'play') return;
+
+  const ship = state.ship;
+
+  // Merge keyboard + touch input
+  const goLeft   = keys['ArrowLeft']  || keys['KeyA']  || touch.left;
+  const goRight  = keys['ArrowRight'] || keys['KeyD']  || touch.right;
+  const goThrust = keys['ArrowUp']    || keys['KeyW']  || touch.thrust;
+  const goFire   = keys['Space']      || keys['KeyZ']  || touch.fire;
+
+  if (goLeft)  ship.angle -= TURN_SPEED;
+  if (goRight) ship.angle += TURN_SPEED;
+
+  ship.thrusting = goThrust;
+  if (goThrust) {
+    ship.vx += Math.cos(ship.angle) * THRUST;
+    ship.vy += Math.sin(ship.angle) * THRUST;
+  }
+
+  ship.vx *= FRICTION;
+  ship.vy *= FRICTION;
+  ship.x   = wrapVal(ship.x + ship.vx, GW);
+  ship.y   = wrapVal(ship.y + ship.vy, GH);
+
+  if (ship.invincible > 0) ship.invincible--;
+
+  // Shooting
+  if (state.shootCooldown > 0) state.shootCooldown--;
+  if (goFire && state.shootCooldown === 0) {
+    state.bullets.push({
+      x:    ship.x + Math.cos(ship.angle) * SHIP_SIZE,
+      y:    ship.y + Math.sin(ship.angle) * SHIP_SIZE,
+      vx:   Math.cos(ship.angle) * BULLET_SPEED + ship.vx * 0.5,
+      vy:   Math.sin(ship.angle) * BULLET_SPEED + ship.vy * 0.5,
+      life: BULLET_LIFE
+    });
+    state.shootCooldown = 10;
+  }
+
+  // Bullets
+  state.bullets = state.bullets.filter(b => b.life > 0);
+  for (const b of state.bullets) {
+    b.x = wrapVal(b.x + b.vx, GW);
+    b.y = wrapVal(b.y + b.vy, GH);
+    b.life--;
+  }
+
+  // Rocks
+  for (const r of state.rocks) {
+    r.x     = wrapVal(r.x + r.vx, GW);
+    r.y     = wrapVal(r.y + r.vy, GH);
+    r.angle += r.spin;
+  }
+
+  // Bullet × Rock
+  const deadBullets = new Set();
+  const deadRocks   = new Set();
+  const newRocks    = [];
+
+  for (let bi = 0; bi < state.bullets.length; bi++) {
+    const b = state.bullets[bi];
+    for (let ri = 0; ri < state.rocks.length; ri++) {
+      if (deadRocks.has(ri)) continue;
+      const r = state.rocks[ri];
+      if (Math.hypot(b.x - r.x, b.y - r.y) < r.radius * 0.85) {
+        deadBullets.add(bi);
+        deadRocks.add(ri);
+        state.score += ROCK_SCORES[r.size];
+        spawnParticles(r.x, r.y, r.size === 'large' ? 12 : r.size === 'medium' ? 7 : 4);
+        if (r.size === 'large') {
+          newRocks.push(spawnRock(r.x, r.y, 'medium'));
+          newRocks.push(spawnRock(r.x, r.y, 'medium'));
+        } else if (r.size === 'medium') {
+          newRocks.push(spawnRock(r.x, r.y, 'small'));
+          newRocks.push(spawnRock(r.x, r.y, 'small'));
+        }
+        break;
+      }
+    }
+  }
+
+  state.bullets = state.bullets.filter((_, i) => !deadBullets.has(i));
+  state.rocks   = state.rocks.filter((_, i) => !deadRocks.has(i)).concat(newRocks);
+
+  // Ship × Rock
+  if (ship.invincible === 0) {
+    for (const r of state.rocks) {
+      if (Math.hypot(ship.x - r.x, ship.y - r.y) < r.radius * 0.75 + SHIP_SIZE * 0.6) {
+        state.lives--;
+        spawnParticles(ship.x, ship.y, 20);
+        if (state.lives <= 0) {
+          state.phase = 'gameover';
+        } else {
+          state.ship = resetShip();
+        }
+        break;
+      }
+    }
+  }
+
+  // Particles
+  state.particles = state.particles.filter(p => p.life > 0);
+  for (const p of state.particles) {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    p.life--;
+  }
+
+  if (state.rocks.length === 0) nextLevel();
+}
+
+// ================================================================
+// DRAW — renders into logical GW×GH space; CSS handles scaling
+// ================================================================
+
+function drawShip(ship) {
+  if (ship.invincible > 0 && Math.floor(ship.invincible / 6) % 2 === 0) return;
+
+  ctx.save();
+  ctx.translate(ship.x, ship.y);
+  ctx.rotate(ship.angle);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.moveTo( SHIP_SIZE,                0);
+  ctx.lineTo(-SHIP_SIZE * 0.75,  SHIP_SIZE * 0.6);
+  ctx.lineTo(-SHIP_SIZE * 0.45,  0);
+  ctx.lineTo(-SHIP_SIZE * 0.75, -SHIP_SIZE * 0.6);
+  ctx.closePath();
+  ctx.stroke();
+
+  if (ship.thrusting && Math.random() > 0.3) {
+    ctx.strokeStyle = '#fa6';
+    ctx.lineWidth   = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-SHIP_SIZE * 0.45,  SHIP_SIZE * 0.22);
+    ctx.lineTo(-SHIP_SIZE * 1.1 - Math.random() * 10, 0);
+    ctx.lineTo(-SHIP_SIZE * 0.45, -SHIP_SIZE * 0.22);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawRock(r) {
+  ctx.save();
+  ctx.translate(r.x, r.y);
+  ctx.rotate(r.angle);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(r.shape[0].x, r.shape[0].y);
+  for (let i = 1; i < r.shape.length; i++) ctx.lineTo(r.shape[i].x, r.shape[i].y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    ctx.globalAlpha = Math.min(p.life / 50, 1);
+    ctx.fillStyle   = '#fff';
+    ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  ctx.font      = "15px 'Courier New', monospace";
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SCORE  ${state.score}`, 14, 24);
+  ctx.textAlign = 'right';
+  ctx.fillText(`LEVEL  ${state.level}`, GW - 14, 24);
+
+  // Lives as tiny ships (bottom-left)
+  for (let i = 0; i < state.lives; i++) {
+    const lx = 22 + i * 24, ly = GH - 18;
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(-Math.PI / 2);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1.2;
+    ctx.beginPath();
+    ctx.moveTo( 8, 0);
+    ctx.lineTo(-6,  5);
+    ctx.lineTo(-4,  0);
+    ctx.lineTo(-6, -5);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawCenteredText(text, y, size, alpha) {
+  ctx.globalAlpha = alpha ?? 1;
+  ctx.font        = `${size}px 'Courier New', monospace`;
+  ctx.textAlign   = 'center';
+  ctx.fillStyle   = '#fff';
+  ctx.fillText(text, GW / 2, y);
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, GW, GH);
+
+  if (!state) {
+    drawCenteredText('SPACE  ROCKS',                  GH / 2 - 28, 36);
+    drawCenteredText('PRESS  ENTER  TO  START',       GH / 2 + 16, 15);
+    if (!touchMode)
+      drawCenteredText('ARROWS / WASD  ·  SPACE TO SHOOT', GH / 2 + 48, 12, 0.5);
+    else
+      drawCenteredText('TAP  ANY  BUTTON  TO  START', GH / 2 + 48, 12, 0.5);
+    return;
+  }
+
+  for (const r of state.rocks) drawRock(r);
+  drawParticles();
+
+  for (const b of state.bullets) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (state.phase === 'play') drawShip(state.ship);
+
+  drawHUD();
+
+  if (state.phase === 'gameover') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, GW, GH);
+    drawCenteredText('GAME  OVER',             GH / 2 - 30, 32);
+    drawCenteredText(`SCORE:  ${state.score}`, GH / 2 + 10, 18);
+    if (!touchMode)
+      drawCenteredText('PRESS  ENTER  TO  RESTART', GH / 2 + 46, 14);
+    else
+      drawCenteredText('TAP  ANY  BUTTON  TO  RESTART', GH / 2 + 46, 14);
+  }
+}
+
+// ================================================================
+// GAME LOOP
+// ================================================================
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+<!-- ================================================================
+     ARCADE REACTOR score bridge
+     Polls window.state.score and mirrors it into the top-bar score.
+     Read-only — does not touch gameplay.
+     ================================================================ -->
+<script>
+(function () {
+  const scoreEl = document.getElementById('ar-score-value');
+  if (!scoreEl) return;
+  let lastShown = -1;
+  function tick() {
+    const s = (window.state && typeof window.state.score === 'number')
+      ? window.state.score
+      : 0;
+    if (s !== lastShown) {
+      scoreEl.textContent = s.toLocaleString('en-US');
+      lastShown = s;
+    }
+  }
+  setInterval(tick, 150);
+  tick();
+})();
+</script>
+</body>
+</html>

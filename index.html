@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Arcade Reactor — a modern platform for retro-style games with global high scores.">
+    <title>Arcade Reactor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="site.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-inner">
+            <a href="./index.html" class="brand" aria-label="Arcade Reactor home">
+                <span class="brand-mark"></span>
+                <span class="brand-name">ARCADE<span class="brand-accent">REACTOR</span></span>
+            </a>
+            <nav class="site-nav">
+                <a href="#vector-vault">Collections</a>
+                <a href="#leaderboard">Leaderboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <p class="hero-eyebrow">RETRO ARCADE · REBUILT</p>
+                <h1 class="hero-title">A modern home for <span class="accent">classic-style</span> games.</h1>
+                <p class="hero-sub">Curated collections. Global high scores. No installs. Just play.</p>
+                <div class="hero-actions">
+                    <a href="#vector-vault" class="btn btn-primary">Browse Games</a>
+                    <a href="#leaderboard" class="btn btn-ghost">View Leaderboard</a>
+                </div>
+            </div>
+        </section>
+
+        <section id="vector-vault" class="collection">
+            <div class="container">
+                <div class="section-head">
+                    <div>
+                        <p class="section-eyebrow">COLLECTION 01</p>
+                        <h2 class="section-title">Vector Vault</h2>
+                        <p class="section-sub">Line-art arcade classics from the golden age of the CRT.</p>
+                    </div>
+                    <span class="section-tag">1 game</span>
+                </div>
+
+                <div class="card-grid">
+                    <article class="game-card">
+                        <div class="game-art game-art-space-rocks" aria-hidden="true">
+                            <svg viewBox="0 0 160 120" class="art-svg">
+                                <polygon points="80,50 70,75 80,70 90,75" class="art-ship"/>
+                                <polygon points="30,30 40,25 48,32 45,42 35,45 28,38" class="art-rock"/>
+                                <polygon points="120,70 130,65 138,72 135,82 125,85 118,78" class="art-rock"/>
+                                <polygon points="110,25 118,22 124,28 121,35 113,36 108,30" class="art-rock"/>
+                                <circle cx="20" cy="80" r="1" class="art-star"/>
+                                <circle cx="55" cy="15" r="1" class="art-star"/>
+                                <circle cx="95" cy="95" r="1" class="art-star"/>
+                                <circle cx="145" cy="45" r="1" class="art-star"/>
+                            </svg>
+                        </div>
+                        <div class="game-meta">
+                            <h3 class="game-title">Space Rocks</h3>
+                            <p class="game-desc">Drift, rotate, and blast vector asteroids across an endless starfield. A true-to-form arcade shooter.</p>
+                            <div class="game-footer">
+                                <span class="game-tag">VECTOR · SHOOTER</span>
+                                <a class="btn btn-primary btn-sm" href="./games/space-rocks.html">Play</a>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="game-card game-card-placeholder" aria-disabled="true">
+                        <div class="game-art game-art-soon" aria-hidden="true">
+                            <span class="soon-label">SOON</span>
+                        </div>
+                        <div class="game-meta">
+                            <h3 class="game-title">Coming Soon</h3>
+                            <p class="game-desc">The next Vector Vault entry is in development. Check back for updates.</p>
+                            <div class="game-footer">
+                                <span class="game-tag">TBA</span>
+                                <button class="btn btn-ghost btn-sm" disabled>Locked</button>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section id="leaderboard" class="leaderboard">
+            <div class="container">
+                <div class="section-head">
+                    <div>
+                        <p class="section-eyebrow">GLOBAL</p>
+                        <h2 class="section-title">High Scores</h2>
+                        <p class="section-sub">Preview layout · real scoreboard arrives with the backend.</p>
+                    </div>
+                    <span class="section-tag placeholder-tag">MOCK DATA</span>
+                </div>
+
+                <div class="board">
+                    <div class="board-head">
+                        <span>#</span>
+                        <span>Player</span>
+                        <span class="board-col-game">Game</span>
+                        <span class="board-score">Score</span>
+                    </div>
+                    <ol class="board-rows" id="leaderboard-rows"></ol>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container footer-inner">
+            <span class="footer-brand">ARCADE<span class="brand-accent">REACTOR</span></span>
+            <span class="footer-meta">© <span id="year"></span> Arcade Reactor · Built for play.</span>
+        </div>
+    </footer>
+
+    <script src="site.js"></script>
+</body>
+</html>
