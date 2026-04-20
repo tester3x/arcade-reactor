@@ -31,7 +31,6 @@
     flex-direction: column;
     align-items: center;
     width: 100%;
-    /* ARCADE REACTOR: reserve 48px at the top for the shell top bar */
     height: calc(100% - 48px);
     margin-top: 48px;
     background: #000;
@@ -47,24 +46,11 @@
   }
 
   .ctrl-row {
-    display: flex;
-    align-items: stretch;
-    justify-content: space-between;
-    height: 100%;
-    padding: 6px 8px;
-    gap: 6px;
+    display: flex; align-items: stretch; justify-content: space-between;
+    height: 100%; padding: 6px 8px; gap: 6px;
   }
-
-  .ctrl-left-group {
-    display: flex;
-    gap: 6px;
-    flex: 2;
-  }
-
-  .ctrl-right {
-    flex: 1.4;
-    display: flex;
-  }
+  .ctrl-left-group { display: flex; gap: 6px; flex: 2; }
+  .ctrl-right      { flex: 1.4; display: flex; }
 
   .btn {
     flex: 1;
@@ -75,11 +61,8 @@
     font-family: 'Courier New', monospace;
     font-size: 11px;
     letter-spacing: 0.04em;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.05s, border-color 0.05s;
@@ -88,28 +71,16 @@
     background: rgba(255,255,255,0.18);
     border-color: rgba(255,255,255,0.7);
   }
-
-  .btn-icon { font-size: 20px; line-height: 1; }
+  .btn-icon  { font-size: 20px; line-height: 1; }
   .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
 
-  #btn-fire {
-    border-color: rgba(34,211,238,0.5);
-  }
-  #btn-fire.active {
-    background: rgba(34,211,238,0.22);
-    border-color: rgba(34,211,238,0.9);
-  }
+  #btn-fire           { border-color: rgba(34,211,238,0.5); }
+  #btn-fire.active    { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
 
-  /* ================================================================
-     ARCADE REACTOR shell — top bar
-     ================================================================ */
+  /* Arcade Reactor shell */
   .ar-topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    position: fixed; top: 0; left: 0; right: 0; height: 48px;
+    display: flex; align-items: center; justify-content: space-between;
     padding: 0 14px;
     background: rgba(10, 14, 20, 0.92);
     backdrop-filter: saturate(140%) blur(10px);
@@ -120,33 +91,23 @@
     color: #e6edf3;
   }
   .ar-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: #8b98a8;
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 6px 10px;
-    border-radius: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #8b98a8; text-decoration: none;
+    font-size: 13px; font-weight: 500;
+    padding: 6px 10px; border-radius: 6px;
     border: 1px solid #1f2937;
     transition: color 0.15s, border-color 0.15s;
   }
   .ar-back:hover { color: #22d3ee; border-color: #22d3ee; }
-  .ar-back svg { width: 14px; height: 14px; }
+  .ar-back svg   { width: 14px; height: 14px; }
   .ar-title {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
+    font-size: 13px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
   }
   .ar-score {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 12px;
-    color: #8b98a8;
-    letter-spacing: 0.12em;
-    min-width: 90px;
-    text-align: right;
+    font-size: 12px; color: #8b98a8;
+    letter-spacing: 0.12em; min-width: 90px; text-align: right;
   }
   .ar-score-value { color: #22d3ee; font-weight: 700; }
   @media (max-width: 480px) {
@@ -158,9 +119,6 @@
 </head>
 <body>
 
-<!-- ================================================================
-     ARCADE REACTOR shell — top bar
-     ================================================================ -->
 <div class="ar-topbar">
   <a href="../index.html" class="ar-back" aria-label="Back to Arcade Reactor">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -179,18 +137,15 @@
     <div class="ctrl-row">
       <div class="ctrl-left-group">
         <div class="btn" id="btn-left">
-          <span class="btn-icon">◁</span>
-          <span class="btn-label">LEFT</span>
+          <span class="btn-icon">◁</span><span class="btn-label">LEFT</span>
         </div>
         <div class="btn" id="btn-right">
-          <span class="btn-icon">▷</span>
-          <span class="btn-label">RIGHT</span>
+          <span class="btn-icon">▷</span><span class="btn-label">RIGHT</span>
         </div>
       </div>
       <div class="ctrl-right">
         <div class="btn" id="btn-fire">
-          <span class="btn-icon">◉</span>
-          <span class="btn-label">FIRE</span>
+          <span class="btn-icon">◉</span><span class="btn-label">FIRE</span>
         </div>
       </div>
     </div>
@@ -199,53 +154,40 @@
 
 <script>
 /* ================================================================
-   WEB REACTOR — Tempest-style vector arcade shooter
+   WEB REACTOR v2 — Tempest-style vector arcade
    ----------------------------------------------------------------
-   Player orbits the outer rim of a circular lane web.
-   Enemies climb from the center outward along the lanes.
-   Shoot down your current lane; lose a life if anything reaches the
-   rim at your lane (or the lane next to you).
+   • 6 board shapes cycled per level (circle/square/V/flat/cross/zigzag)
+   • Generic lane geometry: each shape defines rim[] + hub[] points
+   • Enemy progression: flippers → +tankers → +spikers
+   • Spike mechanic: enemy reaches rim → drops spike + grabs player
+     if on that lane. Spikes block bullets. Clear on level advance.
    ================================================================ */
 
 const canvas  = document.getElementById('c');
 const ctx     = canvas.getContext('2d');
 const ctrlBar = document.getElementById('controls');
 
-// ── ARCADE REACTOR: reserved height for the shell top bar ────────
 const AR_TOPBAR_H = 48;
-
-// ── Logical game space (fixed coordinates; CSS scales to fit) ────
 const GW = 900, GH = 650;
 const CX = GW / 2;
-const CY = GH / 2 + 10;   // slight vertical offset so HUD reads cleanly
-
-// Rim = where the player rides. Hub = where enemies spawn.
-const RIM_R = 260;
-const HUB_R = 36;
-
-const LANES = 16;           // 16 lanes around the web
+const CY = GH / 2 + 10;
 const TWOPI = Math.PI * 2;
 
-// ── Responsive resize ────────────────────────────────────────────
+// ── Responsive canvas ────────────────────────────────────────────
 const CTRL_BAR_H = 110;
-let canvasW = GW, canvasH = GH;
-let touchMode = false;
+let canvasW = GW, canvasH = GH, touchMode = false;
 
 function resize() {
   const availW = window.innerWidth;
   const availH = window.innerHeight - AR_TOPBAR_H;
   const barH   = touchMode ? CTRL_BAR_H : 0;
   const playH  = availH - barH;
-
   const scale  = Math.min(availW / GW, playH / GH);
   canvasW = Math.round(GW * scale);
   canvasH = Math.round(GH * scale);
-
-  canvas.width  = GW;
-  canvas.height = GH;
+  canvas.width  = GW;       canvas.height = GH;
   canvas.style.width  = canvasW + 'px';
   canvas.style.height = canvasH + 'px';
-
   if (touchMode) {
     ctrlBar.style.display = 'block';
     ctrlBar.style.height  = CTRL_BAR_H + 'px';
@@ -257,25 +199,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-function activateTouch() {
-  if (touchMode) return;
-  touchMode = true;
-  resize();
-}
-
-// ── Tuning constants ─────────────────────────────────────────────
-const BULLET_SPEED    = 14;      // px/frame along the lane (toward hub)
-const BULLET_COOLDOWN = 8;       // frames between shots
-const ENEMY_BASE_SPEED = 0.45;   // outward speed per frame at level 1
-const ENEMY_SPEED_PER_LV = 0.06; // speed bump per level
-const ENEMY_SPAWN_MIN = 50;      // frames between enemy spawns (fastest)
-const ENEMY_SPAWN_MAX = 120;     // frames between enemy spawns (slowest)
-const INVINCIBLE_TIME = 120;
-
-// Scores
-const SCORE_ENEMY = 100;
-const SCORE_LEVEL_BONUS = 250;
-const ENEMIES_PER_LEVEL = 12;
+function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 
 // ── Input ────────────────────────────────────────────────────────
 const keys  = {};
@@ -294,16 +218,13 @@ document.addEventListener('keydown', e => {
 function wireBtn(id, prop) {
   const el = document.getElementById(id);
   function press(e) {
-    e.preventDefault();
-    activateTouch();
-    touch[prop] = true;
-    el.classList.add('active');
+    e.preventDefault(); activateTouch();
+    touch[prop] = true; el.classList.add('active');
     if (!state || state.phase === 'gameover') startGame();
   }
   function release(e) {
     e.preventDefault();
-    touch[prop] = false;
-    el.classList.remove('active');
+    touch[prop] = false; el.classList.remove('active');
   }
   el.addEventListener('touchstart',  press,   { passive: false });
   el.addEventListener('touchend',    release, { passive: false });
@@ -312,71 +233,334 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseup',   release);
   el.addEventListener('mouseleave',release);
 }
-wireBtn('btn-left',  'left');
-wireBtn('btn-right', 'right');
-wireBtn('btn-fire',  'fire');
+wireBtn('btn-left', 'left');
+wireBtn('btn-right','right');
+wireBtn('btn-fire', 'fire');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 
 // ── Utilities ────────────────────────────────────────────────────
-function laneAngle(lane) { return (lane / LANES) * TWOPI - Math.PI / 2; }
-function lerp(a, b, t)   { return a + (b - a) * t; }
-function randBetween(a,b){ return a + Math.random() * (b - a); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function randBetween(a, b) { return a + Math.random() * (b - a); }
 
-// Given a lane and a radial "depth" in [0,1] (0=hub, 1=rim), return {x,y}
-function laneXY(lane, depth) {
-  const a = laneAngle(lane);
-  const r = lerp(HUB_R, RIM_R, depth);
-  return { x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r };
+// ================================================================
+// SHAPE BUILDERS — each returns { lanes, closed, rim[], hub[] }
+// ================================================================
+
+function shapeCircle() {
+  const N = 16, outerR = 260, innerR = 42;
+  const rim = [], hub = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * TWOPI - Math.PI / 2;
+    rim.push({ x: CX + Math.cos(a) * outerR, y: CY + Math.sin(a) * outerR });
+    hub.push({ x: CX + Math.cos(a) * innerR, y: CY + Math.sin(a) * innerR });
+  }
+  return { lanes: N, closed: true, rim, hub };
 }
 
-// ── State ────────────────────────────────────────────────────────
-// `var` so window.state is readable by the Arcade Reactor score bridge.
+function shapeSquare() {
+  const perSide = 4, N = perSide * 4, outer = 235, inner = 38;
+  const rim = [], hub = [];
+  for (let i = 0; i < N; i++) {
+    const side = Math.floor(i / perSide);
+    const t = ((i % perSide) + 0.5) / perSide;
+    let rx, ry, hx, hy;
+    if (side === 0)      { rx = CX - outer + t*2*outer; ry = CY - outer;
+                           hx = CX - inner + t*2*inner; hy = CY - inner; }
+    else if (side === 1) { rx = CX + outer;             ry = CY - outer + t*2*outer;
+                           hx = CX + inner;             hy = CY - inner + t*2*inner; }
+    else if (side === 2) { rx = CX + outer - t*2*outer; ry = CY + outer;
+                           hx = CX + inner - t*2*inner; hy = CY + inner; }
+    else                 { rx = CX - outer;             ry = CY + outer - t*2*outer;
+                           hx = CX - inner;             hy = CY + inner - t*2*inner; }
+    rim.push({ x: rx, y: ry });
+    hub.push({ x: hx, y: hy });
+  }
+  return { lanes: N, closed: true, rim, hub };
+}
+
+function shapeV() {
+  // Open V, apex at bottom-center, arms opening upward to top corners
+  const N = 13;
+  const apex = { x: CX,       y: CY + 150 };
+  const topL = { x: CX - 290, y: CY - 140 };
+  const topR = { x: CX + 290, y: CY - 140 };
+  const halfN = Math.floor(N / 2);
+  const rim = [], hub = [];
+  // Left arm: topL → apex
+  for (let i = 0; i <= halfN; i++) {
+    const t = i / halfN;
+    rim.push({ x: topL.x + t * (apex.x - topL.x), y: topL.y + t * (apex.y - topL.y) });
+  }
+  // Right arm: apex → topR (skip first to avoid duplicate at apex)
+  for (let i = 1; i <= halfN; i++) {
+    const t = i / halfN;
+    rim.push({ x: apex.x + t * (topR.x - apex.x), y: apex.y + t * (topR.y - apex.y) });
+  }
+  // Hub: pulled toward a point high-center (inside the V opening)
+  const hubC = { x: CX, y: CY - 40 };
+  for (const p of rim) {
+    hub.push({ x: hubC.x + (p.x - hubC.x) * 0.18, y: hubC.y + (p.y - hubC.y) * 0.18 });
+  }
+  return { lanes: rim.length, closed: false, rim, hub };
+}
+
+function shapeFlat() {
+  // Straight line along the bottom with perspective convergence at the top
+  const N = 14, W = 600;
+  const bottomY = CY + 185;
+  const topY    = CY - 170;
+  const topWidth = W * 0.22;
+  const rim = [], hub = [];
+  for (let i = 0; i < N; i++) {
+    const t = (i + 0.5) / N;
+    rim.push({ x: CX - W/2 + t * W, y: bottomY });
+    hub.push({ x: CX - topWidth/2 + t * topWidth, y: topY });
+  }
+  return { lanes: N, closed: false, rim, hub };
+}
+
+function shapeCross() {
+  // + sign via non-uniform radius (cardinals long, diagonals short)
+  const N = 16;
+  const rim = [], hub = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * TWOPI - Math.PI / 2;
+    const factor = 0.5 + 0.5 * Math.cos(4 * a);  // 1 at cardinals, 0 at diagonals
+    const outerR = 130 + factor * 150;
+    rim.push({ x: CX + Math.cos(a) * outerR, y: CY + Math.sin(a) * outerR });
+    hub.push({ x: CX + Math.cos(a) * 38,     y: CY + Math.sin(a) * 38     });
+  }
+  return { lanes: N, closed: true, rim, hub };
+}
+
+function shapeZigzag() {
+  // Horizontal zigzag along bottom; hub is straight line above
+  const N = 14, W = 600;
+  const baseY = CY + 130;
+  const amp   = 75;
+  const rim = [], hub = [];
+  for (let i = 0; i < N; i++) {
+    const t = (i + 0.5) / N;
+    const x = CX - W/2 + t * W;
+    const y = baseY + (i % 2 === 0 ? -amp : amp);
+    rim.push({ x, y });
+    hub.push({ x: CX - W/4 + t * W/2, y: CY - 160 });
+  }
+  return { lanes: N, closed: false, rim, hub };
+}
+
+const SHAPES      = { circle: shapeCircle, square: shapeSquare, v: shapeV,
+                      flat: shapeFlat, cross: shapeCross, zigzag: shapeZigzag };
+const SHAPE_ORDER = ['circle', 'square', 'v', 'flat', 'cross', 'zigzag'];
+const SHAPE_LABEL = { circle: 'CIRCLE', square: 'SQUARE', v: 'V-SHAPE',
+                      flat: 'FLAT', cross: 'CROSS', zigzag: 'ZIGZAG' };
+const LEVEL_COLORS = ['#22d3ee', '#a78bfa', '#f59e0b', '#22c55e', '#ef4444', '#fbbf24'];
+
+// ================================================================
+// LEVEL PLANNER — enemy mix ramps up, counts and speed scale
+// ================================================================
+
+function levelPlan(level) {
+  const idx = (level - 1) % 6;
+  const mix =
+    level <= 2           ? { flipper: 1.0 }                                 :
+    level <= 4           ? { flipper: 0.75, tanker: 0.25 }                  :
+    level <= 6           ? { flipper: 0.6,  tanker: 0.25, spiker: 0.15 }    :
+    level <= 9           ? { flipper: 0.55, tanker: 0.25, spiker: 0.2  }    :
+                           { flipper: 0.5,  tanker: 0.3,  spiker: 0.2  };
+  return {
+    shape:      SHAPE_ORDER[idx],
+    color:      LEVEL_COLORS[idx],
+    geometry:   SHAPES[SHAPE_ORDER[idx]](),
+    enemyQuota: 10 + Math.floor(level * 1.8),
+    enemyMix:   mix,
+    baseSpeed:  0.42 + level * 0.035,
+    spawnMin:   Math.max(38, 95 - level * 6),
+    spawnMax:   Math.max(70, 150 - level * 7)
+  };
+}
+
+function pickEnemyType(mix) {
+  const r = Math.random();
+  let acc = 0;
+  for (const type of Object.keys(mix)) {
+    acc += mix[type];
+    if (r <= acc) return type;
+  }
+  return 'flipper';
+}
+
+// ================================================================
+// LANE GEOMETRY HELPERS
+// ================================================================
+
+function laneXY(lane, depth, geom) {
+  const g = geom || state.geometry;
+  const r = g.rim[lane], h = g.hub[lane];
+  return { x: h.x + (r.x - h.x) * depth, y: h.y + (r.y - h.y) * depth };
+}
+
+function laneNormal(lane, geom) {
+  // Unit vector from hub toward rim (outward)
+  const g = geom || state.geometry;
+  const r = g.rim[lane], h = g.hub[lane];
+  const dx = r.x - h.x, dy = r.y - h.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dx/len, y: dy/len };
+}
+
+function laneTangent(lane, geom) {
+  // Rim tangent direction, derived from neighbors
+  const g = geom || state.geometry;
+  const N = g.lanes;
+  let prev, next;
+  if (g.closed) {
+    prev = (lane - 1 + N) % N;
+    next = (lane + 1) % N;
+  } else {
+    prev = Math.max(0, lane - 1);
+    next = Math.min(N - 1, lane + 1);
+  }
+  const dx = g.rim[next].x - g.rim[prev].x;
+  const dy = g.rim[next].y - g.rim[prev].y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dx/len, y: dy/len };
+}
+
+function laneLength(lane, geom) {
+  const g = geom || state.geometry;
+  const r = g.rim[lane], h = g.hub[lane];
+  return Math.hypot(r.x - h.x, r.y - h.y);
+}
+
+// Visual (fractional) lane interpolation for player rendering
+function visualPos() {
+  const lv = state.laneVisual;
+  const g  = state.geometry;
+  const i0 = Math.floor(lv);
+  const frac = lv - i0;
+  const a = Math.max(0, Math.min(g.lanes - 1, i0));
+  const b = g.closed
+    ? ((i0 + 1) % g.lanes)
+    : Math.max(0, Math.min(g.lanes - 1, i0 + 1));
+  const r0 = g.rim[a], r1 = g.rim[b];
+  return { x: r0.x + (r1.x - r0.x) * frac, y: r0.y + (r1.y - r0.y) * frac };
+}
+
+// ================================================================
+// STATE
+// ================================================================
+
+// var so window.state is readable by the Arcade Reactor score bridge
 var state = null;
 
 function startGame() {
   state = {
-    phase: 'play',
-    lane:  0,                   // player's current lane (integer)
-    laneVisual: 0,              // smoothed for drawing
-    moveCooldown: 0,            // frames between lane steps (for hold-to-move)
+    phase:         'transition',   // 'transition' | 'play' | 'gameover'
+    transitionT:   90,              // frames left in level intro
+    score:         0,
+    lives:         3,
+    level:         1,
+    lane:          0,
+    laneVisual:    0,
+    moveCooldown:  0,
     shootCooldown: 0,
-    invincible: INVINCIBLE_TIME,
-    bullets:   [],              // {lane, depth}  depth 1→0
-    enemies:   [],              // {lane, depth, pulse}  depth 0→1
-    particles: [],
-    score: 0,
-    lives: 3,
-    level: 1,
-    spawnTimer: 60,
-    killsThisLevel: 0
+    invincible:    120,
+    bullets:       [],   // {lane, depth}
+    enemies:       [],   // {type, lane, depth, ...}
+    spikes:        [],   // {lane, length 0..1} — length from rim INWARD
+    particles:     [],
+    spawnTimer:    60,
+    enemiesSpawned: 0,
+    enemiesKilled:  0,
+    geometry:      null,
+    shape:         null,
+    color:         null,
+    plan:          null
   };
+  applyLevel(1);
+}
+
+function applyLevel(level) {
+  const plan = levelPlan(level);
+  state.plan       = plan;
+  state.shape      = plan.shape;
+  state.color      = plan.color;
+  state.geometry   = plan.geometry;
+  // Reset position to lane 0 of the new shape
+  state.lane       = 0;
+  state.laneVisual = 0;
+  state.bullets    = [];
+  state.enemies    = [];
+  state.spikes     = [];
+  state.enemiesSpawned = 0;
+  state.enemiesKilled  = 0;
+  state.spawnTimer     = 30;
+  state.invincible     = 120;
+  state.level          = level;
+  state.phase          = 'transition';
+  state.transitionT    = 90;
 }
 
 function nextLevel() {
-  state.level++;
-  state.killsThisLevel = 0;
-  state.score += SCORE_LEVEL_BONUS;
-  state.invincible = INVINCIBLE_TIME;
-  state.enemies = [];
-  state.bullets = [];
-  // brief level-up flash particles
-  for (let i = 0; i < 40; i++) {
+  state.score += 500 + state.level * 100;
+  // Level-clear burst
+  for (let i = 0; i < 60; i++) {
     const a = Math.random() * TWOPI;
     state.particles.push({
       x: CX, y: CY,
-      vx: Math.cos(a) * randBetween(2, 6),
-      vy: Math.sin(a) * randBetween(2, 6),
-      life: randBetween(30, 60),
-      hue: 'accent'
+      vx: Math.cos(a) * randBetween(3, 8),
+      vy: Math.sin(a) * randBetween(3, 8),
+      life: randBetween(30, 70), hue: 'accent'
     });
   }
+  applyLevel(state.level + 1);
 }
 
-// ── Update ───────────────────────────────────────────────────────
-function update() {
-  if (!state || state.phase !== 'play') return;
+// ================================================================
+// ENTITY FACTORIES
+// ================================================================
 
-  // Lane movement — step on tap, repeat on hold
+function spawnEnemy() {
+  const lane = Math.floor(Math.random() * state.geometry.lanes);
+  const type = pickEnemyType(state.plan.enemyMix);
+  if (type === 'flipper') {
+    state.enemies.push({ type, lane, depth: 0.02, pulse: 0,
+                         speed: state.plan.baseSpeed });
+  } else if (type === 'tanker') {
+    state.enemies.push({ type, lane, depth: 0.02, pulse: 0,
+                         speed: state.plan.baseSpeed * 0.62 });
+  } else { // spiker
+    state.enemies.push({ type, lane, depth: 0.02, pulse: 0,
+                         speed: state.plan.baseSpeed * 0.85 });
+  }
+  state.enemiesSpawned++;
+}
+
+// ================================================================
+// UPDATE
+// ================================================================
+
+function update() {
+  if (!state) return;
+
+  // Drain particles even during transitions
+  for (const p of state.particles) {
+    p.x += p.vx; p.y += p.vy; p.vx *= 0.95; p.vy *= 0.95; p.life--;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
+
+  if (state.phase === 'transition') {
+    state.transitionT--;
+    if (state.transitionT <= 0) state.phase = 'play';
+    return;
+  }
+  if (state.phase !== 'play') return;
+
+  const geom = state.geometry;
+  const N    = geom.lanes;
+
+  // ── Player movement (lane steps with hold-repeat) ──────────────
   const wantLeft  = keys['ArrowLeft']  || keys['KeyA'] || touch.left;
   const wantRight = keys['ArrowRight'] || keys['KeyD'] || touch.right;
   const wantFire  = keys['Space']      || keys['KeyZ'] || touch.fire;
@@ -384,62 +568,86 @@ function update() {
   if (state.moveCooldown > 0) state.moveCooldown--;
   if (state.moveCooldown === 0) {
     if (wantLeft && !wantRight) {
-      state.lane = (state.lane - 1 + LANES) % LANES;
+      if (geom.closed) state.lane = (state.lane - 1 + N) % N;
+      else             state.lane = Math.max(0, state.lane - 1);
       state.moveCooldown = 6;
     } else if (wantRight && !wantLeft) {
-      state.lane = (state.lane + 1) % LANES;
+      if (geom.closed) state.lane = (state.lane + 1) % N;
+      else             state.lane = Math.min(N - 1, state.lane + 1);
       state.moveCooldown = 6;
     }
   }
 
-  // Smoothly animate the visual lane toward the logical lane (shortest path)
+  // Animate laneVisual toward state.lane along shortest path
   let dl = state.lane - state.laneVisual;
-  if (dl >  LANES / 2) dl -= LANES;
-  if (dl < -LANES / 2) dl += LANES;
+  if (geom.closed) {
+    if (dl >  N / 2) dl -= N;
+    if (dl < -N / 2) dl += N;
+  }
   state.laneVisual += dl * 0.35;
-  // Keep laneVisual normalized
-  state.laneVisual = ((state.laneVisual % LANES) + LANES) % LANES;
+  if (geom.closed) {
+    state.laneVisual = ((state.laneVisual % N) + N) % N;
+  }
 
-  // Invincibility countdown
   if (state.invincible > 0) state.invincible--;
 
-  // Shoot
+  // ── Shoot ──────────────────────────────────────────────────────
   if (state.shootCooldown > 0) state.shootCooldown--;
   if (wantFire && state.shootCooldown === 0) {
     state.bullets.push({ lane: state.lane, depth: 1.0 });
-    state.shootCooldown = BULLET_COOLDOWN;
+    state.shootCooldown = 8;
   }
 
-  // Update bullets (depth 1→0, heading toward hub)
-  const bulletStep = BULLET_SPEED / (RIM_R - HUB_R);
-  for (const b of state.bullets) b.depth -= bulletStep;
-  state.bullets = state.bullets.filter(b => b.depth > 0);
+  // ── Bullets travel inward (depth 1 → 0) ───────────────────────
+  // Step size normalized to lane length so bullets feel consistent
+  for (const b of state.bullets) {
+    const L = laneLength(b.lane);
+    b.depth -= 14 / L;
+  }
+  // Bullets blocked by spikes (spike occupies from rim inward to `length`)
+  state.bullets = state.bullets.filter(b => {
+    if (b.depth <= 0) return false;
+    const sp = state.spikes.find(s => s.lane === b.lane);
+    if (sp && b.depth > 1 - sp.length) {
+      // Bullet hits the spike; consume both a bit (nibble spike shorter)
+      sp.length = Math.max(0, sp.length - 0.08);
+      state.score += 5;
+      return false;
+    }
+    return true;
+  });
 
-  // Enemy spawn
-  state.spawnTimer--;
-  if (state.spawnTimer <= 0) {
-    const lane = Math.floor(Math.random() * LANES);
-    state.enemies.push({ lane, depth: 0.01, pulse: 0 });
-    // Spawn rate accelerates with level
-    const interval = Math.max(
-      ENEMY_SPAWN_MIN,
-      ENEMY_SPAWN_MAX - state.level * 8
-    );
-    state.spawnTimer = randBetween(interval * 0.6, interval * 1.2);
+  // ── Enemy spawning (until quota reached) ──────────────────────
+  if (state.enemiesSpawned < state.plan.enemyQuota) {
+    state.spawnTimer--;
+    if (state.spawnTimer <= 0) {
+      spawnEnemy();
+      state.spawnTimer = randBetween(state.plan.spawnMin, state.plan.spawnMax);
+    }
   }
 
-  // Update enemies
-  const enemySpeed =
-    (ENEMY_BASE_SPEED + state.level * ENEMY_SPEED_PER_LV) /
-    (RIM_R - HUB_R);
+  // ── Enemy update ──────────────────────────────────────────────
   for (const e of state.enemies) {
-    e.depth += enemySpeed;
+    const L = laneLength(e.lane);
+    e.depth += e.speed / L;
     e.pulse += 0.15;
+    // Spiker drops a spike trail as it climbs
+    if (e.type === 'spiker') {
+      let sp = state.spikes.find(s => s.lane === e.lane);
+      if (!sp) {
+        sp = { lane: e.lane, length: 0 };
+        state.spikes.push(sp);
+      }
+      // Spike grows inward from rim. Spiker at depth d leaves spike length
+      // proportional to how close to rim it is: length = d (approximately).
+      sp.length = Math.max(sp.length, Math.min(0.55, e.depth * 0.9));
+    }
   }
 
-  // Bullet × Enemy collision — same lane, close in depth
+  // ── Bullet × Enemy ────────────────────────────────────────────
   const deadBullets = new Set();
   const deadEnemies = new Set();
+  const spawnedFromSplits = [];
   for (let bi = 0; bi < state.bullets.length; bi++) {
     const b = state.bullets[bi];
     for (let ei = 0; ei < state.enemies.length; ei++) {
@@ -449,19 +657,38 @@ function update() {
       if (Math.abs(e.depth - b.depth) < 0.05) {
         deadBullets.add(bi);
         deadEnemies.add(ei);
-        state.score += SCORE_ENEMY;
-        state.killsThisLevel++;
-        // kill particles
+        const pts = e.type === 'flipper' ? 100
+                  : e.type === 'tanker'  ? 150
+                                         : 200;
+        state.score += pts;
+        state.enemiesKilled++;
+        // Kill particles
         const ep = laneXY(e.lane, e.depth);
+        const partColor = e.type === 'spiker' ? 'yellow' : 'white';
         for (let i = 0; i < 10; i++) {
           const a = Math.random() * TWOPI;
           const s = randBetween(1, 4);
           state.particles.push({
             x: ep.x, y: ep.y,
-            vx: Math.cos(a) * s,
-            vy: Math.sin(a) * s,
-            life: randBetween(18, 40),
-            hue: 'white'
+            vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+            life: randBetween(18, 40), hue: partColor
+          });
+        }
+        // Tanker splits into two flippers
+        if (e.type === 'tanker') {
+          const leftL  = state.geometry.closed
+            ? (e.lane - 1 + state.geometry.lanes) % state.geometry.lanes
+            : Math.max(0, e.lane - 1);
+          const rightL = state.geometry.closed
+            ? (e.lane + 1) % state.geometry.lanes
+            : Math.min(state.geometry.lanes - 1, e.lane + 1);
+          spawnedFromSplits.push({
+            type: 'flipper', lane: leftL,  depth: e.depth, pulse: 0,
+            speed: state.plan.baseSpeed * 1.1
+          });
+          spawnedFromSplits.push({
+            type: 'flipper', lane: rightL, depth: e.depth, pulse: 0,
+            speed: state.plan.baseSpeed * 1.1
           });
         }
         break;
@@ -469,190 +696,259 @@ function update() {
     }
   }
   state.bullets = state.bullets.filter((_, i) => !deadBullets.has(i));
-  state.enemies = state.enemies.filter((_, i) => !deadEnemies.has(i));
+  state.enemies = state.enemies.filter((_, i) => !deadEnemies.has(i)).concat(spawnedFromSplits);
 
-  // Enemy reaches rim → check hit
+  // ── Enemies reaching rim → drop spike, grab player if on lane ──
   const survivors = [];
   for (const e of state.enemies) {
     if (e.depth >= 1) {
-      // Hit zone: exact lane or adjacent lane
-      const diff = Math.min(
-        (e.lane - state.lane + LANES) % LANES,
-        (state.lane - e.lane + LANES) % LANES
-      );
-      if (state.invincible === 0 && diff <= 0) {
-        // Direct hit — lose a life
+      // Drop / extend spike on this lane
+      let sp = state.spikes.find(s => s.lane === e.lane);
+      if (!sp) {
+        sp = { lane: e.lane, length: 0 };
+        state.spikes.push(sp);
+      }
+      sp.length = Math.max(sp.length, 0.55);
+
+      // If player is on this lane → grab (lose a life)
+      if (state.invincible === 0 && e.lane === state.lane) {
         state.lives--;
-        state.invincible = INVINCIBLE_TIME;
+        state.invincible = 120;
         const hp = laneXY(state.lane, 1);
-        for (let i = 0; i < 24; i++) {
+        for (let i = 0; i < 26; i++) {
           const a = Math.random() * TWOPI;
-          const s = randBetween(1, 5);
+          const s = randBetween(1.5, 5);
           state.particles.push({
-            x: hp.x, y: hp.y,
-            vx: Math.cos(a) * s,
-            vy: Math.sin(a) * s,
-            life: randBetween(25, 55),
-            hue: 'red'
+            x: hp.x, y: hp.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+            life: randBetween(25, 55), hue: 'red'
           });
         }
         if (state.lives <= 0) state.phase = 'gameover';
       }
-      // Whether hit or not, enemy that reaches rim disappears
+      // Enemy disappears on rim reach
       continue;
     }
     survivors.push(e);
   }
   state.enemies = survivors;
 
-  // Particles
-  for (const p of state.particles) {
-    p.x += p.vx; p.y += p.vy;
-    p.vx *= 0.95; p.vy *= 0.95;
-    p.life--;
+  // ── Level complete: all spawned + all killed/expired ──────────
+  if (state.enemiesSpawned >= state.plan.enemyQuota && state.enemies.length === 0) {
+    nextLevel();
   }
-  state.particles = state.particles.filter(p => p.life > 0);
-
-  // Level advance
-  if (state.killsThisLevel >= ENEMIES_PER_LEVEL) nextLevel();
 }
 
-// ── Draw ─────────────────────────────────────────────────────────
+// ================================================================
+// DRAW
+// ================================================================
+
+function hexAlpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 function drawWeb() {
-  // Radial spokes (lanes)
-  ctx.strokeStyle = 'rgba(34,211,238,0.25)';
+  const g = state.geometry;
+  const col = state.color;
+
+  // Spokes
   ctx.lineWidth = 1;
-  for (let i = 0; i < LANES; i++) {
-    const a = laneAngle(i);
+  ctx.strokeStyle = hexAlpha(col, 0.35);
+  for (let i = 0; i < g.lanes; i++) {
     ctx.beginPath();
-    ctx.moveTo(CX + Math.cos(a) * HUB_R, CY + Math.sin(a) * HUB_R);
-    ctx.lineTo(CX + Math.cos(a) * RIM_R, CY + Math.sin(a) * RIM_R);
+    ctx.moveTo(g.hub[i].x, g.hub[i].y);
+    ctx.lineTo(g.rim[i].x, g.rim[i].y);
     ctx.stroke();
   }
 
-  // Concentric depth rings for that tube feel
-  ctx.strokeStyle = 'rgba(34,211,238,0.12)';
-  for (let i = 1; i <= 4; i++) {
-    const r = lerp(HUB_R, RIM_R, i / 5);
+  // Depth rings between hub and rim (parallel polylines)
+  ctx.strokeStyle = hexAlpha(col, 0.15);
+  for (let ring = 1; ring <= 3; ring++) {
+    const d = ring / 4;
     ctx.beginPath();
-    ctx.arc(CX, CY, r, 0, TWOPI);
+    for (let i = 0; i < g.lanes; i++) {
+      const p = laneXY(i, d);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else         ctx.lineTo(p.x, p.y);
+    }
+    if (g.closed) ctx.closePath();
     ctx.stroke();
   }
 
-  // Hub
-  ctx.strokeStyle = 'rgba(34,211,238,0.6)';
+  // Hub outline
+  ctx.strokeStyle = hexAlpha(col, 0.65);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(CX, CY, HUB_R, 0, TWOPI);
+  for (let i = 0; i < g.lanes; i++) {
+    const p = g.hub[i];
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else         ctx.lineTo(p.x, p.y);
+  }
+  if (g.closed) ctx.closePath();
   ctx.stroke();
 
-  // Rim
-  ctx.strokeStyle = 'rgba(34,211,238,0.45)';
+  // Rim outline
+  ctx.strokeStyle = hexAlpha(col, 0.55);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(CX, CY, RIM_R, 0, TWOPI);
+  for (let i = 0; i < g.lanes; i++) {
+    const p = g.rim[i];
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else         ctx.lineTo(p.x, p.y);
+  }
+  if (g.closed) ctx.closePath();
   ctx.stroke();
 }
 
-function drawPlayer() {
-  // Flashing during invincibility
-  if (state.invincible > 0 && Math.floor(state.invincible / 6) % 2 === 0) return;
-
-  const a = (state.laneVisual / LANES) * TWOPI - Math.PI / 2;
-  const nx = Math.cos(a), ny = Math.sin(a);
-  // Tangent direction
-  const tx = -ny, ty = nx;
-
-  const px = CX + nx * RIM_R;
-  const py = CY + ny * RIM_R;
-
-  const SIZE = 16;
-  // Claw-shaped ship: two prongs on the rim, cockpit pointing inward
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  // Left prong
-  ctx.moveTo(px + tx * SIZE, py + ty * SIZE);
-  ctx.lineTo(px + tx * SIZE * 0.6 - nx * SIZE * 0.4,
-             py + ty * SIZE * 0.6 - ny * SIZE * 0.4);
-  // Cockpit (inward point)
-  ctx.lineTo(px - nx * SIZE * 0.9, py - ny * SIZE * 0.9);
-  // Right prong
-  ctx.lineTo(px - tx * SIZE * 0.6 - nx * SIZE * 0.4,
-             py - ty * SIZE * 0.6 - ny * SIZE * 0.4);
-  ctx.lineTo(px - tx * SIZE, py - ty * SIZE);
-  ctx.stroke();
-
-  // Connect the two prongs for a closed shape along the rim
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(px + tx * SIZE, py + ty * SIZE);
-  ctx.lineTo(px - tx * SIZE, py - ty * SIZE);
-  ctx.stroke();
-
-  // Small accent dot at the cockpit
-  ctx.fillStyle = '#22d3ee';
-  ctx.beginPath();
-  ctx.arc(px - nx * SIZE * 0.9, py - ny * SIZE * 0.9, 2.5, 0, TWOPI);
-  ctx.fill();
+function drawSpikes() {
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#fef08a';
+  ctx.fillStyle   = '#fef08a';
+  for (const sp of state.spikes) {
+    if (sp.length <= 0) continue;
+    const rimP = laneXY(sp.lane, 1);
+    const tip  = laneXY(sp.lane, 1 - sp.length);
+    ctx.beginPath();
+    ctx.moveTo(rimP.x, rimP.y);
+    ctx.lineTo(tip.x,  tip.y);
+    ctx.stroke();
+    // Jagged barbs along the spike (3 of them)
+    const n = laneNormal(sp.lane);
+    const t = { x: -n.y, y: n.x };
+    for (let i = 0; i < 3; i++) {
+      const d = 1 - sp.length + (i + 0.5) * sp.length / 3;
+      const p = laneXY(sp.lane, d);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + t.x * 5 - n.x * 3, p.y + t.y * 5 - n.y * 3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - t.x * 5 - n.x * 3, p.y - t.y * 5 - n.y * 3);
+      ctx.stroke();
+    }
+  }
 }
 
 function drawEnemies() {
   for (const e of state.enemies) {
     const p = laneXY(e.lane, e.depth);
-    const sizeBase = 8 + e.depth * 8;  // grows as it climbs
     const pulse = 1 + Math.sin(e.pulse) * 0.15;
-    const size = sizeBase * pulse;
+    const sizeBase = 6 + e.depth * 10;
+    const s = sizeBase * pulse;
 
-    // Outer diamond
-    ctx.strokeStyle = '#ff4757';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(p.x,        p.y - size);
-    ctx.lineTo(p.x + size, p.y       );
-    ctx.lineTo(p.x,        p.y + size);
-    ctx.lineTo(p.x - size, p.y       );
-    ctx.closePath();
-    ctx.stroke();
-
-    // Inner cross
-    ctx.strokeStyle = 'rgba(255,71,87,0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p.x - size * 0.6, p.y);
-    ctx.lineTo(p.x + size * 0.6, p.y);
-    ctx.moveTo(p.x, p.y - size * 0.6);
-    ctx.lineTo(p.x, p.y + size * 0.6);
-    ctx.stroke();
+    if (e.type === 'flipper') {
+      // Red diamond with inner cross
+      ctx.strokeStyle = '#ff4757';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(p.x,     p.y - s);
+      ctx.lineTo(p.x + s, p.y    );
+      ctx.lineTo(p.x,     p.y + s);
+      ctx.lineTo(p.x - s, p.y    );
+      ctx.closePath(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,71,87,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - s*0.6, p.y); ctx.lineTo(p.x + s*0.6, p.y);
+      ctx.moveTo(p.x, p.y - s*0.6); ctx.lineTo(p.x, p.y + s*0.6);
+      ctx.stroke();
+    } else if (e.type === 'tanker') {
+      // Magenta hex with inner ring — chunkier
+      const big = s * 1.35;
+      ctx.strokeStyle = '#d946ef';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * TWOPI;
+        const px = p.x + Math.cos(a) * big;
+        const py = p.y + Math.sin(a) * big;
+        if (i === 0) ctx.moveTo(px, py);
+        else         ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(217,70,239,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, big * 0.45, 0, TWOPI);
+      ctx.stroke();
+    } else {
+      // Spiker — yellow triangle with spike-trail arrow
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.8;
+      const n = laneNormal(e.lane);
+      const t = { x: -n.y, y: n.x };
+      ctx.beginPath();
+      ctx.moveTo(p.x + n.x * s,      p.y + n.y * s);       // point toward rim
+      ctx.lineTo(p.x - n.x*s + t.x*s,p.y - n.y*s + t.y*s);
+      ctx.lineTo(p.x - n.x*s - t.x*s,p.y - n.y*s - t.y*s);
+      ctx.closePath(); ctx.stroke();
+    }
   }
 }
 
 function drawBullets() {
-  ctx.fillStyle = '#22d3ee';
-  ctx.strokeStyle = 'rgba(34,211,238,0.5)';
-  ctx.lineWidth = 1;
+  ctx.fillStyle = '#e6edf3';
+  ctx.strokeStyle = 'rgba(230,237,243,0.7)';
+  ctx.lineWidth = 1.5;
   for (const b of state.bullets) {
-    // Draw a short streak along the lane
-    const a = laneXY(b.lane, Math.min(1, b.depth + 0.04));
-    const bpt = laneXY(b.lane, b.depth);
+    const head = laneXY(b.lane, b.depth);
+    const tail = laneXY(b.lane, Math.min(1, b.depth + 0.04));
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(bpt.x, bpt.y);
+    ctx.moveTo(tail.x, tail.y);
+    ctx.lineTo(head.x, head.y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(bpt.x, bpt.y, 2.5, 0, TWOPI);
+    ctx.arc(head.x, head.y, 2.5, 0, TWOPI);
     ctx.fill();
   }
+}
+
+function drawPlayer() {
+  if (state.invincible > 0 && Math.floor(state.invincible / 6) % 2 === 0) return;
+  const pos = visualPos();
+  // Use nearest integer lane for tangent/normal
+  const lane = Math.round(state.laneVisual) % state.geometry.lanes;
+  const n = laneNormal(lane);       // outward along lane
+  const t = laneTangent(lane);      // along rim
+  const size = 16;
+  const px = pos.x, py = pos.y;
+
+  // Claw shape: two tangent prongs + inward cockpit
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(px + t.x * size,        py + t.y * size);
+  ctx.lineTo(px + t.x * size * 0.55 - n.x * size * 0.45,
+             py + t.y * size * 0.55 - n.y * size * 0.45);
+  ctx.lineTo(px - n.x * size * 0.95, py - n.y * size * 0.95);
+  ctx.lineTo(px - t.x * size * 0.55 - n.x * size * 0.45,
+             py - t.y * size * 0.55 - n.y * size * 0.45);
+  ctx.lineTo(px - t.x * size,        py - t.y * size);
+  ctx.stroke();
+  // Tangent bar connecting the prongs
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(px + t.x * size, py + t.y * size);
+  ctx.lineTo(px - t.x * size, py - t.y * size);
+  ctx.stroke();
+  // Cockpit dot
+  ctx.fillStyle = state.color;
+  ctx.beginPath();
+  ctx.arc(px - n.x * size * 0.95, py - n.y * size * 0.95, 2.8, 0, TWOPI);
+  ctx.fill();
 }
 
 function drawParticles() {
   for (const p of state.particles) {
     const alpha = Math.min(p.life / 40, 1);
     ctx.globalAlpha = alpha;
-    if      (p.hue === 'red')    ctx.fillStyle = '#ff4757';
-    else if (p.hue === 'accent') ctx.fillStyle = '#22d3ee';
-    else                         ctx.fillStyle = '#fff';
+    ctx.fillStyle = p.hue === 'red'    ? '#ff4757'
+                  : p.hue === 'accent' ? state.color
+                  : p.hue === 'yellow' ? '#fbbf24'
+                                       : '#fff';
     ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
   }
   ctx.globalAlpha = 1;
@@ -665,10 +961,16 @@ function drawHUD() {
   ctx.fillText(`SCORE  ${state.score}`, 14, 24);
   ctx.textAlign = 'right';
   ctx.fillText(`LEVEL  ${state.level}`, GW - 14, 24);
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = state.color;
+  ctx.font = "11px 'Courier New', monospace";
+  ctx.fillText(SHAPE_LABEL[state.shape], GW / 2, 22);
+  ctx.globalAlpha = 1;
 
-  // Lives — small circles bottom-left
+  // Lives — small circles bottom-left, using shape color
   for (let i = 0; i < state.lives; i++) {
-    ctx.strokeStyle = '#22d3ee';
+    ctx.strokeStyle = state.color;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(22 + i * 22, GH - 20, 6, 0, TWOPI);
@@ -676,51 +978,72 @@ function drawHUD() {
   }
 }
 
-function drawCenteredText(text, y, size, alpha) {
+function drawTransition() {
+  // Dim backdrop + big level text
+  const alpha = Math.min(1, state.transitionT / 30);
+  ctx.globalAlpha = alpha * 0.6;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, GW, GH);
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = state.color;
+  ctx.font = "44px 'Courier New', monospace";
+  ctx.fillText(`LEVEL ${state.level}`, GW / 2, GH / 2 - 10);
+  ctx.font = "16px 'Courier New', monospace";
+  ctx.fillText(SHAPE_LABEL[state.shape], GW / 2, GH / 2 + 22);
+  ctx.globalAlpha = 1;
+}
+
+function drawCentered(text, y, size, alpha) {
   ctx.globalAlpha = alpha ?? 1;
-  ctx.font        = `${size}px 'Courier New', monospace`;
-  ctx.textAlign   = 'center';
-  ctx.fillStyle   = '#fff';
+  ctx.font      = `${size}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
   ctx.fillText(text, GW / 2, y);
   ctx.globalAlpha = 1;
 }
 
 function draw() {
-  // Slight trail for neon feel — fully clear actually looks cleaner on a dark web
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, GW, GH);
 
-  drawWeb();
-
   if (!state) {
-    drawCenteredText('WEB  REACTOR',               CY - 60, 36);
-    drawCenteredText('PRESS  ENTER  TO  START',    CY - 20, 15);
+    // Pre-game splash
+    drawCentered('WEB  REACTOR',                   CY - 60, 36);
+    drawCentered('PRESS  ENTER  TO  START',        CY - 20, 15);
     if (!touchMode)
-      drawCenteredText('A / D  MOVE  ·  SPACE  FIRE', CY + 10, 12, 0.5);
+      drawCentered('A / D  MOVE  ·  SPACE  FIRE',  CY + 10, 12, 0.5);
     else
-      drawCenteredText('TAP  ANY  BUTTON  TO  START', CY + 10, 12, 0.5);
+      drawCentered('TAP  ANY  BUTTON  TO  START',  CY + 10, 12, 0.5);
     return;
   }
 
+  drawWeb();
+  drawSpikes();
   drawParticles();
   drawEnemies();
   drawBullets();
-  if (state.phase === 'play') drawPlayer();
+  if (state.phase === 'play' || state.phase === 'gameover') drawPlayer();
   drawHUD();
 
+  if (state.phase === 'transition') drawTransition();
+
   if (state.phase === 'gameover') {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, GW, GH);
-    drawCenteredText('GAME  OVER',             CY - 30, 32);
-    drawCenteredText(`SCORE:  ${state.score}`, CY + 10, 18);
+    drawCentered('GAME  OVER',              CY - 30, 32);
+    drawCentered(`SCORE:  ${state.score}`,  CY + 10, 18);
     if (!touchMode)
-      drawCenteredText('PRESS  ENTER  TO  RESTART', CY + 46, 14);
+      drawCentered('PRESS  ENTER  TO  RESTART',  CY + 46, 14);
     else
-      drawCenteredText('TAP  ANY  BUTTON  TO  RESTART', CY + 46, 14);
+      drawCentered('TAP  ANY  BUTTON  TO  RESTART', CY + 46, 14);
   }
 }
 
-// ── Loop ─────────────────────────────────────────────────────────
+// ================================================================
+// LOOP
+// ================================================================
+
 function loop() {
   update();
   draw();
@@ -737,8 +1060,7 @@ loop();
   let lastShown = -1;
   function tick() {
     const s = (window.state && typeof window.state.score === 'number')
-      ? window.state.score
-      : 0;
+      ? window.state.score : 0;
     if (s !== lastShown) {
       scoreEl.textContent = s.toLocaleString('en-US');
       lastShown = s;
