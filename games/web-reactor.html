@@ -196,8 +196,10 @@ resize();
 function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 
 // ── Input ────────────────────────────────────────────────────────
-const keys  = {};
-const touch = { left: false, right: false, fire: false };
+const keys     = {};
+const keysPrev = {};                 // previous-frame snapshot for tap detection
+const touch    = { left: false, right: false, fire: false };
+const touchPrev = { left: false, right: false, fire: false };
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -442,9 +444,19 @@ function visualPos() {
 // var so window.state is readable by the Arcade Reactor score bridge
 var state = null;
 
-const MOVE_COOLDOWN = 10;   // ← SLOWER than v2 (was 6). Tune if needed.
+const MOVE_COOLDOWN     = 10;  // legacy: base cadence (kept for first press)
+const MOVE_REPEAT_DELAY = 11;  // frames of no-move before hold-to-repeat kicks in (~180ms @ 60fps)
+const MOVE_MIN          = 4;   // fastest allowed cooldown at high levels
+// Scales repeat speed with level — enemies get faster, you should too.
+// Level 1  → cooldown ~10  (feels deliberate)
+// Level 10 → cooldown ~6
+// Level 20 → cooldown = MOVE_MIN (4)
+function moveCooldownForLevel(lv) {
+  return Math.max(MOVE_MIN, Math.round(MOVE_COOLDOWN - (lv - 1) * 0.4));
+}
 const WARP_OUT_LEN  = 55;
 const WARP_IN_LEN   = 60;
+const WARP_WARN_LEN = 50;   // pre-warp warning phase: "CLEAR YOUR LANE"
 
 function startGame() {
   state = {
@@ -456,6 +468,7 @@ function startGame() {
     lane:          0,
     laneVisual:    0,
     moveCooldown:  0,
+    holdTimer:     0,
     shootCooldown: 0,
     invincible:    120,
     bullets:       [],
@@ -498,7 +511,6 @@ function applyLevel(level) {
 
 function nextLevel() {
   state.score += 500 + state.level * 100;
-  // Remember what we leave so the picker doesn't repeat
   state.prevShape = state.shape;
   state.prevColor = state.color;
   // Celebratory burst
@@ -511,12 +523,12 @@ function nextLevel() {
       life: randBetween(30, 70), hue: 'accent'
     });
   }
-  // Begin warp out — player can still dodge during this
-  state.phase = 'warpOut';
-  state.warpT = WARP_OUT_LEN;
-  // Freeze bullets/enemies (but keep spikes for the dodge)
+  // Freeze combat, but keep spikes visible for the WARN phase
   state.bullets = [];
   state.enemies = [];
+  // Begin WARN phase: gives the player time to see spikes and reposition
+  state.phase = 'warpWarn';
+  state.warpT = WARP_WARN_LEN;
 }
 
 function spawnEnemy() {
@@ -534,22 +546,48 @@ function spawnEnemy() {
 // ================================================================
 
 function handleLaneInput() {
-  // Shared lane-movement logic used during 'play' and 'warpOut'
-  const wantLeft  = keys['ArrowLeft']  || keys['KeyA'] || touch.left;
-  const wantRight = keys['ArrowRight'] || keys['KeyD'] || touch.right;
+  // Edge detection: tap = down now but NOT down last frame
+  const leftDown   = keys['ArrowLeft']  || keys['KeyA'] || touch.left;
+  const rightDown  = keys['ArrowRight'] || keys['KeyD'] || touch.right;
+  const leftPrev   = keysPrev['ArrowLeft']  || keysPrev['KeyA'] || touchPrev.left;
+  const rightPrev  = keysPrev['ArrowRight'] || keysPrev['KeyD'] || touchPrev.right;
+  const leftTap    = leftDown  && !leftPrev;
+  const rightTap   = rightDown && !rightPrev;
+
   const g = state.geometry;
   const N = g.lanes;
+  const stepLeft  = () => { state.lane = g.closed ? (state.lane - 1 + N) % N : Math.max(0, state.lane - 1); };
+  const stepRight = () => { state.lane = g.closed ? (state.lane + 1) % N     : Math.min(N - 1, state.lane + 1); };
 
-  if (state.moveCooldown > 0) state.moveCooldown--;
-  if (state.moveCooldown === 0) {
-    if (wantLeft && !wantRight) {
-      state.lane = g.closed ? (state.lane - 1 + N) % N : Math.max(0, state.lane - 1);
-      state.moveCooldown = MOVE_COOLDOWN;
-    } else if (wantRight && !wantLeft) {
-      state.lane = g.closed ? (state.lane + 1) % N : Math.min(N - 1, state.lane + 1);
-      state.moveCooldown = MOVE_COOLDOWN;
-    }
+  // 1) Tap-to-step: always moves one lane on the leading edge
+  if (leftTap && !rightTap) {
+    stepLeft();
+    state.holdTimer = 0;
+    state.moveCooldown = 0;  // don't block the tap
+  } else if (rightTap && !leftTap) {
+    stepRight();
+    state.holdTimer = 0;
+    state.moveCooldown = 0;
   }
+
+  // 2) Hold-to-repeat: after the button has been held for REPEAT_DELAY
+  //    frames without releasing, start firing repeats at the level-scaled rate
+  const holding = (leftDown && !rightDown) || (rightDown && !leftDown);
+  if (holding) {
+    state.holdTimer++;
+    if (state.holdTimer > MOVE_REPEAT_DELAY) {
+      if (state.moveCooldown > 0) state.moveCooldown--;
+      if (state.moveCooldown === 0) {
+        if (leftDown && !rightDown) stepLeft();
+        else if (rightDown && !leftDown) stepRight();
+        state.moveCooldown = moveCooldownForLevel(state.level);
+      }
+    }
+  } else {
+    state.holdTimer = 0;
+    state.moveCooldown = 0;
+  }
+
   // Smooth visual position
   let dl = state.lane - state.laneVisual;
   if (g.closed) {
@@ -573,6 +611,18 @@ function update() {
   if (state.phase === 'warpIn') {
     state.warpT--;
     if (state.warpT <= 0) state.phase = 'play';
+    return;
+  }
+
+  // ── WARP WARN: brief "CLEAR YOUR LANE" phase before the tube leaves ─
+  if (state.phase === 'warpWarn') {
+    handleLaneInput();
+    if (state.invincible > 0) state.invincible--;
+    state.warpT--;
+    if (state.warpT <= 0) {
+      state.phase = 'warpOut';
+      state.warpT = WARP_OUT_LEN;
+    }
     return;
   }
 
@@ -724,6 +774,16 @@ function update() {
   if (state.enemiesSpawned >= state.plan.enemyQuota && state.enemies.length === 0) {
     nextLevel();
   }
+}
+
+function snapshotInput() {
+  // Called after every update frame so next frame's edge detection works
+  for (const k of ['ArrowLeft','ArrowRight','KeyA','KeyD','Space','KeyZ']) {
+    keysPrev[k] = !!keys[k];
+  }
+  touchPrev.left  = touch.left;
+  touchPrev.right = touch.right;
+  touchPrev.fire  = touch.fire;
 }
 
 // ================================================================
@@ -1009,6 +1069,7 @@ function draw() {
 
   const { scale, alpha } = warpScaleAlpha();
   const duringWarp = state.phase === 'warpOut' || state.phase === 'warpIn';
+  const duringWarn = state.phase === 'warpWarn';
 
   ctx.save();
   if (scale !== 1) {
@@ -1019,12 +1080,13 @@ function draw() {
   ctx.globalAlpha = alpha;
 
   drawWeb();
-  drawSpikes(state.phase === 'warpOut');   // highlight player's lane spike during warpOut
+  // Highlight player-lane spike during both the warn phase AND the warp-out
+  drawSpikes(state.phase === 'warpOut' || duringWarn);
   drawParticles();
   drawEnemies();
   drawBullets();
-  if (state.phase === 'play' || state.phase === 'warpOut') {
-    drawPlayer(state.phase === 'warpOut');
+  if (state.phase === 'play' || state.phase === 'warpOut' || duringWarn) {
+    drawPlayer(state.phase === 'warpOut' || duringWarn);
   }
 
   ctx.globalAlpha = 1;
@@ -1033,6 +1095,34 @@ function draw() {
   drawHUD();
 
   if (state.phase === 'warpIn') drawLevelFlash();
+
+  // ── WARP WARN overlay: LEVEL CLEAR + spike danger warning ───
+  if (duringWarn) {
+    // Big level-clear banner
+    const t = 1 - state.warpT / WARP_WARN_LEN;  // 0 → 1
+    const bannerAlpha = t < 0.2 ? t / 0.2 : 1;
+    ctx.globalAlpha = bannerAlpha;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = state.color;
+    ctx.font = "28px 'Courier New', monospace";
+    ctx.fillText('LEVEL CLEAR', GW / 2, 70);
+    ctx.fillStyle = '#fff';
+    ctx.font = "13px 'Courier New', monospace";
+    ctx.globalAlpha = bannerAlpha * 0.85;
+    ctx.fillText('WARP INCOMING — DODGE THE SPIKES', GW / 2, 94);
+    ctx.globalAlpha = 1;
+
+    // Pulsing DANGER if player is on a spiked lane
+    const onSpike = state.spikes.some(s => s.lane === state.lane && s.length > 0.08);
+    if (onSpike) {
+      const pulse = 0.5 + 0.5 * Math.sin(state.warpT * 0.45);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#ff4757';
+      ctx.font = "22px 'Courier New', monospace";
+      ctx.fillText('▲ MOVE OFF SPIKE ▲', GW / 2, GH - 70);
+      ctx.globalAlpha = 1;
+    }
+  }
 
   // Warp-out DANGER indicator if player is on a spiked lane
   if (state.phase === 'warpOut') {
@@ -1066,6 +1156,7 @@ function draw() {
 
 function loop() {
   update();
+  if (state) snapshotInput();
   draw();
   requestAnimationFrame(loop);
 }
