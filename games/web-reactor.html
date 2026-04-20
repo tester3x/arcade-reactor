@@ -243,7 +243,7 @@ function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 // ── Input ────────────────────────────────────────────────────────
 const keys     = {};
 const keysPrev = {};                 // previous-frame snapshot for tap detection
-const touch    = { left: false, right: false, fire: false };
+const touch    = { left: false, right: false, fire: false, sliding: false };
 const touchPrev = { left: false, right: false, fire: false };
 
 document.addEventListener('keydown', e => {
@@ -287,7 +287,7 @@ function wireSteer(id) {
   const el = document.getElementById(id);
   if (!el) return;
 
-  const DEAD_ZONE = 18;
+  const DEAD_ZONE = 10;
   let trackingId = null;
   let originX    = 0;
 
@@ -320,6 +320,7 @@ function wireSteer(id) {
       trackingId = 'mouse';
       originX    = e.clientX;
     }
+    touch.sliding = true;
     setDir(0);
     if (!state || state.phase === 'gameover') startGame();
   }
@@ -343,6 +344,7 @@ function wireSteer(id) {
     }
     e.preventDefault();
     trackingId = null;
+    touch.sliding = false;
     setDir(0);
   }
 
@@ -354,7 +356,7 @@ function wireSteer(id) {
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup',   onUp);
   el.addEventListener('mouseleave', function () {
-    if (trackingId === 'mouse') { trackingId = null; setDir(0); }
+    if (trackingId === 'mouse') { trackingId = null; touch.sliding = false; setDir(0); }
   });
 }
 
@@ -697,11 +699,15 @@ function handleLaneInput() {
   }
 
   // 2) Hold-to-repeat: after the button has been held for REPEAT_DELAY
-  //    frames without releasing, start firing repeats at the level-scaled rate
+  //    frames without releasing, start firing repeats at the level-scaled rate.
+  //    Exception: if input is from the tracking slider (touch.sliding), skip the
+  //    delay — the slider makes direction intent unambiguous the moment the
+  //    finger enters a side zone.
   const holding = (leftDown && !rightDown) || (rightDown && !leftDown);
   if (holding) {
     state.holdTimer++;
-    if (state.holdTimer > MOVE_REPEAT_DELAY) {
+    const delay = touch.sliding ? 0 : MOVE_REPEAT_DELAY;
+    if (state.holdTimer > delay) {
       if (state.moveCooldown > 0) state.moveCooldown--;
       if (state.moveCooldown === 0) {
         if (leftDown && !rightDown) stepLeft();

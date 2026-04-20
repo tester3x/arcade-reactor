@@ -398,7 +398,7 @@ function wireSteer(id) {
   if (!el) return;
 
   // Tuning: dead zone (in px) before a direction commits
-  const DEAD_ZONE = 18;
+  const DEAD_ZONE = 10;
 
   let trackingId = null;   // pointer/touch identifier; null = inactive
   let originX    = 0;
