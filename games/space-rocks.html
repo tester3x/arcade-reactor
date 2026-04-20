@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Space Rocks · Arcade Reactor</title>
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32"  href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -101,6 +107,51 @@
     border-color: rgba(255,160,60,0.9);
   }
 
+  /* ── Tracking-slider steer pad ───────────────────────────────── */
+  .btn-steer {
+    padding: 0 12px;
+    gap: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .steer-face {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 0 4px;
+  }
+  .steer-arrow {
+    font-size: 22px;
+    line-height: 1;
+    opacity: 0.35;
+    transition: opacity 0.08s, color 0.08s, transform 0.08s;
+  }
+  .steer-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    box-shadow: 0 0 6px rgba(255,255,255,0.25);
+    transition: background 0.08s, box-shadow 0.08s, transform 0.08s;
+  }
+  .btn-steer.steer-left  .steer-arrow:first-child {
+    opacity: 1; color: #fff;
+    transform: translateX(-2px);
+  }
+  .btn-steer.steer-right .steer-arrow:last-child {
+    opacity: 1; color: #fff;
+    transform: translateX(2px);
+  }
+  .btn-steer.steer-left .steer-dot,
+  .btn-steer.steer-right .steer-dot {
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  }
+  .btn-steer.steer-left  .steer-dot { transform: translateX(-8px); }
+  .btn-steer.steer-right .steer-dot { transform: translateX( 8px); }
+
   /* ================================================================
      ARCADE REACTOR shell — top bar (namespaced with .ar- prefix)
      ================================================================ */
@@ -182,13 +233,13 @@
   <div id="controls">
     <div class="ctrl-row">
       <div class="ctrl-left-group">
-        <div class="btn" id="btn-left">
-          <span class="btn-icon">◁</span>
-          <span class="btn-label">LEFT</span>
-        </div>
-        <div class="btn" id="btn-right">
-          <span class="btn-icon">▷</span>
-          <span class="btn-label">RIGHT</span>
+        <div class="btn btn-steer" id="btn-steer">
+          <div class="steer-face">
+            <span class="steer-arrow">◁</span>
+            <span class="steer-dot" aria-hidden="true"></span>
+            <span class="steer-arrow">▷</span>
+          </div>
+          <span class="btn-label">STEER</span>
         </div>
       </div>
       <div class="ctrl-mid">
@@ -334,10 +385,98 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseleave',release);
 }
 
-wireBtn('btn-left',   'left');
-wireBtn('btn-right',  'right');
 wireBtn('btn-thrust', 'thrust');
 wireBtn('btn-fire',   'fire');
+
+// ── Tracking-slider steer pad ─────────────────────────────────────
+// One wide pad acts as LEFT/RIGHT. Finger position relative to where
+// it first touched determines direction. Swipe across without lifting
+// to change direction. Small dead zone near the start point lets you
+// rest without turning. Mouse fallback included for desktop testing.
+function wireSteer(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  // Tuning: dead zone (in px) before a direction commits
+  const DEAD_ZONE = 18;
+
+  let trackingId = null;   // pointer/touch identifier; null = inactive
+  let originX    = 0;
+
+  function setDir(dir) {
+    // dir: -1 left, 0 none, +1 right
+    touch.left  = (dir === -1);
+    touch.right = (dir === +1);
+    el.classList.toggle('steer-left',  dir === -1);
+    el.classList.toggle('steer-right', dir === +1);
+    el.classList.toggle('active',      dir !== 0);
+  }
+
+  function clientXFromEvent(e) {
+    if (e.touches && e.touches.length) {
+      // Prefer the tracked touch if we have one
+      if (trackingId !== null) {
+        for (const t of e.touches) if (t.identifier === trackingId) return t.clientX;
+      }
+      return e.touches[0].clientX;
+    }
+    return e.clientX;
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    activateTouch();
+    if (e.touches) {
+      const t = e.changedTouches ? e.changedTouches[0] : e.touches[0];
+      trackingId = t.identifier;
+      originX    = t.clientX;
+    } else {
+      trackingId = 'mouse';
+      originX    = e.clientX;
+    }
+    // Starting a fresh steer counts as engaging the pad; direction starts neutral
+    setDir(0);
+    // First touch also starts the game if needed
+    if (!state || state.phase === 'gameover') startGame();
+  }
+
+  function onMove(e) {
+    if (trackingId === null) return;
+    e.preventDefault();
+    const x = clientXFromEvent(e);
+    const dx = x - originX;
+    if (dx < -DEAD_ZONE)      setDir(-1);
+    else if (dx >  DEAD_ZONE) setDir(+1);
+    else                      setDir( 0);
+  }
+
+  function onUp(e) {
+    if (trackingId === null) return;
+    if (e.changedTouches) {
+      // Only release if the tracked finger is the one that left
+      let matched = false;
+      for (const t of e.changedTouches) if (t.identifier === trackingId) matched = true;
+      if (!matched) return;
+    }
+    e.preventDefault();
+    trackingId = null;
+    setDir(0);
+  }
+
+  el.addEventListener('touchstart',  onDown, { passive: false });
+  el.addEventListener('touchmove',   onMove, { passive: false });
+  el.addEventListener('touchend',    onUp,   { passive: false });
+  el.addEventListener('touchcancel', onUp,   { passive: false });
+  // Mouse fallback
+  el.addEventListener('mousedown',   onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup',   onUp);
+  el.addEventListener('mouseleave',  function () {
+    if (trackingId === 'mouse') { trackingId = null; setDir(0); }
+  });
+}
+
+wireSteer('btn-steer');
 
 // Also show touch controls if a touchstart happens anywhere
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });

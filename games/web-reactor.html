@@ -77,6 +77,45 @@
   #btn-fire        { border-color: rgba(34,211,238,0.5); }
   #btn-fire.active { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
 
+  /* ── Tracking-slider steer pad ───────────────────────────────── */
+  .btn-steer {
+    padding: 0 12px;
+    gap: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .steer-face {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 0 4px;
+  }
+  .steer-arrow {
+    font-size: 22px;
+    line-height: 1;
+    opacity: 0.35;
+    transition: opacity 0.08s, color 0.08s, transform 0.08s;
+  }
+  .steer-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+    box-shadow: 0 0 6px rgba(255,255,255,0.25);
+    transition: background 0.08s, box-shadow 0.08s, transform 0.08s;
+  }
+  .btn-steer.steer-left  .steer-arrow:first-child { opacity: 1; color: #fff; transform: translateX(-2px); }
+  .btn-steer.steer-right .steer-arrow:last-child  { opacity: 1; color: #fff; transform: translateX( 2px); }
+  .btn-steer.steer-left .steer-dot,
+  .btn-steer.steer-right .steer-dot {
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  }
+  .btn-steer.steer-left  .steer-dot { transform: translateX(-8px); }
+  .btn-steer.steer-right .steer-dot { transform: translateX( 8px); }
+
   .ar-topbar {
     position: fixed; top: 0; left: 0; right: 0; height: 48px;
     display: flex; align-items: center; justify-content: space-between;
@@ -134,8 +173,14 @@
   <div id="controls">
     <div class="ctrl-row">
       <div class="ctrl-left-group">
-        <div class="btn" id="btn-left"><span class="btn-icon">◁</span><span class="btn-label">LEFT</span></div>
-        <div class="btn" id="btn-right"><span class="btn-icon">▷</span><span class="btn-label">RIGHT</span></div>
+        <div class="btn btn-steer" id="btn-steer">
+          <div class="steer-face">
+            <span class="steer-arrow">◁</span>
+            <span class="steer-dot" aria-hidden="true"></span>
+            <span class="steer-arrow">▷</span>
+          </div>
+          <span class="btn-label">STEER</span>
+        </div>
       </div>
       <div class="ctrl-right">
         <div class="btn" id="btn-fire"><span class="btn-icon">◉</span><span class="btn-label">FIRE</span></div>
@@ -229,10 +274,91 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseup',   release);
   el.addEventListener('mouseleave',release);
 }
-wireBtn('btn-left', 'left');
-wireBtn('btn-right','right');
 wireBtn('btn-fire', 'fire');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
+
+// ── Tracking-slider steer pad ─────────────────────────────────────
+// One wide pad acts as LEFT/RIGHT. Finger position relative to where
+// it first touched determines direction, with a dead zone for resting.
+// Because the game already does edge-detection on touch.left/right,
+// swiping across the dead zone produces a clean "release + new press"
+// event — which counts as a single-lane tap in v4's input model.
+function wireSteer(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const DEAD_ZONE = 18;
+  let trackingId = null;
+  let originX    = 0;
+
+  function setDir(dir) {
+    touch.left  = (dir === -1);
+    touch.right = (dir === +1);
+    el.classList.toggle('steer-left',  dir === -1);
+    el.classList.toggle('steer-right', dir === +1);
+    el.classList.toggle('active',      dir !== 0);
+  }
+
+  function clientXFromEvent(e) {
+    if (e.touches && e.touches.length) {
+      if (trackingId !== null) {
+        for (const t of e.touches) if (t.identifier === trackingId) return t.clientX;
+      }
+      return e.touches[0].clientX;
+    }
+    return e.clientX;
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    activateTouch();
+    if (e.touches) {
+      const t = e.changedTouches ? e.changedTouches[0] : e.touches[0];
+      trackingId = t.identifier;
+      originX    = t.clientX;
+    } else {
+      trackingId = 'mouse';
+      originX    = e.clientX;
+    }
+    setDir(0);
+    if (!state || state.phase === 'gameover') startGame();
+  }
+
+  function onMove(e) {
+    if (trackingId === null) return;
+    e.preventDefault();
+    const x = clientXFromEvent(e);
+    const dx = x - originX;
+    if (dx < -DEAD_ZONE)      setDir(-1);
+    else if (dx >  DEAD_ZONE) setDir(+1);
+    else                      setDir( 0);
+  }
+
+  function onUp(e) {
+    if (trackingId === null) return;
+    if (e.changedTouches) {
+      let matched = false;
+      for (const t of e.changedTouches) if (t.identifier === trackingId) matched = true;
+      if (!matched) return;
+    }
+    e.preventDefault();
+    trackingId = null;
+    setDir(0);
+  }
+
+  el.addEventListener('touchstart',  onDown, { passive: false });
+  el.addEventListener('touchmove',   onMove, { passive: false });
+  el.addEventListener('touchend',    onUp,   { passive: false });
+  el.addEventListener('touchcancel', onUp,   { passive: false });
+  el.addEventListener('mousedown',   onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup',   onUp);
+  el.addEventListener('mouseleave', function () {
+    if (trackingId === 'mouse') { trackingId = null; setDir(0); }
+  });
+}
+
+wireSteer('btn-steer');
 
 // ── Utilities ────────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
