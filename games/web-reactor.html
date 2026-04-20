@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Web Reactor · Arcade Reactor</title>
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32"  href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: #000;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    /* ARCADE REACTOR: reserve 48px at the top for the shell top bar */
+    height: calc(100% - 48px);
+    margin-top: 48px;
+    background: #000;
+  }
+
+  canvas { display: block; flex-shrink: 0; }
+
+  #controls {
+    display: none;
+    flex-shrink: 0;
+    width: 100%;
+    background: #000;
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    height: 100%;
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .ctrl-left-group {
+    display: flex;
+    gap: 6px;
+    flex: 2;
+  }
+
+  .ctrl-right {
+    flex: 1.4;
+    display: flex;
+  }
+
+  .btn {
+    flex: 1;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.05s, border-color 0.05s;
+  }
+  .btn.active {
+    background: rgba(255,255,255,0.18);
+    border-color: rgba(255,255,255,0.7);
+  }
+
+  .btn-icon { font-size: 20px; line-height: 1; }
+  .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
+
+  #btn-fire {
+    border-color: rgba(34,211,238,0.5);
+  }
+  #btn-fire.active {
+    background: rgba(34,211,238,0.22);
+    border-color: rgba(34,211,238,0.9);
+  }
+
+  /* ================================================================
+     ARCADE REACTOR shell — top bar
+     ================================================================ */
+  .ar-topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    background: rgba(10, 14, 20, 0.92);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid #1f2937;
+    z-index: 9999;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    color: #e6edf3;
+  }
+  .ar-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #8b98a8;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #1f2937;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .ar-back:hover { color: #22d3ee; border-color: #22d3ee; }
+  .ar-back svg { width: 14px; height: 14px; }
+  .ar-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .ar-score {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: #8b98a8;
+    letter-spacing: 0.12em;
+    min-width: 90px;
+    text-align: right;
+  }
+  .ar-score-value { color: #22d3ee; font-weight: 700; }
+  @media (max-width: 480px) {
+    .ar-title { font-size: 11px; letter-spacing: 0.15em; }
+    .ar-back span { display: none; }
+    .ar-back { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     ARCADE REACTOR shell — top bar
+     ================================================================ -->
+<div class="ar-topbar">
+  <a href="../index.html" class="ar-back" aria-label="Back to Arcade Reactor">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    <span>Arcade Reactor</span>
+  </a>
+  <div class="ar-title">Web Reactor</div>
+  <div class="ar-score">
+    SCORE <span class="ar-score-value" id="ar-score-value">0</span>
+  </div>
+</div>
+
+<div id="wrap">
+  <canvas id="c"></canvas>
+
+  <div id="controls">
+    <div class="ctrl-row">
+      <div class="ctrl-left-group">
+        <div class="btn" id="btn-left">
+          <span class="btn-icon">◁</span>
+          <span class="btn-label">LEFT</span>
+        </div>
+        <div class="btn" id="btn-right">
+          <span class="btn-icon">▷</span>
+          <span class="btn-label">RIGHT</span>
+        </div>
+      </div>
+      <div class="ctrl-right">
+        <div class="btn" id="btn-fire">
+          <span class="btn-icon">◉</span>
+          <span class="btn-label">FIRE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   WEB REACTOR — Tempest-style vector arcade shooter
+   ----------------------------------------------------------------
+   Player orbits the outer rim of a circular lane web.
+   Enemies climb from the center outward along the lanes.
+   Shoot down your current lane; lose a life if anything reaches the
+   rim at your lane (or the lane next to you).
+   ================================================================ */
+
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const ctrlBar = document.getElementById('controls');
+
+// ── ARCADE REACTOR: reserved height for the shell top bar ────────
+const AR_TOPBAR_H = 48;
+
+// ── Logical game space (fixed coordinates; CSS scales to fit) ────
+const GW = 900, GH = 650;
+const CX = GW / 2;
+const CY = GH / 2 + 10;   // slight vertical offset so HUD reads cleanly
+
+// Rim = where the player rides. Hub = where enemies spawn.
+const RIM_R = 260;
+const HUB_R = 36;
+
+const LANES = 16;           // 16 lanes around the web
+const TWOPI = Math.PI * 2;
+
+// ── Responsive resize ────────────────────────────────────────────
+const CTRL_BAR_H = 110;
+let canvasW = GW, canvasH = GH;
+let touchMode = false;
+
+function resize() {
+  const availW = window.innerWidth;
+  const availH = window.innerHeight - AR_TOPBAR_H;
+  const barH   = touchMode ? CTRL_BAR_H : 0;
+  const playH  = availH - barH;
+
+  const scale  = Math.min(availW / GW, playH / GH);
+  canvasW = Math.round(GW * scale);
+  canvasH = Math.round(GH * scale);
+
+  canvas.width  = GW;
+  canvas.height = GH;
+  canvas.style.width  = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+
+  if (touchMode) {
+    ctrlBar.style.display = 'block';
+    ctrlBar.style.height  = CTRL_BAR_H + 'px';
+    ctrlBar.style.width   = availW + 'px';
+  } else {
+    ctrlBar.style.display = 'none';
+  }
+}
+window.addEventListener('resize', resize);
+resize();
+
+function activateTouch() {
+  if (touchMode) return;
+  touchMode = true;
+  resize();
+}
+
+// ── Tuning constants ─────────────────────────────────────────────
+const BULLET_SPEED    = 14;      // px/frame along the lane (toward hub)
+const BULLET_COOLDOWN = 8;       // frames between shots
+const ENEMY_BASE_SPEED = 0.45;   // outward speed per frame at level 1
+const ENEMY_SPEED_PER_LV = 0.06; // speed bump per level
+const ENEMY_SPAWN_MIN = 50;      // frames between enemy spawns (fastest)
+const ENEMY_SPAWN_MAX = 120;     // frames between enemy spawns (slowest)
+const INVINCIBLE_TIME = 120;
+
+// Scores
+const SCORE_ENEMY = 100;
+const SCORE_LEVEL_BONUS = 250;
+const ENEMIES_PER_LEVEL = 12;
+
+// ── Input ────────────────────────────────────────────────────────
+const keys  = {};
+const touch = { left: false, right: false, fire: false };
+
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Enter' && (!state || state.phase === 'gameover')) startGame();
+});
+
+function wireBtn(id, prop) {
+  const el = document.getElementById(id);
+  function press(e) {
+    e.preventDefault();
+    activateTouch();
+    touch[prop] = true;
+    el.classList.add('active');
+    if (!state || state.phase === 'gameover') startGame();
+  }
+  function release(e) {
+    e.preventDefault();
+    touch[prop] = false;
+    el.classList.remove('active');
+  }
+  el.addEventListener('touchstart',  press,   { passive: false });
+  el.addEventListener('touchend',    release, { passive: false });
+  el.addEventListener('touchcancel', release, { passive: false });
+  el.addEventListener('mousedown', press);
+  el.addEventListener('mouseup',   release);
+  el.addEventListener('mouseleave',release);
+}
+wireBtn('btn-left',  'left');
+wireBtn('btn-right', 'right');
+wireBtn('btn-fire',  'fire');
+document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
+
+// ── Utilities ────────────────────────────────────────────────────
+function laneAngle(lane) { return (lane / LANES) * TWOPI - Math.PI / 2; }
+function lerp(a, b, t)   { return a + (b - a) * t; }
+function randBetween(a,b){ return a + Math.random() * (b - a); }
+
+// Given a lane and a radial "depth" in [0,1] (0=hub, 1=rim), return {x,y}
+function laneXY(lane, depth) {
+  const a = laneAngle(lane);
+  const r = lerp(HUB_R, RIM_R, depth);
+  return { x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r };
+}
+
+// ── State ────────────────────────────────────────────────────────
+// `var` so window.state is readable by the Arcade Reactor score bridge.
+var state = null;
+
+function startGame() {
+  state = {
+    phase: 'play',
+    lane:  0,                   // player's current lane (integer)
+    laneVisual: 0,              // smoothed for drawing
+    moveCooldown: 0,            // frames between lane steps (for hold-to-move)
+    shootCooldown: 0,
+    invincible: INVINCIBLE_TIME,
+    bullets:   [],              // {lane, depth}  depth 1→0
+    enemies:   [],              // {lane, depth, pulse}  depth 0→1
+    particles: [],
+    score: 0,
+    lives: 3,
+    level: 1,
+    spawnTimer: 60,
+    killsThisLevel: 0
+  };
+}
+
+function nextLevel() {
+  state.level++;
+  state.killsThisLevel = 0;
+  state.score += SCORE_LEVEL_BONUS;
+  state.invincible = INVINCIBLE_TIME;
+  state.enemies = [];
+  state.bullets = [];
+  // brief level-up flash particles
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * TWOPI;
+    state.particles.push({
+      x: CX, y: CY,
+      vx: Math.cos(a) * randBetween(2, 6),
+      vy: Math.sin(a) * randBetween(2, 6),
+      life: randBetween(30, 60),
+      hue: 'accent'
+    });
+  }
+}
+
+// ── Update ───────────────────────────────────────────────────────
+function update() {
+  if (!state || state.phase !== 'play') return;
+
+  // Lane movement — step on tap, repeat on hold
+  const wantLeft  = keys['ArrowLeft']  || keys['KeyA'] || touch.left;
+  const wantRight = keys['ArrowRight'] || keys['KeyD'] || touch.right;
+  const wantFire  = keys['Space']      || keys['KeyZ'] || touch.fire;
+
+  if (state.moveCooldown > 0) state.moveCooldown--;
+  if (state.moveCooldown === 0) {
+    if (wantLeft && !wantRight) {
+      state.lane = (state.lane - 1 + LANES) % LANES;
+      state.moveCooldown = 6;
+    } else if (wantRight && !wantLeft) {
+      state.lane = (state.lane + 1) % LANES;
+      state.moveCooldown = 6;
+    }
+  }
+
+  // Smoothly animate the visual lane toward the logical lane (shortest path)
+  let dl = state.lane - state.laneVisual;
+  if (dl >  LANES / 2) dl -= LANES;
+  if (dl < -LANES / 2) dl += LANES;
+  state.laneVisual += dl * 0.35;
+  // Keep laneVisual normalized
+  state.laneVisual = ((state.laneVisual % LANES) + LANES) % LANES;
+
+  // Invincibility countdown
+  if (state.invincible > 0) state.invincible--;
+
+  // Shoot
+  if (state.shootCooldown > 0) state.shootCooldown--;
+  if (wantFire && state.shootCooldown === 0) {
+    state.bullets.push({ lane: state.lane, depth: 1.0 });
+    state.shootCooldown = BULLET_COOLDOWN;
+  }
+
+  // Update bullets (depth 1→0, heading toward hub)
+  const bulletStep = BULLET_SPEED / (RIM_R - HUB_R);
+  for (const b of state.bullets) b.depth -= bulletStep;
+  state.bullets = state.bullets.filter(b => b.depth > 0);
+
+  // Enemy spawn
+  state.spawnTimer--;
+  if (state.spawnTimer <= 0) {
+    const lane = Math.floor(Math.random() * LANES);
+    state.enemies.push({ lane, depth: 0.01, pulse: 0 });
+    // Spawn rate accelerates with level
+    const interval = Math.max(
+      ENEMY_SPAWN_MIN,
+      ENEMY_SPAWN_MAX - state.level * 8
+    );
+    state.spawnTimer = randBetween(interval * 0.6, interval * 1.2);
+  }
+
+  // Update enemies
+  const enemySpeed =
+    (ENEMY_BASE_SPEED + state.level * ENEMY_SPEED_PER_LV) /
+    (RIM_R - HUB_R);
+  for (const e of state.enemies) {
+    e.depth += enemySpeed;
+    e.pulse += 0.15;
+  }
+
+  // Bullet × Enemy collision — same lane, close in depth
+  const deadBullets = new Set();
+  const deadEnemies = new Set();
+  for (let bi = 0; bi < state.bullets.length; bi++) {
+    const b = state.bullets[bi];
+    for (let ei = 0; ei < state.enemies.length; ei++) {
+      if (deadEnemies.has(ei)) continue;
+      const e = state.enemies[ei];
+      if (e.lane !== b.lane) continue;
+      if (Math.abs(e.depth - b.depth) < 0.05) {
+        deadBullets.add(bi);
+        deadEnemies.add(ei);
+        state.score += SCORE_ENEMY;
+        state.killsThisLevel++;
+        // kill particles
+        const ep = laneXY(e.lane, e.depth);
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * TWOPI;
+          const s = randBetween(1, 4);
+          state.particles.push({
+            x: ep.x, y: ep.y,
+            vx: Math.cos(a) * s,
+            vy: Math.sin(a) * s,
+            life: randBetween(18, 40),
+            hue: 'white'
+          });
+        }
+        break;
+      }
+    }
+  }
+  state.bullets = state.bullets.filter((_, i) => !deadBullets.has(i));
+  state.enemies = state.enemies.filter((_, i) => !deadEnemies.has(i));
+
+  // Enemy reaches rim → check hit
+  const survivors = [];
+  for (const e of state.enemies) {
+    if (e.depth >= 1) {
+      // Hit zone: exact lane or adjacent lane
+      const diff = Math.min(
+        (e.lane - state.lane + LANES) % LANES,
+        (state.lane - e.lane + LANES) % LANES
+      );
+      if (state.invincible === 0 && diff <= 0) {
+        // Direct hit — lose a life
+        state.lives--;
+        state.invincible = INVINCIBLE_TIME;
+        const hp = laneXY(state.lane, 1);
+        for (let i = 0; i < 24; i++) {
+          const a = Math.random() * TWOPI;
+          const s = randBetween(1, 5);
+          state.particles.push({
+            x: hp.x, y: hp.y,
+            vx: Math.cos(a) * s,
+            vy: Math.sin(a) * s,
+            life: randBetween(25, 55),
+            hue: 'red'
+          });
+        }
+        if (state.lives <= 0) state.phase = 'gameover';
+      }
+      // Whether hit or not, enemy that reaches rim disappears
+      continue;
+    }
+    survivors.push(e);
+  }
+  state.enemies = survivors;
+
+  // Particles
+  for (const p of state.particles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.95; p.vy *= 0.95;
+    p.life--;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
+
+  // Level advance
+  if (state.killsThisLevel >= ENEMIES_PER_LEVEL) nextLevel();
+}
+
+// ── Draw ─────────────────────────────────────────────────────────
+function drawWeb() {
+  // Radial spokes (lanes)
+  ctx.strokeStyle = 'rgba(34,211,238,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < LANES; i++) {
+    const a = laneAngle(i);
+    ctx.beginPath();
+    ctx.moveTo(CX + Math.cos(a) * HUB_R, CY + Math.sin(a) * HUB_R);
+    ctx.lineTo(CX + Math.cos(a) * RIM_R, CY + Math.sin(a) * RIM_R);
+    ctx.stroke();
+  }
+
+  // Concentric depth rings for that tube feel
+  ctx.strokeStyle = 'rgba(34,211,238,0.12)';
+  for (let i = 1; i <= 4; i++) {
+    const r = lerp(HUB_R, RIM_R, i / 5);
+    ctx.beginPath();
+    ctx.arc(CX, CY, r, 0, TWOPI);
+    ctx.stroke();
+  }
+
+  // Hub
+  ctx.strokeStyle = 'rgba(34,211,238,0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(CX, CY, HUB_R, 0, TWOPI);
+  ctx.stroke();
+
+  // Rim
+  ctx.strokeStyle = 'rgba(34,211,238,0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(CX, CY, RIM_R, 0, TWOPI);
+  ctx.stroke();
+}
+
+function drawPlayer() {
+  // Flashing during invincibility
+  if (state.invincible > 0 && Math.floor(state.invincible / 6) % 2 === 0) return;
+
+  const a = (state.laneVisual / LANES) * TWOPI - Math.PI / 2;
+  const nx = Math.cos(a), ny = Math.sin(a);
+  // Tangent direction
+  const tx = -ny, ty = nx;
+
+  const px = CX + nx * RIM_R;
+  const py = CY + ny * RIM_R;
+
+  const SIZE = 16;
+  // Claw-shaped ship: two prongs on the rim, cockpit pointing inward
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  // Left prong
+  ctx.moveTo(px + tx * SIZE, py + ty * SIZE);
+  ctx.lineTo(px + tx * SIZE * 0.6 - nx * SIZE * 0.4,
+             py + ty * SIZE * 0.6 - ny * SIZE * 0.4);
+  // Cockpit (inward point)
+  ctx.lineTo(px - nx * SIZE * 0.9, py - ny * SIZE * 0.9);
+  // Right prong
+  ctx.lineTo(px - tx * SIZE * 0.6 - nx * SIZE * 0.4,
+             py - ty * SIZE * 0.6 - ny * SIZE * 0.4);
+  ctx.lineTo(px - tx * SIZE, py - ty * SIZE);
+  ctx.stroke();
+
+  // Connect the two prongs for a closed shape along the rim
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(px + tx * SIZE, py + ty * SIZE);
+  ctx.lineTo(px - tx * SIZE, py - ty * SIZE);
+  ctx.stroke();
+
+  // Small accent dot at the cockpit
+  ctx.fillStyle = '#22d3ee';
+  ctx.beginPath();
+  ctx.arc(px - nx * SIZE * 0.9, py - ny * SIZE * 0.9, 2.5, 0, TWOPI);
+  ctx.fill();
+}
+
+function drawEnemies() {
+  for (const e of state.enemies) {
+    const p = laneXY(e.lane, e.depth);
+    const sizeBase = 8 + e.depth * 8;  // grows as it climbs
+    const pulse = 1 + Math.sin(e.pulse) * 0.15;
+    const size = sizeBase * pulse;
+
+    // Outer diamond
+    ctx.strokeStyle = '#ff4757';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(p.x,        p.y - size);
+    ctx.lineTo(p.x + size, p.y       );
+    ctx.lineTo(p.x,        p.y + size);
+    ctx.lineTo(p.x - size, p.y       );
+    ctx.closePath();
+    ctx.stroke();
+
+    // Inner cross
+    ctx.strokeStyle = 'rgba(255,71,87,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x - size * 0.6, p.y);
+    ctx.lineTo(p.x + size * 0.6, p.y);
+    ctx.moveTo(p.x, p.y - size * 0.6);
+    ctx.lineTo(p.x, p.y + size * 0.6);
+    ctx.stroke();
+  }
+}
+
+function drawBullets() {
+  ctx.fillStyle = '#22d3ee';
+  ctx.strokeStyle = 'rgba(34,211,238,0.5)';
+  ctx.lineWidth = 1;
+  for (const b of state.bullets) {
+    // Draw a short streak along the lane
+    const a = laneXY(b.lane, Math.min(1, b.depth + 0.04));
+    const bpt = laneXY(b.lane, b.depth);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(bpt.x, bpt.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(bpt.x, bpt.y, 2.5, 0, TWOPI);
+    ctx.fill();
+  }
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    const alpha = Math.min(p.life / 40, 1);
+    ctx.globalAlpha = alpha;
+    if      (p.hue === 'red')    ctx.fillStyle = '#ff4757';
+    else if (p.hue === 'accent') ctx.fillStyle = '#22d3ee';
+    else                         ctx.fillStyle = '#fff';
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  ctx.font      = "15px 'Courier New', monospace";
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SCORE  ${state.score}`, 14, 24);
+  ctx.textAlign = 'right';
+  ctx.fillText(`LEVEL  ${state.level}`, GW - 14, 24);
+
+  // Lives — small circles bottom-left
+  for (let i = 0; i < state.lives; i++) {
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(22 + i * 22, GH - 20, 6, 0, TWOPI);
+    ctx.stroke();
+  }
+}
+
+function drawCenteredText(text, y, size, alpha) {
+  ctx.globalAlpha = alpha ?? 1;
+  ctx.font        = `${size}px 'Courier New', monospace`;
+  ctx.textAlign   = 'center';
+  ctx.fillStyle   = '#fff';
+  ctx.fillText(text, GW / 2, y);
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  // Slight trail for neon feel — fully clear actually looks cleaner on a dark web
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, GW, GH);
+
+  drawWeb();
+
+  if (!state) {
+    drawCenteredText('WEB  REACTOR',               CY - 60, 36);
+    drawCenteredText('PRESS  ENTER  TO  START',    CY - 20, 15);
+    if (!touchMode)
+      drawCenteredText('A / D  MOVE  ·  SPACE  FIRE', CY + 10, 12, 0.5);
+    else
+      drawCenteredText('TAP  ANY  BUTTON  TO  START', CY + 10, 12, 0.5);
+    return;
+  }
+
+  drawParticles();
+  drawEnemies();
+  drawBullets();
+  if (state.phase === 'play') drawPlayer();
+  drawHUD();
+
+  if (state.phase === 'gameover') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, GW, GH);
+    drawCenteredText('GAME  OVER',             CY - 30, 32);
+    drawCenteredText(`SCORE:  ${state.score}`, CY + 10, 18);
+    if (!touchMode)
+      drawCenteredText('PRESS  ENTER  TO  RESTART', CY + 46, 14);
+    else
+      drawCenteredText('TAP  ANY  BUTTON  TO  RESTART', CY + 46, 14);
+  }
+}
+
+// ── Loop ─────────────────────────────────────────────────────────
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+
+<!-- Arcade Reactor score bridge -->
+<script>
+(function () {
+  const scoreEl = document.getElementById('ar-score-value');
+  if (!scoreEl) return;
+  let lastShown = -1;
+  function tick() {
+    const s = (window.state && typeof window.state.score === 'number')
+      ? window.state.score
+      : 0;
+    if (s !== lastShown) {
+      scoreEl.textContent = s.toLocaleString('en-US');
+      lastShown = s;
+    }
+  }
+  setInterval(tick, 150);
+  tick();
+})();
+</script>
+</body>
+</html>

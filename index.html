@@ -59,7 +59,7 @@
                         <h2 class="section-title">Vector Vault</h2>
                         <p class="section-sub">Line-art arcade classics from the golden age of the CRT.</p>
                     </div>
-                    <span class="section-tag">1 game</span>
+                    <span class="section-tag">2 games</span>
                 </div>
 
                 <div class="card-grid">
@@ -86,16 +86,39 @@
                         </div>
                     </article>
 
-                    <article class="game-card game-card-placeholder" aria-disabled="true">
-                        <div class="game-art game-art-soon" aria-hidden="true">
-                            <span class="soon-label">SOON</span>
+                    <article class="game-card">
+                        <div class="game-art game-art-web-reactor" aria-hidden="true">
+                            <svg viewBox="0 0 160 120" class="art-svg">
+                                <!-- 12 radial spokes from center -->
+                                <g class="art-web">
+                                    <line x1="80" y1="60" x2="80"  y2="12"/>
+                                    <line x1="80" y1="60" x2="108" y2="20"/>
+                                    <line x1="80" y1="60" x2="128" y2="40"/>
+                                    <line x1="80" y1="60" x2="136" y2="60"/>
+                                    <line x1="80" y1="60" x2="128" y2="80"/>
+                                    <line x1="80" y1="60" x2="108" y2="100"/>
+                                    <line x1="80" y1="60" x2="80"  y2="108"/>
+                                    <line x1="80" y1="60" x2="52"  y2="100"/>
+                                    <line x1="80" y1="60" x2="32"  y2="80"/>
+                                    <line x1="80" y1="60" x2="24"  y2="60"/>
+                                    <line x1="80" y1="60" x2="32"  y2="40"/>
+                                    <line x1="80" y1="60" x2="52"  y2="20"/>
+                                </g>
+                                <circle cx="80" cy="60" r="48" class="art-web-rim"/>
+                                <circle cx="80" cy="60" r="10" class="art-web-hub"/>
+                                <!-- Player claw on rim -->
+                                <polygon points="128,52 128,68 122,60" class="art-web-player"/>
+                                <!-- Enemy diamonds -->
+                                <polygon points="100,60 104,56 108,60 104,64" class="art-web-enemy"/>
+                                <polygon points="60,75 64,71 68,75 64,79" class="art-web-enemy"/>
+                            </svg>
                         </div>
                         <div class="game-meta">
-                            <h3 class="game-title">Coming Soon</h3>
-                            <p class="game-desc">The next Vector Vault entry is in development. Check back for updates.</p>
+                            <h3 class="game-title">Web Reactor</h3>
+                            <p class="game-desc">Orbit the rim of a vector web. Shoot down enemies climbing from the core before they breach your lane.</p>
                             <div class="game-footer">
-                                <span class="game-tag">TBA</span>
-                                <button class="btn btn-ghost btn-sm" disabled>Locked</button>
+                                <span class="game-tag">VECTOR · LANES</span>
+                                <a class="btn btn-primary btn-sm" href="./games/web-reactor.html">Play</a>
                             </div>
                         </div>
                     </article>

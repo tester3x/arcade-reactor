@@ -57,7 +57,7 @@ body {
     font-weight: 700; letter-spacing: 0.02em;
 }
 .brand-logo {
-    height: 36px;
+    height: 24px;
     width: auto;
     display: block;
     transition: filter 0.2s ease, transform 0.2s ease;
@@ -87,9 +87,9 @@ body {
 .hero { padding: 72px 0 80px; text-align: center; }
 .hero-badge {
     display: block;
-    width: min(260px, 55vw);
+    width: min(160px, 38vw);
     height: auto;
-    margin: 0 auto 28px;
+    margin: 0 auto 24px;
     filter: drop-shadow(0 12px 40px rgba(34, 211, 238, 0.18))
             drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
     animation: badge-float 6s ease-in-out infinite;
@@ -188,6 +188,16 @@ body {
         radial-gradient(ellipse at center, rgba(34, 211, 238, 0.08), transparent 60%),
         #080b10;
 }
+.game-art-web-reactor {
+    background:
+        radial-gradient(circle at center, rgba(34, 211, 238, 0.12), transparent 55%),
+        #080b10;
+}
+.art-web line { stroke: rgba(34, 211, 238, 0.35); stroke-width: 0.8; }
+.art-web-rim    { fill: none; stroke: rgba(34, 211, 238, 0.6); stroke-width: 1; }
+.art-web-hub    { fill: none; stroke: rgba(34, 211, 238, 0.7); stroke-width: 1; }
+.art-web-player { fill: #fff; }
+.art-web-enemy  { fill: none; stroke: #ff4757; stroke-width: 1; }
 .art-svg { width: 80%; height: 80%; }
 .art-ship { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-linejoin: round; }
 .art-rock { fill: none; stroke: var(--text-muted); stroke-width: 1; stroke-linejoin: round; }
