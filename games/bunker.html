@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Bunker · Arcade Reactor</title>
+
+<!-- Favicons -->
+<link rel="icon" type="image/png" sizes="32x32"  href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #000;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: calc(100% - 48px);
+    margin-top: 48px;
+    background: #000;
+  }
+
+  canvas { display: block; flex-shrink: 0; }
+
+  #controls {
+    display: none;
+    flex-shrink: 0;
+    width: 100%;
+    background: #000;
+    position: relative;
+  }
+
+  .ctrl-row {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 100%; padding: 6px 8px; gap: 6px;
+  }
+
+  .ctrl-stick-zone {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Right-side area reserved — no buttons this phase. Kept for Phase 4
+     (shoot button) to slot in without layout churn. */
+  .ctrl-right-group {
+    flex: 0 0 96px;
+  }
+
+  /* ── Virtual thumbstick (full 360° for this game) ────────────── */
+  .stick-base {
+    width: 112px; height: 112px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.04);
+    position: relative;
+    box-shadow: inset 0 0 20px rgba(255,255,255,0.04);
+  }
+  /* Crosshair guides inside the stick base */
+  .stick-base::before,
+  .stick-base::after {
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.12);
+  }
+  .stick-base::before {
+    top: 50%; left: 12%; right: 12%; height: 1px;
+    transform: translateY(-0.5px);
+  }
+  .stick-base::after {
+    left: 50%; top: 12%; bottom: 12%; width: 1px;
+    transform: translateX(-0.5px);
+  }
+  .stick-knob {
+    position: absolute;
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.12);
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    transition: background 0.06s, border-color 0.06s, box-shadow 0.06s;
+    pointer-events: none;
+  }
+  .stick-base.active .stick-knob {
+    background: rgba(34,211,238,0.22);
+    border-color: rgba(34,211,238,0.9);
+    box-shadow: 0 0 14px rgba(34,211,238,0.4);
+  }
+
+  /* Hide on-screen controls when a gamepad is connected */
+  body.gamepad-active #controls { display: none !important; }
+
+  /* ── Arcade Reactor shell — top bar ─────────────────────────── */
+  .ar-topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 48px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px;
+    background: rgba(10, 14, 20, 0.92);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid #1f2937;
+    z-index: 9999;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    color: #e6edf3;
+  }
+  .ar-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #8b98a8; text-decoration: none;
+    font-size: 13px; font-weight: 500;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid #1f2937;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .ar-back:hover { color: #22d3ee; border-color: #22d3ee; }
+  .ar-back svg   { width: 14px; height: 14px; }
+  .ar-title {
+    font-size: 13px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  .ar-score {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px; color: #8b98a8;
+    letter-spacing: 0.12em; min-width: 90px; text-align: right;
+  }
+  .ar-score-value { color: #22d3ee; font-weight: 700; }
+  .ar-gamepad {
+    display: none;
+    margin-left: 8px;
+    font-size: 14px;
+    color: #22d3ee;
+    filter: drop-shadow(0 0 4px rgba(34,211,238,0.5));
+  }
+  body.gamepad-active .ar-gamepad { display: inline; }
+  @media (max-width: 480px) {
+    .ar-title { font-size: 11px; letter-spacing: 0.15em; }
+    .ar-back span { display: none; }
+    .ar-back { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ar-topbar">
+  <a href="../index.html" class="ar-back" aria-label="Back to Arcade Reactor">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    <span>Arcade Reactor</span>
+  </a>
+  <div class="ar-title">Bunker</div>
+  <div class="ar-score">
+    PHASE <span class="ar-score-value" id="ar-score-value">1</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+  </div>
+</div>
+
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="controls">
+    <div class="ctrl-row">
+      <div class="ctrl-stick-zone" id="stick-zone">
+        <div class="stick-base" id="stick-base">
+          <div class="stick-knob" id="stick-knob"></div>
+        </div>
+      </div>
+      <div class="ctrl-right-group">
+        <!-- Phase 4 will add a FIRE button here -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   BUNKER — Phase 1
+   ----------------------------------------------------------------
+   Deliverable: playable character with 360° movement, screen
+   boundaries, keyboard + thumbstick + gamepad input.
+   NOT YET: walls, guards, shooting, stealth, keys, doors.
+   ================================================================ */
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const ctrlBar = document.getElementById('controls');
+
+const AR_TOPBAR_H = 48;
+const GW = 900, GH = 650;        // logical play field (matches other games)
+
+// ── Responsive canvas ────────────────────────────────────────────
+const CTRL_BAR_H = 140;          // taller than other games — we have a big stick
+let canvasW = GW, canvasH = GH, touchMode = false;
+
+function resize() {
+  const availW = window.innerWidth;
+  const availH = window.innerHeight - AR_TOPBAR_H;
+  const barH   = touchMode ? CTRL_BAR_H : 0;
+  const playH  = availH - barH;
+  const scale  = Math.min(availW / GW, playH / GH);
+  canvasW = Math.round(GW * scale);
+  canvasH = Math.round(GH * scale);
+  canvas.width  = GW;  canvas.height = GH;
+  canvas.style.width  = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+  if (touchMode) {
+    ctrlBar.style.display = 'block';
+    ctrlBar.style.height  = CTRL_BAR_H + 'px';
+    ctrlBar.style.width   = availW + 'px';
+  } else {
+    ctrlBar.style.display = 'none';
+  }
+}
+window.addEventListener('resize', resize);
+resize();
+function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
+
+// ── Input state ──────────────────────────────────────────────────
+const keys = {};
+// touch{} holds the thumbstick's raw x/y in [-1,+1] (continuous, not flags)
+const touch = { x: 0, y: 0, active: false };
+const pad   = { x: 0, y: 0, connected: false };
+
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── Virtual thumbstick (360° analog) ─────────────────────────────
+// Finger-anchor: base jumps to touchdown point. Stick outputs
+// normalized x/y in [-1,+1] based on distance from origin, clamped
+// to MAX_RADIUS, with a small dead zone around origin.
+function wireStick(zoneId, baseId, knobId) {
+  const zone = document.getElementById(zoneId);
+  const base = document.getElementById(baseId);
+  const knob = document.getElementById(knobId);
+  if (!zone || !base || !knob) return;
+
+  const DEAD_ZONE  = 8;
+  const MAX_RADIUS = 42;
+
+  let trackingId = null;
+  let originCX = 0, originCY = 0;
+
+  function setStick(dx, dy) {
+    const mag = Math.hypot(dx, dy);
+    if (mag < DEAD_ZONE) {
+      touch.x = 0; touch.y = 0; touch.active = false;
+      base.classList.remove('active');
+      return;
+    }
+    base.classList.add('active');
+    touch.active = true;
+    // Remap (dx, dy) beyond DEAD_ZONE to normalized [-1, +1], clamped at MAX_RADIUS
+    const usable = Math.max(0, Math.min(mag - DEAD_ZONE, MAX_RADIUS - DEAD_ZONE));
+    const norm   = usable / (MAX_RADIUS - DEAD_ZONE);   // 0..1
+    touch.x = (dx / mag) * norm;
+    touch.y = (dy / mag) * norm;
+  }
+
+  function moveKnob(dx, dy) {
+    const mag = Math.hypot(dx, dy);
+    let vx = dx, vy = dy;
+    if (mag > MAX_RADIUS) {
+      const s = MAX_RADIUS / mag;
+      vx = dx * s; vy = dy * s;
+    }
+    knob.style.transform = `translate(calc(-50% + ${vx}px), calc(-50% + ${vy}px))`;
+  }
+
+  function resetStick() {
+    knob.style.transform = 'translate(-50%, -50%)';
+    touch.x = 0; touch.y = 0; touch.active = false;
+    base.classList.remove('active');
+  }
+
+  function xyFromEvent(e) {
+    if (e.touches && e.touches.length) {
+      if (trackingId !== null) {
+        for (const t of e.touches) if (t.identifier === trackingId) return { x: t.clientX, y: t.clientY };
+      }
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    activateTouch();
+    let cx, cy;
+    if (e.touches) {
+      const t = e.changedTouches ? e.changedTouches[0] : e.touches[0];
+      trackingId = t.identifier;
+      cx = t.clientX; cy = t.clientY;
+    } else {
+      trackingId = 'mouse';
+      cx = e.clientX; cy = e.clientY;
+    }
+    const rect = zone.getBoundingClientRect();
+    base.style.position = 'absolute';
+    base.style.left = (cx - rect.left) + 'px';
+    base.style.top  = (cy - rect.top)  + 'px';
+    base.style.transform = 'translate(-50%, -50%)';
+    originCX = cx;
+    originCY = cy;
+    resetStick();
+  }
+
+  function onMove(e) {
+    if (trackingId === null) return;
+    e.preventDefault();
+    const { x, y } = xyFromEvent(e);
+    const dx = x - originCX;
+    const dy = y - originCY;
+    moveKnob(dx, dy);
+    setStick(dx, dy);
+  }
+
+  function onUp(e) {
+    if (trackingId === null) return;
+    if (e.changedTouches) {
+      let matched = false;
+      for (const t of e.changedTouches) if (t.identifier === trackingId) matched = true;
+      if (!matched) return;
+    }
+    e.preventDefault();
+    trackingId = null;
+    base.style.position = '';
+    base.style.left = '';
+    base.style.top  = '';
+    base.style.transform = '';
+    resetStick();
+  }
+
+  zone.addEventListener('touchstart',  onDown, { passive: false });
+  zone.addEventListener('touchmove',   onMove, { passive: false });
+  zone.addEventListener('touchend',    onUp,   { passive: false });
+  zone.addEventListener('touchcancel', onUp,   { passive: false });
+  zone.addEventListener('mousedown',   onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup',   onUp);
+}
+wireStick('stick-zone', 'stick-base', 'stick-knob');
+document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
+
+// ── Gamepad API ──────────────────────────────────────────────────
+const PAD_AXIS_DEAD = 0.25;
+let padIndex = -1;
+let padLastButtons = {};
+
+function scanForGamepad() {
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (let i = 0; i < list.length; i++) if (list[i]) return i;
+  return -1;
+}
+
+function pollGamepad() {
+  if (!navigator.getGamepads) return;
+  if (padIndex < 0) {
+    padIndex = scanForGamepad();
+    if (padIndex < 0) {
+      if (pad.connected) {
+        pad.connected = false;
+        document.body.classList.remove('gamepad-active');
+        pad.x = 0; pad.y = 0;
+      }
+      return;
+    }
+  }
+  const gp = navigator.getGamepads()[padIndex];
+  if (!gp) { padIndex = -1; return; }
+
+  if (!pad.connected) {
+    pad.connected = true;
+    document.body.classList.add('gamepad-active');
+    console.log('[gamepad] connected:', gp.id, '·', gp.buttons.length, 'buttons,', gp.axes.length, 'axes, mapping:', gp.mapping);
+  }
+
+  // Left stick with dead-zone remap to 0..1 magnitude
+  const ax = gp.axes[0] || 0;
+  const ay = gp.axes[1] || 0;
+  const mag = Math.hypot(ax, ay);
+  if (mag < PAD_AXIS_DEAD) {
+    pad.x = 0; pad.y = 0;
+  } else {
+    const usable = Math.min(mag, 1.0);
+    const norm = (usable - PAD_AXIS_DEAD) / (1 - PAD_AXIS_DEAD);
+    pad.x = (ax / mag) * norm;
+    pad.y = (ay / mag) * norm;
+  }
+
+  // D-pad overrides stick if pressed (digital controllers still work)
+  const dpadL = gp.buttons[14] && gp.buttons[14].pressed;
+  const dpadR = gp.buttons[15] && gp.buttons[15].pressed;
+  const dpadU = gp.buttons[12] && gp.buttons[12].pressed;
+  const dpadD = gp.buttons[13] && gp.buttons[13].pressed;
+  if (dpadL || dpadR || dpadU || dpadD) {
+    let dx = (dpadR ? 1 : 0) - (dpadL ? 1 : 0);
+    let dy = (dpadD ? 1 : 0) - (dpadU ? 1 : 0);
+    const m = Math.hypot(dx, dy) || 1;
+    pad.x = dx / m;
+    pad.y = dy / m;
+  }
+
+  // Snapshot button state for next frame's edge detection (Phase 4+ will use this)
+  for (let i = 0; i < gp.buttons.length; i++) {
+    padLastButtons[i] = gp.buttons[i] && gp.buttons[i].pressed;
+  }
+}
+
+window.addEventListener('gamepadconnected',   e => { padIndex = e.gamepad.index; });
+window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === padIndex) padIndex = -1; });
+
+// ================================================================
+// GAME STATE
+// ================================================================
+
+const PLAYER_SPEED = 3.2;   // pixels per frame at full input
+const PLAYER_R     = 12;    // collision radius (used for boundaries this phase)
+
+// var so window.state is exposed for the score bridge in other games;
+// we don't use the score bridge for this game yet (top bar shows "PHASE 1")
+var state = {
+  player: {
+    x: GW / 2,
+    y: GH / 2,
+    dir: -Math.PI / 2   // facing up initially
+  }
+};
+
+// ================================================================
+// UPDATE
+// ================================================================
+
+function getMoveVector() {
+  // Merge keyboard + touch + gamepad into a single (vx, vy), normalized
+  // so diagonals aren't faster than cardinals.
+  let vx = 0, vy = 0;
+
+  // Keyboard (digital: each key contributes ±1)
+  if (keys['ArrowLeft']  || keys['KeyA']) vx -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) vx += 1;
+  if (keys['ArrowUp']    || keys['KeyW']) vy -= 1;
+  if (keys['ArrowDown']  || keys['KeyS']) vy += 1;
+
+  // Touch (analog: already normalized)
+  if (touch.active) {
+    vx += touch.x;
+    vy += touch.y;
+  }
+
+  // Gamepad (analog)
+  if (pad.connected && (pad.x !== 0 || pad.y !== 0)) {
+    vx += pad.x;
+    vy += pad.y;
+  }
+
+  // Clamp magnitude to 1 so diagonal input doesn't go faster than cardinal
+  const mag = Math.hypot(vx, vy);
+  if (mag > 1) {
+    vx /= mag;
+    vy /= mag;
+  }
+  return { vx, vy };
+}
+
+function update() {
+  const p = state.player;
+  const { vx, vy } = getMoveVector();
+
+  p.x += vx * PLAYER_SPEED;
+  p.y += vy * PLAYER_SPEED;
+
+  // Update facing direction only when actually moving (so idle holds the last angle)
+  if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
+    p.dir = Math.atan2(vy, vx);
+  }
+
+  // Screen boundary clamps (walls come in Phase 2)
+  if (p.x < PLAYER_R)      p.x = PLAYER_R;
+  if (p.x > GW - PLAYER_R) p.x = GW - PLAYER_R;
+  if (p.y < PLAYER_R)      p.y = PLAYER_R;
+  if (p.y > GH - PLAYER_R) p.y = GH - PLAYER_R;
+}
+
+// ================================================================
+// DRAW
+// ================================================================
+
+function drawFloor() {
+  // Dark concrete floor with subtle grid — gives a sense of scale & motion
+  ctx.fillStyle = '#0e1115';
+  ctx.fillRect(0, 0, GW, GH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  const GRID = 50;
+  for (let x = 0; x <= GW; x += GRID) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GH); ctx.stroke();
+  }
+  for (let y = 0; y <= GH; y += GRID) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GW, y); ctx.stroke();
+  }
+
+  // Play-area border (visual cue for the boundaries)
+  ctx.strokeStyle = 'rgba(34,211,238,0.35)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, GW - 2, GH - 2);
+}
+
+function drawPlayer() {
+  const p = state.player;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.dir);
+
+  // Body: small square/circle. Top-down sprite — a circle with a
+  // nose/heading indicator so you can see which way you're facing.
+  ctx.fillStyle = '#e6edf3';
+  ctx.beginPath();
+  ctx.arc(0, 0, PLAYER_R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Heading indicator (a short bar out the front)
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(PLAYER_R - 2, 0);
+  ctx.lineTo(PLAYER_R + 7, 0);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawHUD() {
+  // Phase label in corner — makes it obvious which build this is
+  ctx.font      = "11px 'Courier New', monospace";
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.textAlign = 'left';
+  ctx.fillText('PHASE 1 · MOVEMENT', 14, 22);
+
+  // Control hints
+  ctx.textAlign = 'right';
+  if (pad.connected) {
+    ctx.fillText('LEFT STICK  MOVE', GW - 14, 22);
+  } else if (touchMode) {
+    ctx.fillText('STICK  MOVE', GW - 14, 22);
+  } else {
+    ctx.fillText('WASD / ARROWS  MOVE', GW - 14, 22);
+  }
+}
+
+function draw() {
+  drawFloor();
+  drawPlayer();
+  drawHUD();
+}
+
+// ================================================================
+// LOOP
+// ================================================================
+
+function loop() {
+  pollGamepad();
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

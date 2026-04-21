@@ -198,6 +198,17 @@ body {
 .art-web-hub    { fill: none; stroke: rgba(34, 211, 238, 0.7); stroke-width: 1; }
 .art-web-player { fill: #fff; }
 .art-web-enemy  { fill: none; stroke: #ff4757; stroke-width: 1; }
+
+.game-art-bunker {
+    background:
+        radial-gradient(ellipse at 70% 30%, rgba(251, 191, 36, 0.06), transparent 55%),
+        #0b0d10;
+}
+.art-bunker-grid line    { stroke: rgba(255, 255, 255, 0.06); stroke-width: 0.8; }
+.art-bunker-wall         { fill: rgba(255, 255, 255, 0.2); }
+.art-bunker-cone         { fill: rgba(251, 191, 36, 0.22); stroke: rgba(251, 191, 36, 0.6); stroke-width: 0.8; }
+.art-bunker-guard        { fill: #ef4444; }
+.art-bunker-player       { fill: #22d3ee; }
 .art-svg { width: 80%; height: 80%; }
 .art-ship { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-linejoin: round; }
 .art-rock { fill: none; stroke: var(--text-muted); stroke-width: 1; stroke-linejoin: round; }
