@@ -660,8 +660,21 @@ function updateGuard(g) {
       return;
     }
     const wp = g.waypoints[g.wpIdx];
+    const preX = g.x, preY = g.y;
     if (moveGuardToward(g, wp.x, wp.y, GUARD_PATROL_SPEED)) {
       g.wpIdx = (g.wpIdx + 1) % g.waypoints.length;
+      g.stuckT = 0;
+    } else {
+      // Stuck-on-patrol safety: if we can't make progress toward the
+      // current waypoint for ~1s, skip to the next waypoint. Keeps
+      // guards moving even if a patrol edge clips a wall somehow.
+      const moved = Math.hypot(g.x - preX, g.y - preY);
+      if (moved < 0.2) g.stuckT = (g.stuckT || 0) + 1;
+      else g.stuckT = 0;
+      if (g.stuckT > 60) {
+        g.wpIdx = (g.wpIdx + 1) % g.waypoints.length;
+        g.stuckT = 0;
+      }
     }
   } else if (g.phase === 'alert') {
     // Stand still and "see" — short pause before chase kicks in.
@@ -684,13 +697,31 @@ function updateGuard(g) {
     if (canSee) {
       g.lastSeenX = state.player.x;
       g.lastSeenY = state.player.y;
+      g.stuckT = 0;   // seeing the player resets stuck counter
     }
+    // Record pre-move position so we can detect "pushing against a wall"
+    const preX = g.x, preY = g.y;
     // Walk toward last-seen position. If we reach it without ever
     // re-seeing the player, enter 'search' (a timed wander-at-spot).
     const arrived = moveGuardToward(g, g.lastSeenX, g.lastSeenY, GUARD_CHASE_SPEED);
+    // Stuck detection: per-axis collision prevents tunneling, but with
+    // no pathfinding a guard can get wedged pushing toward a target on
+    // the far side of a wall. If we barely moved two frames in a row,
+    // accept the loss and search here instead.
+    const moved = Math.hypot(g.x - preX, g.y - preY);
+    if (moved < 0.2) {
+      g.stuckT = (g.stuckT || 0) + 1;
+    } else {
+      g.stuckT = 0;
+    }
     if (arrived && !canSee) {
       g.phase = 'search';
       g.phaseT = GUARD_SEARCH_TIME;
+      g.stuckT = 0;
+    } else if (g.stuckT > 30 && !canSee) {   // ~0.5s of no progress → give up
+      g.phase = 'search';
+      g.phaseT = GUARD_SEARCH_TIME;
+      g.stuckT = 0;
     }
   } else if (g.phase === 'search') {
     // Stand at last-seen and slowly sweep facing angle left/right.
@@ -750,7 +781,7 @@ function makeGuards() {
       phaseT: 0,
       waypoints: [ tc(2, 1), tc(5, 1), tc(5, 5), tc(2, 5) ],   // upper-left patrol loop
       wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0
+      lastSeenX: 0, lastSeenY: 0, stuckT: 0
     },
     {
       x: tc(10, 7).x, y: tc(10, 7).y,
@@ -759,7 +790,7 @@ function makeGuards() {
       phaseT: 0,
       waypoints: [ tc(10, 7), tc(10, 1), tc(16, 1), tc(16, 7) ],  // right-side sweep
       wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0
+      lastSeenX: 0, lastSeenY: 0, stuckT: 0
     },
     {
       x: tc(3, 11).x, y: tc(3, 11).y,
@@ -768,7 +799,7 @@ function makeGuards() {
       phaseT: 0,
       waypoints: [ tc(3, 11), tc(8, 11), tc(8, 8), tc(3, 8) ],  // lower corridor
       wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0
+      lastSeenX: 0, lastSeenY: 0, stuckT: 0
     }
   ];
 }
