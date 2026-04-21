@@ -623,6 +623,45 @@ function rotateToward(cur, target, max) {
   return cur + Math.sign(diff) * max;
 }
 
+// Pick a new wander direction for a guard. Avoids the "back" sector
+// (within ±45° of the reverse of current heading) so guards don't
+// bounce in place against a wall. Also samples a few candidates and
+// prefers directions with more open space ahead — helps them find
+// corridors naturally instead of skimming along the same wall forever.
+function pickNewWanderDir(g) {
+  const reverseDir = g.dir + Math.PI;
+  let best = g.dir + Math.PI * 2 * Math.random();  // fallback: anywhere
+  let bestDist = -1;
+  const TRIES = 8;
+  for (let i = 0; i < TRIES; i++) {
+    const candidate = Math.random() * Math.PI * 2;
+    // Skip candidates too close to reverse of current heading
+    let diff = candidate - reverseDir;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) < Math.PI / 4) continue;
+    // Measure how far this direction is open before hitting a wall
+    const rayDist = rayDistToWall(g.x, g.y, candidate, GUARD_R);
+    if (rayDist > bestDist) {
+      bestDist = rayDist;
+      best = candidate;
+    }
+  }
+  g.dir = best;
+}
+
+// Cast a ray from (x,y) in direction 'angle'. Returns distance to
+// nearest wall (up to 10 tiles). Used by wander to prefer open space.
+function rayDistToWall(x, y, angle, offset) {
+  const nx = Math.cos(angle), ny = Math.sin(angle);
+  const maxDist = TILE * 10;
+  const step = TILE / 4;
+  for (let d = offset; d < maxDist; d += step) {
+    if (isWallAt(x + nx * d, y + ny * d)) return d;
+  }
+  return maxDist;
+}
+
 // Move a guard toward (tx, ty) at speed, using the same per-axis
 // collision pattern as the player. Returns true if arrived (within
 // GUARD_WAYPOINT_TOL).
@@ -650,8 +689,8 @@ function updateGuard(g) {
   const canSee = guardCanSeePlayer(g);
 
   if (g.phase === 'patrol') {
-    // Move toward current waypoint; if reached, advance. If player
-    // enters sight, switch to 'alert'.
+    // Wander: walk along current facing. On wall hit or random timer,
+    // pick a new direction. If player enters sight, switch to 'alert'.
     if (canSee) {
       g.phase = 'alert';
       g.phaseT = GUARD_ALERT_TIME;
@@ -659,22 +698,26 @@ function updateGuard(g) {
       g.lastSeenY = state.player.y;
       return;
     }
-    const wp = g.waypoints[g.wpIdx];
-    const preX = g.x, preY = g.y;
-    if (moveGuardToward(g, wp.x, wp.y, GUARD_PATROL_SPEED)) {
-      g.wpIdx = (g.wpIdx + 1) % g.waypoints.length;
-      g.stuckT = 0;
-    } else {
-      // Stuck-on-patrol safety: if we can't make progress toward the
-      // current waypoint for ~1s, skip to the next waypoint. Keeps
-      // guards moving even if a patrol edge clips a wall somehow.
-      const moved = Math.hypot(g.x - preX, g.y - preY);
-      if (moved < 0.2) g.stuckT = (g.stuckT || 0) + 1;
-      else g.stuckT = 0;
-      if (g.stuckT > 60) {
-        g.wpIdx = (g.wpIdx + 1) % g.waypoints.length;
-        g.stuckT = 0;
-      }
+
+    const speed = GUARD_PATROL_SPEED;
+    const mvx = Math.cos(g.dir) * speed;
+    const mvy = Math.sin(g.dir) * speed;
+
+    // Per-axis collision: try X, try Y. Either rejection is a "wall hit"
+    // signal and triggers a direction change.
+    let blocked = false;
+    const nx0 = g.x + mvx;
+    if (!circleHitsWall(nx0, g.y, GUARD_R)) g.x = nx0;
+    else blocked = true;
+    const ny0 = g.y + mvy;
+    if (!circleHitsWall(g.x, ny0, GUARD_R)) g.y = ny0;
+    else blocked = true;
+
+    // Tick the random-turn timer; when it hits 0, also force a change
+    g.wanderTimer--;
+    if (blocked || g.wanderTimer <= 0) {
+      pickNewWanderDir(g);
+      g.wanderTimer = 120 + Math.floor(Math.random() * 180);
     }
   } else if (g.phase === 'alert') {
     // Stand still and "see" — short pause before chase kicks in.
@@ -739,14 +782,10 @@ function updateGuard(g) {
     g.dir = g.dir + Math.sin(t) * 0.04;  // gentle oscillation
     g.phaseT--;
     if (g.phaseT <= 0) {
-      // Snap to the nearest waypoint and resume patrol
-      let best = 0, bestD = Infinity;
-      for (let i = 0; i < g.waypoints.length; i++) {
-        const w = g.waypoints[i];
-        const d = Math.hypot(w.x - g.x, w.y - g.y);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-      g.wpIdx = best;
+      // Resume wandering: pick a fresh random direction and reset the
+      // wander timer. No waypoints to snap back to anymore.
+      pickNewWanderDir(g);
+      g.wanderTimer = 120 + Math.floor(Math.random() * 180);
       g.phase = 'patrol';
     }
   }
@@ -767,41 +806,28 @@ const GUARD_ALERT_TIME    = 45;     // frames of "?" pause before committing to 
 const GUARD_SEARCH_TIME   = 150;    // frames spent searching at lost-sight position
 const GUARD_WAYPOINT_TOL  = 6;      // px tolerance to consider a waypoint reached
 
-// Guards list — positions in PIXEL coordinates, patrol waypoints too.
-// Each waypoint is picked from open floor tiles; guards walk between
-// them in order and loop. State starts as 'patrol'.
+// Guards list — positions in PIXEL coordinates, wander-based AI.
+// Each guard wanders freely: walks forward along 'dir' at patrol speed,
+// picks a new random direction when they hit a wall, and also picks a
+// new direction on a random timer so they stay unpredictable.
+// No waypoints, no level-specific routes.
 function makeGuards() {
-  // Helper: convert (col, row) to pixel center
   const tc = (c, r) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 });
-  return [
-    {
-      x: tc(2, 1).x,  y: tc(2, 1).y,
-      dir: 0,
-      phase: 'patrol',
-      phaseT: 0,
-      waypoints: [ tc(2, 1), tc(6, 1), tc(6, 7), tc(2, 7) ],   // upper-left patrol loop (validated clear)
-      wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0, stuckT: 0
-    },
-    {
-      x: tc(10, 7).x, y: tc(10, 7).y,
-      dir: Math.PI,
-      phase: 'patrol',
-      phaseT: 0,
-      waypoints: [ tc(10, 7), tc(10, 1), tc(16, 1), tc(16, 7) ],  // right-side sweep
-      wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0, stuckT: 0
-    },
-    {
-      x: tc(3, 11).x, y: tc(3, 11).y,
-      dir: -Math.PI / 2,
-      phase: 'patrol',
-      phaseT: 0,
-      waypoints: [ tc(2, 10), tc(6, 10), tc(6, 11), tc(2, 11) ],  // lower corridor patrol (validated clear)
-      wpIdx: 0,
-      lastSeenX: 0, lastSeenY: 0, stuckT: 0
-    }
+  // Spawn positions picked from open floor spread across the map. Each
+  // guard gets a random initial direction and a random "next turn" timer.
+  const spawns = [
+    tc(4, 2),    // upper-left area
+    tc(13, 4),   // upper-right area
+    tc(4, 10)    // lower-left area
   ];
+  return spawns.map(s => ({
+    x: s.x, y: s.y,
+    dir: Math.random() * Math.PI * 2,
+    phase: 'patrol',
+    phaseT: 0,
+    wanderTimer: 120 + Math.floor(Math.random() * 180),  // 2-5 seconds at 60fps
+    lastSeenX: 0, lastSeenY: 0
+  }));
 }
 
 // var so window.state is exposed for the score bridge in other games;
