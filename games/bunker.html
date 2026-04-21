@@ -623,31 +623,49 @@ function rotateToward(cur, target, max) {
   return cur + Math.sign(diff) * max;
 }
 
-// Pick a new wander direction for a guard. Avoids the "back" sector
-// (within ±45° of the reverse of current heading) so guards don't
-// bounce in place against a wall. Also samples a few candidates and
-// prefers directions with more open space ahead — helps them find
-// corridors naturally instead of skimming along the same wall forever.
+// Pick a new wander direction for a guard. Strongly biases toward the
+// longest open cardinal direction (N/S/E/W) because corridors in a
+// grid-based level are cardinal-aligned — walking N down a hallway
+// feels right; drifting NW at 33° across one feels like a drunk.
+// Small random noise added to the chosen angle so they don't look
+// robotic.
 function pickNewWanderDir(g) {
   const reverseDir = g.dir + Math.PI;
-  let best = g.dir + Math.PI * 2 * Math.random();  // fallback: anywhere
+  // Sample the 4 cardinals
+  const cardinals = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+  let best = cardinals[Math.floor(Math.random() * 4)];
   let bestDist = -1;
-  const TRIES = 8;
-  for (let i = 0; i < TRIES; i++) {
-    const candidate = Math.random() * Math.PI * 2;
-    // Skip candidates too close to reverse of current heading
-    let diff = candidate - reverseDir;
+  for (const c of cardinals) {
+    // Skip if candidate is within ±60° of reverse (prevents bouncing)
+    let diff = c - reverseDir;
     while (diff >  Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    if (Math.abs(diff) < Math.PI / 4) continue;
-    // Measure how far this direction is open before hitting a wall
-    const rayDist = rayDistToWall(g.x, g.y, candidate, GUARD_R);
-    if (rayDist > bestDist) {
-      bestDist = rayDist;
-      best = candidate;
+    if (Math.abs(diff) < Math.PI / 3) continue;
+    const rayDist = rayDistToWall(g.x, g.y, c, GUARD_R);
+    // Add small random noise so tied corridors don't always go the same way
+    const score = rayDist + Math.random() * TILE;
+    if (score > bestDist) {
+      bestDist = score;
+      best = c;
     }
   }
-  g.dir = best;
+  // Small angular jitter so they don't look perfectly grid-snapped
+  g.dir = best + (Math.random() - 0.5) * 0.15;
+}
+
+// Pick a random floor tile within INVESTIGATE_RANGE to walk to.
+// Returns {x, y} in pixel coords, or null if no suitable tile found.
+function pickInvestigateSpot(g) {
+  for (let tries = 0; tries < 20; tries++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = TILE * 2 + Math.random() * (GUARD_INVESTIGATE_RANGE - TILE * 2);
+    const x = g.x + Math.cos(angle) * dist;
+    const y = g.y + Math.sin(angle) * dist;
+    if (!isWallAt(x, y) && !segmentHitsWall(g.x, g.y, x, y)) {
+      return { x, y };
+    }
+  }
+  return null;
 }
 
 // Cast a ray from (x,y) in direction 'angle'. Returns distance to
@@ -713,11 +731,58 @@ function updateGuard(g) {
     if (!circleHitsWall(g.x, ny0, GUARD_R)) g.y = ny0;
     else blocked = true;
 
-    // Tick the random-turn timer; when it hits 0, also force a change
+    // Tick the random-turn timer; when it hits 0 OR hit a wall, change direction
     g.wanderTimer--;
     if (blocked || g.wanderTimer <= 0) {
       pickNewWanderDir(g);
-      g.wanderTimer = 120 + Math.floor(Math.random() * 180);
+      // Long commitments — 8-15 seconds of walking before another random turn.
+      // Guards still turn on wall contact, so this mostly governs how long
+      // they walk through an open area before pivoting.
+      g.wanderTimer = 480 + Math.floor(Math.random() * 420);
+    }
+
+    // Investigate timer: every 10-25 seconds, head to a random spot nearby
+    g.investigateTimer--;
+    if (g.investigateTimer <= 0) {
+      const spot = pickInvestigateSpot(g);
+      if (spot) {
+        g.investigateX = spot.x;
+        g.investigateY = spot.y;
+        g.phase = 'investigate';
+        g.phaseT = 0;  // not used during walking; used during look-around
+      }
+      // Reset timer whether or not we found a spot
+      g.investigateTimer = GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN));
+    }
+  } else if (g.phase === 'investigate') {
+    // Head purposefully toward investigateX/Y, then look around for a
+    // moment, then return to wandering. Visible to player as a guard
+    // that suddenly decides to go check a spot — feels like a
+    // "thought I heard something" moment.
+    if (canSee) {
+      // Player spotted mid-investigation — switch to alert chain
+      g.phase = 'alert';
+      g.phaseT = GUARD_ALERT_TIME;
+      g.lastSeenX = state.player.x;
+      g.lastSeenY = state.player.y;
+      return;
+    }
+    if (g.phaseT > 0) {
+      // Arrived — look around (small oscillation of facing)
+      const t = g.phaseT / 10;
+      g.dir += Math.sin(t) * 0.06;
+      g.phaseT--;
+      if (g.phaseT <= 0) {
+        g.phase = 'patrol';
+        pickNewWanderDir(g);
+        g.wanderTimer = 480 + Math.floor(Math.random() * 420);
+      }
+    } else {
+      // Walking to the spot — faster than patrol speed, slower than chase
+      const arrived = moveGuardToward(g, g.investigateX, g.investigateY, GUARD_PATROL_SPEED * 1.35);
+      if (arrived) {
+        g.phaseT = GUARD_INVESTIGATE_LOOK;
+      }
     }
   } else if (g.phase === 'alert') {
     // Stand still and "see" — short pause before chase kicks in.
@@ -785,7 +850,7 @@ function updateGuard(g) {
       // Resume wandering: pick a fresh random direction and reset the
       // wander timer. No waypoints to snap back to anymore.
       pickNewWanderDir(g);
-      g.wanderTimer = 120 + Math.floor(Math.random() * 180);
+      g.wanderTimer = 480 + Math.floor(Math.random() * 420);
       g.phase = 'patrol';
     }
   }
@@ -797,7 +862,7 @@ function updateGuards() {
 
 // ── Guards — Phase 3 ─────────────────────────────────────────────
 const GUARD_R             = 12;
-const GUARD_PATROL_SPEED  = 1.3;
+const GUARD_PATROL_SPEED  = 1.6;    // faster = more purposeful looking
 const GUARD_CHASE_SPEED   = 2.2;
 const GUARD_TURN_RATE     = 0.07;   // radians per frame when rotating toward target
 const GUARD_VISION_RANGE  = 220;    // how far the cone reaches (px)
@@ -805,6 +870,11 @@ const GUARD_VISION_HALF   = Math.PI / 5;   // half-angle of the cone (≈36° to
 const GUARD_ALERT_TIME    = 45;     // frames of "?" pause before committing to chase
 const GUARD_SEARCH_TIME   = 150;    // frames spent searching at lost-sight position
 const GUARD_WAYPOINT_TOL  = 6;      // px tolerance to consider a waypoint reached
+// Investigation — the "thought I heard something" behavior
+const GUARD_INVESTIGATE_MIN    = 600;   // min frames between investigations (10s)
+const GUARD_INVESTIGATE_MAX    = 1500;  // max frames between investigations (25s)
+const GUARD_INVESTIGATE_RANGE  = 400;   // max distance of chosen investigate spot (px)
+const GUARD_INVESTIGATE_LOOK   = 90;    // frames spent looking at the spot (~1.5s)
 
 // Guards list — positions in PIXEL coordinates, wander-based AI.
 // Each guard wanders freely: walks forward along 'dir' at patrol speed,
@@ -825,7 +895,9 @@ function makeGuards() {
     dir: Math.random() * Math.PI * 2,
     phase: 'patrol',
     phaseT: 0,
-    wanderTimer: 120 + Math.floor(Math.random() * 180),  // 2-5 seconds at 60fps
+    wanderTimer: 300 + Math.floor(Math.random() * 600),  // 5-15 sec committed walking
+    investigateTimer: GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN)),
+    investigateX: 0, investigateY: 0,
     lastSeenX: 0, lastSeenY: 0
   }));
 }
@@ -1033,10 +1105,11 @@ function drawGuardCone(g) {
   // Translucent pie slice from the guard's position out to VISION_RANGE.
   // Color depends on state so you can see the AI reacting.
   let col;
-  if      (g.phase === 'patrol') col = 'rgba(251, 191, 36, 0.12)';  // yellow (calm)
-  else if (g.phase === 'alert')  col = 'rgba(251, 146, 60, 0.28)';  // amber (investigating)
-  else if (g.phase === 'chase')  col = 'rgba(239, 68, 68, 0.35)';   // red (hostile)
-  else                           col = 'rgba(251, 191, 36, 0.22)';  // search — yellow darker
+  if      (g.phase === 'patrol')      col = 'rgba(251, 191, 36, 0.12)';  // yellow (calm)
+  else if (g.phase === 'investigate') col = 'rgba(251, 191, 36, 0.22)';  // yellow (attentive)
+  else if (g.phase === 'alert')       col = 'rgba(251, 146, 60, 0.28)';  // amber (investigating player)
+  else if (g.phase === 'chase')       col = 'rgba(239, 68, 68, 0.35)';   // red (hostile)
+  else                                col = 'rgba(251, 191, 36, 0.22)';  // search — yellow darker
   ctx.fillStyle = col;
   ctx.beginPath();
   ctx.moveTo(g.x, g.y);
@@ -1080,9 +1153,10 @@ function drawGuardBody(g) {
 
   // Small state icon above the guard's head
   let mark = '';
-  if      (g.phase === 'alert')  mark = '?';
-  else if (g.phase === 'chase')  mark = '!';
-  else if (g.phase === 'search') mark = '…';
+  if      (g.phase === 'alert')       mark = '?';
+  else if (g.phase === 'chase')       mark = '!';
+  else if (g.phase === 'search')      mark = '…';
+  else if (g.phase === 'investigate') mark = '·';
   if (mark) {
     ctx.font      = "bold 16px 'Courier New', monospace";
     ctx.textAlign = 'center';
