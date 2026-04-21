@@ -43,17 +43,31 @@
     flex-shrink: 0;
     width: 100%;
     background: #000;
+    position: relative;
   }
 
   .ctrl-row {
-    display: flex; align-items: stretch; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     height: 100%; padding: 6px 8px; gap: 6px;
   }
-  .ctrl-left-group { display: flex; gap: 6px; flex: 2; }
-  .ctrl-right      { flex: 1.4; display: flex; }
+
+  .ctrl-stick-zone {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .ctrl-right-group {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
 
   .btn {
-    flex: 1;
     border: 1px solid rgba(255,255,255,0.35);
     border-radius: 8px;
     background: rgba(255,255,255,0.06);
@@ -66,55 +80,59 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.05s, border-color 0.05s;
+    width: 80px; height: 80px;
   }
   .btn.active {
     background: rgba(255,255,255,0.18);
     border-color: rgba(255,255,255,0.7);
   }
-  .btn-icon  { font-size: 20px; line-height: 1; }
+  .btn[disabled] { opacity: 0.3; pointer-events: none; }
+  .btn-icon  { font-size: 24px; line-height: 1; }
   .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
 
   #btn-fire        { border-color: rgba(34,211,238,0.5); }
   #btn-fire.active { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
 
-  /* ── Tracking-slider steer pad ───────────────────────────────── */
-  .btn-steer {
-    padding: 0 12px;
-    gap: 0;
-    position: relative;
-    overflow: hidden;
-  }
-  .steer-face {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    height: 100%;
-    padding: 0 4px;
-  }
-  .steer-arrow {
-    font-size: 22px;
-    line-height: 1;
-    opacity: 0.35;
-    transition: opacity 0.08s, color 0.08s, transform 0.08s;
-  }
-  .steer-dot {
-    width: 6px; height: 6px;
+  #btn-zap        { border-color: rgba(251,191,36,0.55); }
+  #btn-zap.active { background: rgba(251,191,36,0.3); border-color: rgba(251,191,36,1); }
+  #btn-zap .btn-icon { color: #fbbf24; }
+
+  /* ── Virtual thumbstick (horizontal-only for Web Reactor) ────── */
+  .stick-base {
+    width: 96px; height: 96px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.35);
-    box-shadow: 0 0 6px rgba(255,255,255,0.25);
-    transition: background 0.08s, box-shadow 0.08s, transform 0.08s;
+    border: 1.5px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.04);
+    position: relative;
+    box-shadow: inset 0 0 20px rgba(255,255,255,0.04);
   }
-  .btn-steer.steer-left  .steer-arrow:first-child { opacity: 1; color: #fff; transform: translateX(-2px); }
-  .btn-steer.steer-right .steer-arrow:last-child  { opacity: 1; color: #fff; transform: translateX( 2px); }
-  .btn-steer.steer-left .steer-dot,
-  .btn-steer.steer-right .steer-dot {
-    background: rgba(255,255,255,0.9);
-    box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  .stick-base::before {
+    /* horizontal guide only — no vertical axis on the web */
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.12);
+    top: 50%; left: 12%; right: 12%; height: 1px;
+    transform: translateY(-0.5px);
   }
-  .btn-steer.steer-left  .steer-dot { transform: translateX(-8px); }
-  .btn-steer.steer-right .steer-dot { transform: translateX( 8px); }
+  .stick-knob {
+    position: absolute;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.12);
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    transition: background 0.06s, border-color 0.06s, box-shadow 0.06s;
+    pointer-events: none;
+  }
+  .stick-base.active .stick-knob {
+    background: rgba(34,211,238,0.22);
+    border-color: rgba(34,211,238,0.9);
+    box-shadow: 0 0 14px rgba(34,211,238,0.4);
+  }
+
+  /* Hide on-screen controls when a gamepad is connected */
+  body.gamepad-active #controls { display: none !important; }
 
   .ar-topbar {
     position: fixed; top: 0; left: 0; right: 0; height: 48px;
@@ -148,6 +166,14 @@
     letter-spacing: 0.12em; min-width: 90px; text-align: right;
   }
   .ar-score-value { color: #22d3ee; font-weight: 700; }
+  .ar-gamepad {
+    display: none;
+    margin-left: 8px;
+    font-size: 14px;
+    color: #22d3ee;
+    filter: drop-shadow(0 0 4px rgba(34,211,238,0.5));
+  }
+  body.gamepad-active .ar-gamepad { display: inline; }
   @media (max-width: 480px) {
     .ar-title { font-size: 11px; letter-spacing: 0.15em; }
     .ar-back span { display: none; }
@@ -164,7 +190,7 @@
   </a>
   <div class="ar-title">Web Reactor</div>
   <div class="ar-score">
-    SCORE <span class="ar-score-value" id="ar-score-value">0</span>
+    SCORE <span class="ar-score-value" id="ar-score-value">0</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -172,18 +198,20 @@
   <canvas id="c"></canvas>
   <div id="controls">
     <div class="ctrl-row">
-      <div class="ctrl-left-group">
-        <div class="btn btn-steer" id="btn-steer">
-          <div class="steer-face">
-            <span class="steer-arrow">◁</span>
-            <span class="steer-dot" aria-hidden="true"></span>
-            <span class="steer-arrow">▷</span>
-          </div>
-          <span class="btn-label">STEER</span>
+      <div class="ctrl-stick-zone" id="stick-zone">
+        <div class="stick-base" id="stick-base">
+          <div class="stick-knob" id="stick-knob"></div>
         </div>
       </div>
-      <div class="ctrl-right">
-        <div class="btn" id="btn-fire"><span class="btn-icon">◉</span><span class="btn-label">FIRE</span></div>
+      <div class="ctrl-right-group">
+        <div class="btn" id="btn-zap">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-label">ZAP</span>
+        </div>
+        <div class="btn" id="btn-fire">
+          <span class="btn-icon">◉</span>
+          <span class="btn-label">FIRE</span>
+        </div>
       </div>
     </div>
   </div>
@@ -243,12 +271,14 @@ function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 // ── Input ────────────────────────────────────────────────────────
 const keys     = {};
 const keysPrev = {};                 // previous-frame snapshot for tap detection
-const touch    = { left: false, right: false, fire: false, sliding: false };
-const touchPrev = { left: false, right: false, fire: false };
+const touch    = { left: false, right: false, fire: false, zap: false, sliding: false };
+const touchPrev = { left: false, right: false, fire: false, zap: false };
+const pad      = { left: false, right: false, fire: false, zap: false, connected: false };
+const padPrev  = { left: false, right: false };
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (['Space','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if (['Space','ArrowLeft','ArrowRight','KeyX'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -275,31 +305,44 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseleave',release);
 }
 wireBtn('btn-fire', 'fire');
+wireBtn('btn-zap',  'zap');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 
-// ── Tracking-slider steer pad ─────────────────────────────────────
-// One wide pad acts as LEFT/RIGHT. Finger position relative to where
-// it first touched determines direction, with a dead zone for resting.
-// Because the game already does edge-detection on touch.left/right,
-// swiping across the dead zone produces a clean "release + new press"
-// event — which counts as a single-lane tap in v4's input model.
-function wireSteer(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
+// ── Virtual thumbstick (horizontal axis only) ────────────────────
+// Finger anchor: the stick base jumps to wherever the finger lands,
+// so you never have to aim for the knob. Only LEFT/RIGHT matter on
+// the web — vertical finger movement is ignored. touch.sliding is
+// still set so the v4 edge detection skips its hold-delay and feels
+// instant.
+function wireStick(zoneId, baseId, knobId) {
+  const zone = document.getElementById(zoneId);
+  const base = document.getElementById(baseId);
+  const knob = document.getElementById(knobId);
+  if (!zone || !base || !knob) return;
 
-  const DEAD_ZONE = 10;
+  const DEAD_ZONE  = 10;
+  const MAX_RADIUS = 32;
+
   let trackingId = null;
-  let originX    = 0;
+  let originCX   = 0;
 
   function setDir(dir) {
     touch.left  = (dir === -1);
     touch.right = (dir === +1);
-    el.classList.toggle('steer-left',  dir === -1);
-    el.classList.toggle('steer-right', dir === +1);
-    el.classList.toggle('active',      dir !== 0);
+    base.classList.toggle('active', dir !== 0);
   }
 
-  function clientXFromEvent(e) {
+  function moveKnob(dx) {
+    const clamped = Math.max(-MAX_RADIUS, Math.min(MAX_RADIUS, dx));
+    knob.style.transform = `translate(calc(-50% + ${clamped}px), -50%)`;
+  }
+
+  function resetKnob() {
+    knob.style.transform = 'translate(-50%, -50%)';
+    setDir(0);
+  }
+
+  function xFromEvent(e) {
     if (e.touches && e.touches.length) {
       if (trackingId !== null) {
         for (const t of e.touches) if (t.identifier === trackingId) return t.clientX;
@@ -312,24 +355,33 @@ function wireSteer(id) {
   function onDown(e) {
     e.preventDefault();
     activateTouch();
+    let cx, cy;
     if (e.touches) {
       const t = e.changedTouches ? e.changedTouches[0] : e.touches[0];
       trackingId = t.identifier;
-      originX    = t.clientX;
+      cx = t.clientX; cy = t.clientY;
     } else {
       trackingId = 'mouse';
-      originX    = e.clientX;
+      cx = e.clientX; cy = e.clientY;
     }
+    // Move stick base to where finger landed
+    const rect = zone.getBoundingClientRect();
+    base.style.position = 'absolute';
+    base.style.left = (cx - rect.left) + 'px';
+    base.style.top  = (cy - rect.top)  + 'px';
+    base.style.transform = 'translate(-50%, -50%)';
+    originCX = cx;
     touch.sliding = true;
-    setDir(0);
+    resetKnob();
     if (!state || state.phase === 'gameover') startGame();
   }
 
   function onMove(e) {
     if (trackingId === null) return;
     e.preventDefault();
-    const x = clientXFromEvent(e);
-    const dx = x - originX;
+    const x = xFromEvent(e);
+    const dx = x - originCX;
+    moveKnob(dx);
     if (dx < -DEAD_ZONE)      setDir(-1);
     else if (dx >  DEAD_ZONE) setDir(+1);
     else                      setDir( 0);
@@ -345,22 +397,85 @@ function wireSteer(id) {
     e.preventDefault();
     trackingId = null;
     touch.sliding = false;
-    setDir(0);
+    base.style.position = '';
+    base.style.left = '';
+    base.style.top  = '';
+    base.style.transform = '';
+    resetKnob();
   }
 
-  el.addEventListener('touchstart',  onDown, { passive: false });
-  el.addEventListener('touchmove',   onMove, { passive: false });
-  el.addEventListener('touchend',    onUp,   { passive: false });
-  el.addEventListener('touchcancel', onUp,   { passive: false });
-  el.addEventListener('mousedown',   onDown);
+  zone.addEventListener('touchstart',  onDown, { passive: false });
+  zone.addEventListener('touchmove',   onMove, { passive: false });
+  zone.addEventListener('touchend',    onUp,   { passive: false });
+  zone.addEventListener('touchcancel', onUp,   { passive: false });
+  zone.addEventListener('mousedown',   onDown);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup',   onUp);
-  el.addEventListener('mouseleave', function () {
-    if (trackingId === 'mouse') { trackingId = null; touch.sliding = false; setDir(0); }
-  });
 }
 
-wireSteer('btn-steer');
+wireStick('stick-zone', 'stick-base', 'stick-knob');
+
+// ── Gamepad API ──────────────────────────────────────────────────
+const PAD_AXIS_DEAD = 0.3;
+let padIndex = -1;
+let padLastButtons = {};
+
+function scanForGamepad() {
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (let i = 0; i < list.length; i++) {
+    if (list[i]) return i;
+  }
+  return -1;
+}
+
+function pollGamepad() {
+  if (!navigator.getGamepads) return;
+  if (padIndex < 0) {
+    padIndex = scanForGamepad();
+    if (padIndex < 0) {
+      if (pad.connected) {
+        pad.connected = false;
+        document.body.classList.remove('gamepad-active');
+      }
+      return;
+    }
+  }
+  const gp = navigator.getGamepads()[padIndex];
+  if (!gp) { padIndex = -1; return; }
+
+  if (!pad.connected) {
+    pad.connected = true;
+    document.body.classList.add('gamepad-active');
+    console.log('[gamepad] connected:', gp.id, '·', gp.buttons.length, 'buttons,', gp.axes.length, 'axes, mapping:', gp.mapping);
+  }
+
+  // Left stick X + D-pad L/R
+  const ax = gp.axes[0] || 0;
+  const dpadL = gp.buttons[14] && gp.buttons[14].pressed;
+  const dpadR = gp.buttons[15] && gp.buttons[15].pressed;
+
+  pad.left  = (ax < -PAD_AXIS_DEAD) || dpadL;
+  pad.right = (ax >  PAD_AXIS_DEAD) || dpadR;
+
+  // A button (0) = FIRE ; X/square (2) = ZAP
+  pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
+  // Zap is edge-triggered so you don't burn the charge on a long hold
+  const zapNow = !!(gp.buttons[2] && gp.buttons[2].pressed);
+  pad.zap = zapNow && !padLastButtons[2];
+
+  // Start (9) → start / restart
+  const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
+  if (startPressed && !padLastButtons[9]) {
+    if (!state || state.phase === 'gameover') startGame();
+  }
+  for (let i = 0; i < gp.buttons.length; i++) {
+    padLastButtons[i] = gp.buttons[i] && gp.buttons[i].pressed;
+  }
+}
+
+window.addEventListener('gamepadconnected',   e => { padIndex = e.gamepad.index; });
+window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === padIndex) padIndex = -1; });
+
 
 // ── Utilities ────────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -606,6 +721,8 @@ function startGame() {
     spawnTimer:    60,
     enemiesSpawned: 0,
     enemiesKilled:  0,
+    zapAvailable:   true,   // one superzapper charge per level
+    zapFlashT:      0,      // visual flash frames remaining after zap fires
     geometry:      null,
     shape:         null,
     color:         null,
@@ -632,6 +749,8 @@ function applyLevel(level) {
   state.enemiesKilled  = 0;
   state.spawnTimer     = 30;
   state.invincible     = 120;
+  state.zapAvailable   = true;
+  state.zapFlashT      = 0;
   state.level          = level;
   state.phase          = 'warpIn';
   state.warpT          = WARP_IN_LEN;
@@ -675,10 +794,13 @@ function spawnEnemy() {
 
 function handleLaneInput() {
   // Edge detection: tap = down now but NOT down last frame
-  const leftDown   = keys['ArrowLeft']  || keys['KeyA'] || touch.left;
-  const rightDown  = keys['ArrowRight'] || keys['KeyD'] || touch.right;
-  const leftPrev   = keysPrev['ArrowLeft']  || keysPrev['KeyA'] || touchPrev.left;
-  const rightPrev  = keysPrev['ArrowRight'] || keysPrev['KeyD'] || touchPrev.right;
+  // Gamepad is treated like an instant (continuous) analog source — same
+  // semantics as the thumbstick: holding = "I definitely mean it", so
+  // it participates in edge detection via the pad.left/right flags.
+  const leftDown   = keys['ArrowLeft']  || keys['KeyA'] || touch.left  || pad.left;
+  const rightDown  = keys['ArrowRight'] || keys['KeyD'] || touch.right || pad.right;
+  const leftPrev   = keysPrev['ArrowLeft']  || keysPrev['KeyA'] || touchPrev.left  || padPrev.left;
+  const rightPrev  = keysPrev['ArrowRight'] || keysPrev['KeyD'] || touchPrev.right || padPrev.right;
   const leftTap    = leftDown  && !leftPrev;
   const rightTap   = rightDown && !rightPrev;
 
@@ -793,13 +915,54 @@ function update() {
   // ── Normal play ────────────────────────────────────────────────
   handleLaneInput();
 
-  const wantFire = keys['Space'] || keys['KeyZ'] || touch.fire;
+  const wantFire = keys['Space'] || keys['KeyZ'] || touch.fire || pad.fire;
+  // Zap is edge-triggered to prevent held-button from burning the charge
+  const zapPressed = keys['KeyX'] || touch.zap || pad.zap;
+  const zapPrev    = keysPrev['KeyX'] || touchPrev.zap;
+  const zapTap     = (zapPressed && !zapPrev) || pad.zap;  // pad.zap is already edge-detected
+
   if (state.invincible > 0) state.invincible--;
   if (state.shootCooldown > 0) state.shootCooldown--;
   if (wantFire && state.shootCooldown === 0) {
     state.bullets.push({ lane: state.lane, depth: 1.0 });
     state.shootCooldown = 8;
   }
+
+  // Superzapper: one-per-level emergency screen clear
+  if (zapTap && state.zapAvailable) {
+    state.zapAvailable = false;
+    state.zapFlashT    = 20;   // 20-frame bright flash
+    // Kill every enemy on screen; score half points (emergency = no prowess bonus)
+    let zapScore = 0;
+    for (const e of state.enemies) {
+      const pts = e.type === 'flipper' ? 50 : e.type === 'tanker' ? 75 : 100;
+      zapScore += pts;
+      const ep = laneXY(e.lane, e.depth);
+      for (let i = 0; i < 8; i++) {
+        const a = Math.random() * TWOPI;
+        const s = randBetween(1, 4);
+        state.particles.push({
+          x: ep.x, y: ep.y,
+          vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+          life: randBetween(20, 50), hue: 'yellow'
+        });
+      }
+    }
+    state.enemiesKilled += state.enemies.length;
+    state.score += zapScore;
+    state.enemies = [];
+    // Radial zap pulse from hub
+    for (let i = 0; i < 80; i++) {
+      const a = Math.random() * TWOPI;
+      const s = randBetween(4, 10);
+      state.particles.push({
+        x: CX, y: CY,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: randBetween(25, 50), hue: 'yellow'
+      });
+    }
+  }
+  if (state.zapFlashT > 0) state.zapFlashT--;
 
   // Bullets travel inward (depth 1 → 0). Stop at spike tip.
   for (const b of state.bullets) {
@@ -910,12 +1073,15 @@ function update() {
 
 function snapshotInput() {
   // Called after every update frame so next frame's edge detection works
-  for (const k of ['ArrowLeft','ArrowRight','KeyA','KeyD','Space','KeyZ']) {
+  for (const k of ['ArrowLeft','ArrowRight','KeyA','KeyD','Space','KeyZ','KeyX']) {
     keysPrev[k] = !!keys[k];
   }
   touchPrev.left  = touch.left;
   touchPrev.right = touch.right;
   touchPrev.fire  = touch.fire;
+  touchPrev.zap   = touch.zap;
+  padPrev.left    = pad.left;
+  padPrev.right   = pad.right;
 }
 
 // ================================================================
@@ -1157,6 +1323,19 @@ function drawHUD() {
     ctx.arc(22 + i * 22, GH - 20, 6, 0, TWOPI);
     ctx.stroke();
   }
+
+  // Zap charge indicator (bottom-right)
+  ctx.textAlign = 'right';
+  ctx.font = "11px 'Courier New', monospace";
+  if (state.zapAvailable) {
+    ctx.fillStyle = '#fbbf24';
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = '#fbbf24';
+    ctx.globalAlpha = 0.25;
+  }
+  ctx.fillText('⚡ ZAP', GW - 14, GH - 16);
+  ctx.globalAlpha = 1;
 }
 
 function drawLevelFlash() {
@@ -1193,7 +1372,7 @@ function draw() {
     drawCentered('WEB  REACTOR',                   CY - 60, 36);
     drawCentered('PRESS  ENTER  TO  START',        CY - 20, 15);
     if (!touchMode)
-      drawCentered('A / D  MOVE  ·  SPACE  FIRE',  CY + 10, 12, 0.5);
+      drawCentered('A / D  MOVE  ·  SPACE  FIRE  ·  X  ZAP',  CY + 10, 12, 0.5);
     else
       drawCentered('TAP  ANY  BUTTON  TO  START',  CY + 10, 12, 0.5);
     return;
@@ -1225,6 +1404,13 @@ function draw() {
   ctx.restore();
 
   drawHUD();
+
+  // ── Superzapper flash overlay ──────────────────────────────────
+  if (state.zapFlashT > 0) {
+    const a = state.zapFlashT / 20;
+    ctx.fillStyle = `rgba(251, 191, 36, ${0.55 * a})`;
+    ctx.fillRect(0, 0, GW, GH);
+  }
 
   if (state.phase === 'warpIn') drawLevelFlash();
 
@@ -1287,7 +1473,15 @@ function draw() {
 // ================================================================
 
 function loop() {
+  pollGamepad();
   update();
+  // Reflect superzapper availability on the on-screen button
+  const zapBtn = document.getElementById('btn-zap');
+  if (zapBtn) {
+    const avail = !!(state && state.zapAvailable && state.phase === 'play');
+    if (avail) zapBtn.removeAttribute('disabled');
+    else       zapBtn.setAttribute('disabled', 'true');
+  }
   if (state) snapshotInput();
   draw();
   requestAnimationFrame(loop);
