@@ -779,7 +779,7 @@ function makeGuards() {
       dir: 0,
       phase: 'patrol',
       phaseT: 0,
-      waypoints: [ tc(2, 1), tc(5, 1), tc(5, 5), tc(2, 5) ],   // upper-left patrol loop
+      waypoints: [ tc(2, 1), tc(6, 1), tc(6, 7), tc(2, 7) ],   // upper-left patrol loop (validated clear)
       wpIdx: 0,
       lastSeenX: 0, lastSeenY: 0, stuckT: 0
     },
@@ -797,7 +797,7 @@ function makeGuards() {
       dir: -Math.PI / 2,
       phase: 'patrol',
       phaseT: 0,
-      waypoints: [ tc(3, 11), tc(8, 11), tc(8, 8), tc(3, 8) ],  // lower corridor
+      waypoints: [ tc(2, 10), tc(6, 10), tc(6, 11), tc(2, 11) ],  // lower corridor patrol (validated clear)
       wpIdx: 0,
       lastSeenX: 0, lastSeenY: 0, stuckT: 0
     }
