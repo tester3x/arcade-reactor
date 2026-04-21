@@ -59,11 +59,36 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Right-side area reserved — no buttons this phase. Kept for Phase 4
-     (shoot button) to slot in without layout churn. */
   .ctrl-right-group {
-    flex: 0 0 96px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-right: 8px;
   }
+
+  .btn {
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.05s, border-color 0.05s;
+    width: 84px; height: 84px;
+  }
+  .btn.active {
+    background: rgba(255,255,255,0.18);
+    border-color: rgba(255,255,255,0.7);
+  }
+  .btn-icon  { font-size: 24px; line-height: 1; }
+  .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
+
+  #btn-fire        { border-color: rgba(34,211,238,0.5); }
+  #btn-fire.active { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
 
   /* ── Virtual thumbstick (full 360° for this game) ────────────── */
   .stick-base {
@@ -166,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">3</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">4</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -180,7 +205,10 @@
         </div>
       </div>
       <div class="ctrl-right-group">
-        <!-- Phase 4 will add a FIRE button here -->
+        <div class="btn" id="btn-fire">
+          <span class="btn-icon">◉</span>
+          <span class="btn-label">FIRE</span>
+        </div>
       </div>
     </div>
   </div>
@@ -231,15 +259,17 @@ function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 
 // ── Input state ──────────────────────────────────────────────────
 const keys = {};
+const keysPrev = {};
 // touch{} holds the thumbstick's raw x/y in [-1,+1] (continuous, not flags)
-const touch = { x: 0, y: 0, active: false };
-const pad   = { x: 0, y: 0, connected: false };
+const touch = { x: 0, y: 0, active: false, fire: false };
+const pad   = { x: 0, y: 0, connected: false, fire: false, firePrev: false };
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD'].includes(e.code)) {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter'].includes(e.code)) {
     e.preventDefault();
   }
+  if (e.code === 'Enter' && state && state.gameover) restartGame();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -358,7 +388,26 @@ function wireStick(zoneId, baseId, knobId) {
   window.addEventListener('mouseup',   onUp);
 }
 wireStick('stick-zone', 'stick-base', 'stick-knob');
+
+function wireBtn(id, prop) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  function press(e)   { e.preventDefault(); activateTouch(); touch[prop] = true; el.classList.add('active'); }
+  function release(e) { e.preventDefault(); touch[prop] = false; el.classList.remove('active'); }
+  el.addEventListener('touchstart',  press,   { passive: false });
+  el.addEventListener('touchend',    release, { passive: false });
+  el.addEventListener('touchcancel', release, { passive: false });
+  el.addEventListener('mousedown',   press);
+  el.addEventListener('mouseup',     release);
+  el.addEventListener('mouseleave',  release);
+}
+wireBtn('btn-fire', 'fire');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
+document.addEventListener('touchstart', e => {
+  if (state && state.gameover && state.gameoverT > 30) {
+    restartGame();
+  }
+}, { passive: true });
 
 // ── Gamepad API ──────────────────────────────────────────────────
 const PAD_AXIS_DEAD = 0.25;
@@ -419,6 +468,14 @@ function pollGamepad() {
     pad.y = dy / m;
   }
 
+  // Face buttons: A = fire. Start = restart on gameover.
+  pad.firePrev = pad.fire;
+  pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
+  const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
+  if (startPressed && !padLastButtons[9] && state.gameover) {
+    restartGame();
+  }
+
   // Snapshot button state for next frame's edge detection (Phase 4+ will use this)
   for (let i = 0; i < gp.buttons.length; i++) {
     padLastButtons[i] = gp.buttons[i] && gp.buttons[i].pressed;
@@ -434,6 +491,15 @@ window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === pa
 
 const PLAYER_SPEED = 3.2;   // pixels per frame at full input
 const PLAYER_R     = 12;    // collision radius
+
+// ── Shooting / damage — Phase 4 ──────────────────────────────────
+const PLAYER_HP_MAX   = 3;
+const PLAYER_IFRAMES  = 60;    // frames of invulnerability after taking a hit
+const BULLET_SPEED    = 7.5;
+const BULLET_R        = 3;
+const BULLET_RANGE    = 500;   // max travel distance before bullet dies
+const FIRE_COOLDOWN   = 10;    // frames between shots (~6 shots/sec)
+const GUARD_CONTACT_R = 20;    // distance from guard center where contact damages player
 
 // ================================================================
 // MAP — Phase 2
@@ -565,12 +631,13 @@ function moveGuardToward(g, tx, ty, speed) {
   const dist = Math.hypot(dx, dy);
   if (dist < GUARD_WAYPOINT_TOL) return true;
   const nx = dx / dist, ny = dy / dist;
-  // Face the direction of motion (smoothed)
+  // Walk directly toward the target. Facing angle rotates smoothly
+  // toward motion direction as a visual detail — but motion itself
+  // is NOT gated by facing. (Gating caused stuck guards when sharp
+  // turns faced a wall while rotation hadn't caught up yet.)
   g.dir = rotateToward(g.dir, Math.atan2(ny, nx), GUARD_TURN_RATE);
-  // Actual motion direction matches face for simplicity — guards don't
-  // strafe, they always walk forward along their facing angle.
-  const mvx = Math.cos(g.dir) * speed;
-  const mvy = Math.sin(g.dir) * speed;
+  const mvx = nx * speed;
+  const mvy = ny * speed;
   const nx0 = g.x + mvx;
   if (!circleHitsWall(nx0, g.y, GUARD_R)) g.x = nx0;
   const ny0 = g.y + mvy;
@@ -707,16 +774,31 @@ function makeGuards() {
 }
 
 // var so window.state is exposed for the score bridge in other games;
-// we don't use the score bridge for this game yet (top bar shows "PHASE 3")
+// we don't use the score bridge for this game yet (top bar shows "PHASE 4")
 const SPAWN = findSpawn();
-var state = {
-  player: {
-    x: SPAWN.x,
-    y: SPAWN.y,
-    dir: -Math.PI / 2   // facing up initially
-  },
-  guards: makeGuards()
-};
+
+function buildState() {
+  return {
+    player: {
+      x: SPAWN.x,
+      y: SPAWN.y,
+      dir: -Math.PI / 2,
+      hp: PLAYER_HP_MAX,
+      iframes: 0,
+      shootCooldown: 0
+    },
+    guards:   makeGuards(),
+    bullets:  [],
+    gameover: false,
+    gameoverT: 0   // frames since gameover (for fade-in)
+  };
+}
+
+var state = buildState();
+
+function restartGame() {
+  state = buildState();
+}
 
 // ================================================================
 // UPDATE
@@ -755,6 +837,9 @@ function getMoveVector() {
 }
 
 function update() {
+  // Hard freeze when game is over; just increment gameoverT for fade-in
+  if (state.gameover) { state.gameoverT++; return; }
+
   const p = state.player;
   const { vx, vy } = getMoveVector();
 
@@ -762,9 +847,7 @@ function update() {
   const dy = vy * PLAYER_SPEED;
 
   // Per-axis collision: attempt X, revert if it lands in a wall, then
-  // attempt Y, revert if it lands in a wall. This is what gives the
-  // "slide along walls" feel — pushing into a wall at an angle keeps
-  // the non-blocked axis moving.
+  // attempt Y, revert if it lands in a wall.
   if (dx !== 0) {
     p.x += dx;
     if (circleHitsWall(p.x, p.y, PLAYER_R)) p.x -= dx;
@@ -779,7 +862,61 @@ function update() {
     p.dir = Math.atan2(vy, vx);
   }
 
+  // ── Firing ────────────────────────────────────────────────────
+  const firePressed = keys['Space'] || touch.fire || pad.fire;
+  if (p.shootCooldown > 0) p.shootCooldown--;
+  if (firePressed && p.shootCooldown === 0) {
+    // Spawn bullet from the player's nose in their facing direction.
+    const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
+    const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
+    state.bullets.push({
+      x: bx, y: by,
+      vx: Math.cos(p.dir) * BULLET_SPEED,
+      vy: Math.sin(p.dir) * BULLET_SPEED,
+      traveled: 0
+    });
+    p.shootCooldown = FIRE_COOLDOWN;
+  }
+
+  // ── Bullets ───────────────────────────────────────────────────
+  for (const b of state.bullets) {
+    b.x += b.vx;
+    b.y += b.vy;
+    b.traveled += BULLET_SPEED;
+    // Wall hit: mark for removal
+    if (isWallAt(b.x, b.y)) b.dead = true;
+    if (b.traveled > BULLET_RANGE) b.dead = true;
+    // Guard hit: find nearest guard within BULLET_R + GUARD_R
+    for (const g of state.guards) {
+      const ddx = g.x - b.x, ddy = g.y - b.y;
+      if (ddx * ddx + ddy * ddy < (GUARD_R + BULLET_R) * (GUARD_R + BULLET_R)) {
+        g.dead = true;
+        b.dead = true;
+        break;
+      }
+    }
+  }
+  state.bullets = state.bullets.filter(b => !b.dead);
+  state.guards  = state.guards.filter(g => !g.dead);
+
   updateGuards();
+
+  // ── Guard contact damages player ──────────────────────────────
+  if (p.iframes > 0) p.iframes--;
+  if (p.iframes === 0 && p.hp > 0) {
+    for (const g of state.guards) {
+      const ddx = g.x - p.x, ddy = g.y - p.y;
+      if (ddx * ddx + ddy * ddy < GUARD_CONTACT_R * GUARD_CONTACT_R) {
+        p.hp--;
+        p.iframes = PLAYER_IFRAMES;
+        if (p.hp <= 0) {
+          state.gameover = true;
+          state.gameoverT = 0;
+        }
+        break;
+      }
+    }
+  }
 }
 
 // ================================================================
@@ -907,6 +1044,10 @@ function drawGuards() {
 
 function drawPlayer() {
   const p = state.player;
+  // Iframe flicker: skip every other pair of frames during invuln so
+  // the player visibly blinks after taking a hit
+  if (p.iframes > 0 && Math.floor(p.iframes / 4) % 2 === 0) return;
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.dir);
@@ -930,29 +1071,100 @@ function drawPlayer() {
   ctx.restore();
 }
 
+function drawBullets() {
+  ctx.fillStyle = '#22d3ee';
+  for (const b of state.bullets) {
+    // Soft glow then bright core
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, BULLET_R * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, BULLET_R, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function drawHUD() {
   // Phase label in corner — makes it obvious which build this is
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText('PHASE 3 · GUARDS', 14, 22);
+  ctx.fillText('PHASE 4 · COMBAT', 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
   if (pad.connected) {
-    ctx.fillText('LEFT STICK  MOVE', GW - 14, 22);
+    ctx.fillText('LEFT STICK  MOVE  ·  A  FIRE', GW - 14, 22);
   } else if (touchMode) {
-    ctx.fillText('STICK  MOVE', GW - 14, 22);
+    ctx.fillText('STICK  MOVE  ·  FIRE  SHOOT', GW - 14, 22);
   } else {
-    ctx.fillText('WASD / ARROWS  MOVE', GW - 14, 22);
+    ctx.fillText('WASD / ARROWS  MOVE  ·  SPACE  FIRE', GW - 14, 22);
+  }
+
+  // HP hearts (bottom-left): filled for remaining HP, hollow for lost
+  const p = state.player;
+  for (let i = 0; i < PLAYER_HP_MAX; i++) {
+    const cx = 22 + i * 24;
+    const cy = GH - 22;
+    if (i < p.hp) {
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Remaining-guards count (bottom-right)
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = "12px 'Courier New', monospace";
+  ctx.fillText(`GUARDS  ${state.guards.length}`, GW - 14, GH - 16);
+}
+
+function drawCenteredText(text, y, size, alpha) {
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.font = `bold ${size}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e6edf3';
+  ctx.fillText(text, GW / 2, y);
+  ctx.globalAlpha = 1;
+}
+
+function drawGameOver() {
+  // Fade-in over the first 30 frames after death
+  const fade = Math.min(1, state.gameoverT / 30);
+  ctx.fillStyle = `rgba(0,0,0,${0.65 * fade})`;
+  ctx.fillRect(0, 0, GW, GH);
+  drawCenteredText('GAME  OVER', GH / 2 - 30, 38, fade);
+  if (state.guards.length === 0) {
+    // Edge case: you killed all 3 then died — recognize the effort
+    ctx.fillStyle = '#22d3ee';
+    drawCenteredText('ALL  GUARDS  DOWN', GH / 2 + 6, 14, fade);
+  }
+  // Restart prompt appears after fade completes
+  if (fade >= 1) {
+    ctx.fillStyle = 'rgba(230,237,243,0.7)';
+    if (pad.connected)      drawCenteredText('PRESS  START  TO  RESTART',  GH / 2 + 40, 14);
+    else if (touchMode)     drawCenteredText('TAP  ANYWHERE  TO  RESTART', GH / 2 + 40, 14);
+    else                    drawCenteredText('PRESS  ENTER  TO  RESTART',  GH / 2 + 40, 14);
   }
 }
 
 function draw() {
   drawFloor();
   drawGuards();
+  drawBullets();
   drawPlayer();
   drawHUD();
+  if (state.gameover) drawGameOver();
 }
 
 // ================================================================
