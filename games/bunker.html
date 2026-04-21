@@ -166,7 +166,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">1</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">2</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -433,14 +433,87 @@ window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === pa
 // ================================================================
 
 const PLAYER_SPEED = 3.2;   // pixels per frame at full input
-const PLAYER_R     = 12;    // collision radius (used for boundaries this phase)
+const PLAYER_R     = 12;    // collision radius
+
+// ================================================================
+// MAP — Phase 2
+// ----------------------------------------------------------------
+// Grid: 18 columns × 13 rows × TILE px = 900×650 (matches GW×GH)
+// Legend:  0 = floor    1 = wall
+// Laid out visually so the level is readable in source. This is a
+// simple test level — a few rooms connected by corridors, with
+// interior pillars/walls to test collision and sliding.
+// ================================================================
+const TILE = 50;
+const MAP_COLS = 18;
+const MAP_ROWS = 13;
+const MAP = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,1,1,0,0,1,0,0,0,0,1,1,1,0,0,1],
+  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+  [1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1],
+  [1,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+// Sample the map at a world pixel (x, y). Returns true if that
+// point is inside a wall tile. Out-of-bounds counts as wall.
+function isWallAt(x, y) {
+  const col = Math.floor(x / TILE);
+  const row = Math.floor(y / TILE);
+  if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return true;
+  return MAP[row][col] === 1;
+}
+
+// Does a circle of radius r centered at (cx, cy) overlap any wall tile?
+// Sample 8 points around the circumference + the center. Cheap and
+// sufficient for grid-aligned walls at this scale.
+function circleHitsWall(cx, cy, r) {
+  if (isWallAt(cx, cy)) return true;
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    if (isWallAt(cx + Math.cos(a) * r, cy + Math.sin(a) * r)) return true;
+  }
+  return false;
+}
+
+// Find a spawn point (in world px) at the center of the first floor
+// tile we can find, starting from the map center and spiraling out.
+// Keeps us safe from hardcoding an x/y that happens to land in a wall
+// if the map layout changes.
+function findSpawn() {
+  const cx = Math.floor(MAP_COLS / 2);
+  const cy = Math.floor(MAP_ROWS / 2);
+  for (let r = 0; r < Math.max(MAP_COLS, MAP_ROWS); r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue; // ring only
+        const col = cx + dx, row = cy + dy;
+        if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
+        if (MAP[row][col] === 0) {
+          return { x: col * TILE + TILE / 2, y: row * TILE + TILE / 2 };
+        }
+      }
+    }
+  }
+  return { x: GW / 2, y: GH / 2 };  // fallback, shouldn't hit
+}
 
 // var so window.state is exposed for the score bridge in other games;
-// we don't use the score bridge for this game yet (top bar shows "PHASE 1")
+// we don't use the score bridge for this game yet (top bar shows "PHASE 2")
+const SPAWN = findSpawn();
 var state = {
   player: {
-    x: GW / 2,
-    y: GH / 2,
+    x: SPAWN.x,
+    y: SPAWN.y,
     dir: -Math.PI / 2   // facing up initially
   }
 };
@@ -485,19 +558,26 @@ function update() {
   const p = state.player;
   const { vx, vy } = getMoveVector();
 
-  p.x += vx * PLAYER_SPEED;
-  p.y += vy * PLAYER_SPEED;
+  const dx = vx * PLAYER_SPEED;
+  const dy = vy * PLAYER_SPEED;
+
+  // Per-axis collision: attempt X, revert if it lands in a wall, then
+  // attempt Y, revert if it lands in a wall. This is what gives the
+  // "slide along walls" feel — pushing into a wall at an angle keeps
+  // the non-blocked axis moving.
+  if (dx !== 0) {
+    p.x += dx;
+    if (circleHitsWall(p.x, p.y, PLAYER_R)) p.x -= dx;
+  }
+  if (dy !== 0) {
+    p.y += dy;
+    if (circleHitsWall(p.x, p.y, PLAYER_R)) p.y -= dy;
+  }
 
   // Update facing direction only when actually moving (so idle holds the last angle)
   if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
   }
-
-  // Screen boundary clamps (walls come in Phase 2)
-  if (p.x < PLAYER_R)      p.x = PLAYER_R;
-  if (p.x > GW - PLAYER_R) p.x = GW - PLAYER_R;
-  if (p.y < PLAYER_R)      p.y = PLAYER_R;
-  if (p.y > GH - PLAYER_R) p.y = GH - PLAYER_R;
 }
 
 // ================================================================
@@ -505,24 +585,52 @@ function update() {
 // ================================================================
 
 function drawFloor() {
-  // Dark concrete floor with subtle grid — gives a sense of scale & motion
-  ctx.fillStyle = '#0e1115';
+  // Solid dark backdrop (covers everything outside the map too)
+  ctx.fillStyle = '#060809';
   ctx.fillRect(0, 0, GW, GH);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-  ctx.lineWidth = 1;
-  const GRID = 50;
-  for (let x = 0; x <= GW; x += GRID) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GH); ctx.stroke();
-  }
-  for (let y = 0; y <= GH; y += GRID) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GW, y); ctx.stroke();
+  // Pass 1: floor tiles
+  ctx.fillStyle = '#0e1115';
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      if (MAP[row][col] === 0) {
+        ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+      }
+    }
   }
 
-  // Play-area border (visual cue for the boundaries)
-  ctx.strokeStyle = 'rgba(34,211,238,0.35)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, GW - 2, GH - 2);
+  // Pass 2: subtle grout grid over floor tiles only
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      if (MAP[row][col] === 0) {
+        ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
+      }
+    }
+  }
+
+  // Pass 3: walls with a slightly brighter top-edge highlight for depth
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      if (MAP[row][col] === 1) {
+        const x = col * TILE, y = row * TILE;
+        // Wall body
+        ctx.fillStyle = '#242a33';
+        ctx.fillRect(x, y, TILE, TILE);
+        // Inner outline
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
+        // Top edge highlight (only if tile above is floor — makes
+        // walls look extruded when there's floor adjacent to them)
+        if (row > 0 && MAP[row - 1][col] === 0) {
+          ctx.fillStyle = 'rgba(34,211,238,0.18)';
+          ctx.fillRect(x, y, TILE, 2);
+        }
+      }
+    }
+  }
 }
 
 function drawPlayer() {
@@ -555,7 +663,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText('PHASE 1 · MOVEMENT', 14, 22);
+  ctx.fillText('PHASE 2 · WALLS', 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
