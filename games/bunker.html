@@ -166,7 +166,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">2</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">3</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -507,15 +507,215 @@ function findSpawn() {
   return { x: GW / 2, y: GH / 2 };  // fallback, shouldn't hit
 }
 
+// ================================================================
+// GUARD AI HELPERS — Phase 3
+// ================================================================
+
+// Line-of-sight: is the segment from (x1,y1) to (x2,y2) unobstructed
+// by any wall tile? Walks the line in small steps and samples the
+// tilemap. Returns true if any point along the line is a wall.
+function segmentHitsWall(x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.1) return false;
+  // Step size ≤ TILE/3 so we can't jump over a wall tile between samples
+  const step = TILE / 3;
+  const steps = Math.max(1, Math.ceil(dist / step));
+  const nx = dx / dist, ny = dy / dist;
+  for (let i = 1; i <= steps; i++) {
+    const t = Math.min(i * step, dist);
+    if (isWallAt(x1 + nx * t, y1 + ny * t)) return true;
+  }
+  return false;
+}
+
+// Can the guard currently see the player?
+//   1. Distance within GUARD_VISION_RANGE
+//   2. Angle from guard's facing is within GUARD_VISION_HALF
+//   3. No wall between guard and player
+function guardCanSeePlayer(g) {
+  const px = state.player.x, py = state.player.y;
+  const dx = px - g.x, dy = py - g.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > GUARD_VISION_RANGE) return false;
+  const angleToPlayer = Math.atan2(dy, dx);
+  // shortest angular diff, normalized to [-π, π]
+  let diff = angleToPlayer - g.dir;
+  while (diff >  Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  if (Math.abs(diff) > GUARD_VISION_HALF) return false;
+  if (segmentHitsWall(g.x, g.y, px, py)) return false;
+  return true;
+}
+
+// Rotate an angle toward a target, at most MAX radians per frame.
+function rotateToward(cur, target, max) {
+  let diff = target - cur;
+  while (diff >  Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  if (Math.abs(diff) <= max) return target;
+  return cur + Math.sign(diff) * max;
+}
+
+// Move a guard toward (tx, ty) at speed, using the same per-axis
+// collision pattern as the player. Returns true if arrived (within
+// GUARD_WAYPOINT_TOL).
+function moveGuardToward(g, tx, ty, speed) {
+  const dx = tx - g.x, dy = ty - g.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < GUARD_WAYPOINT_TOL) return true;
+  const nx = dx / dist, ny = dy / dist;
+  // Face the direction of motion (smoothed)
+  g.dir = rotateToward(g.dir, Math.atan2(ny, nx), GUARD_TURN_RATE);
+  // Actual motion direction matches face for simplicity — guards don't
+  // strafe, they always walk forward along their facing angle.
+  const mvx = Math.cos(g.dir) * speed;
+  const mvy = Math.sin(g.dir) * speed;
+  const nx0 = g.x + mvx;
+  if (!circleHitsWall(nx0, g.y, GUARD_R)) g.x = nx0;
+  const ny0 = g.y + mvy;
+  if (!circleHitsWall(g.x, ny0, GUARD_R)) g.y = ny0;
+  return false;
+}
+
+// Per-guard update: drive the state machine
+function updateGuard(g) {
+  const canSee = guardCanSeePlayer(g);
+
+  if (g.phase === 'patrol') {
+    // Move toward current waypoint; if reached, advance. If player
+    // enters sight, switch to 'alert'.
+    if (canSee) {
+      g.phase = 'alert';
+      g.phaseT = GUARD_ALERT_TIME;
+      g.lastSeenX = state.player.x;
+      g.lastSeenY = state.player.y;
+      return;
+    }
+    const wp = g.waypoints[g.wpIdx];
+    if (moveGuardToward(g, wp.x, wp.y, GUARD_PATROL_SPEED)) {
+      g.wpIdx = (g.wpIdx + 1) % g.waypoints.length;
+    }
+  } else if (g.phase === 'alert') {
+    // Stand still and "see" — short pause before chase kicks in.
+    // If the player breaks LoS during alert, we still go to chase
+    // using the last-seen position; commits to investigating.
+    if (canSee) {
+      g.lastSeenX = state.player.x;
+      g.lastSeenY = state.player.y;
+      // Rotate to face player while alerted
+      g.dir = rotateToward(g.dir,
+        Math.atan2(state.player.y - g.y, state.player.x - g.x),
+        GUARD_TURN_RATE * 1.5);
+    }
+    g.phaseT--;
+    if (g.phaseT <= 0) {
+      g.phase = 'chase';
+    }
+  } else if (g.phase === 'chase') {
+    // Keep refreshing last-seen while visible
+    if (canSee) {
+      g.lastSeenX = state.player.x;
+      g.lastSeenY = state.player.y;
+    }
+    // Walk toward last-seen position. If we reach it without ever
+    // re-seeing the player, enter 'search' (a timed wander-at-spot).
+    const arrived = moveGuardToward(g, g.lastSeenX, g.lastSeenY, GUARD_CHASE_SPEED);
+    if (arrived && !canSee) {
+      g.phase = 'search';
+      g.phaseT = GUARD_SEARCH_TIME;
+    }
+  } else if (g.phase === 'search') {
+    // Stand at last-seen and slowly sweep facing angle left/right.
+    // If player reappears, back to alert/chase. If timer expires,
+    // return to patrol at the closest waypoint.
+    if (canSee) {
+      g.phase = 'alert';
+      g.phaseT = GUARD_ALERT_TIME;
+      g.lastSeenX = state.player.x;
+      g.lastSeenY = state.player.y;
+      return;
+    }
+    // Sweep: oscillate facing by ±60° over ~2 sec
+    const t = (GUARD_SEARCH_TIME - g.phaseT) / 30;
+    g.dir = g.dir + Math.sin(t) * 0.04;  // gentle oscillation
+    g.phaseT--;
+    if (g.phaseT <= 0) {
+      // Snap to the nearest waypoint and resume patrol
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < g.waypoints.length; i++) {
+        const w = g.waypoints[i];
+        const d = Math.hypot(w.x - g.x, w.y - g.y);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      g.wpIdx = best;
+      g.phase = 'patrol';
+    }
+  }
+}
+
+function updateGuards() {
+  for (const g of state.guards) updateGuard(g);
+}
+
+// ── Guards — Phase 3 ─────────────────────────────────────────────
+const GUARD_R             = 12;
+const GUARD_PATROL_SPEED  = 1.3;
+const GUARD_CHASE_SPEED   = 2.2;
+const GUARD_TURN_RATE     = 0.07;   // radians per frame when rotating toward target
+const GUARD_VISION_RANGE  = 220;    // how far the cone reaches (px)
+const GUARD_VISION_HALF   = Math.PI / 5;   // half-angle of the cone (≈36° total)
+const GUARD_ALERT_TIME    = 45;     // frames of "?" pause before committing to chase
+const GUARD_SEARCH_TIME   = 150;    // frames spent searching at lost-sight position
+const GUARD_WAYPOINT_TOL  = 6;      // px tolerance to consider a waypoint reached
+
+// Guards list — positions in PIXEL coordinates, patrol waypoints too.
+// Each waypoint is picked from open floor tiles; guards walk between
+// them in order and loop. State starts as 'patrol'.
+function makeGuards() {
+  // Helper: convert (col, row) to pixel center
+  const tc = (c, r) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 });
+  return [
+    {
+      x: tc(2, 1).x,  y: tc(2, 1).y,
+      dir: 0,
+      phase: 'patrol',
+      phaseT: 0,
+      waypoints: [ tc(2, 1), tc(5, 1), tc(5, 5), tc(2, 5) ],   // upper-left patrol loop
+      wpIdx: 0,
+      lastSeenX: 0, lastSeenY: 0
+    },
+    {
+      x: tc(10, 7).x, y: tc(10, 7).y,
+      dir: Math.PI,
+      phase: 'patrol',
+      phaseT: 0,
+      waypoints: [ tc(10, 7), tc(10, 1), tc(16, 1), tc(16, 7) ],  // right-side sweep
+      wpIdx: 0,
+      lastSeenX: 0, lastSeenY: 0
+    },
+    {
+      x: tc(3, 11).x, y: tc(3, 11).y,
+      dir: -Math.PI / 2,
+      phase: 'patrol',
+      phaseT: 0,
+      waypoints: [ tc(3, 11), tc(8, 11), tc(8, 8), tc(3, 8) ],  // lower corridor
+      wpIdx: 0,
+      lastSeenX: 0, lastSeenY: 0
+    }
+  ];
+}
+
 // var so window.state is exposed for the score bridge in other games;
-// we don't use the score bridge for this game yet (top bar shows "PHASE 2")
+// we don't use the score bridge for this game yet (top bar shows "PHASE 3")
 const SPAWN = findSpawn();
 var state = {
   player: {
     x: SPAWN.x,
     y: SPAWN.y,
     dir: -Math.PI / 2   // facing up initially
-  }
+  },
+  guards: makeGuards()
 };
 
 // ================================================================
@@ -578,6 +778,8 @@ function update() {
   if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
   }
+
+  updateGuards();
 }
 
 // ================================================================
@@ -633,6 +835,76 @@ function drawFloor() {
   }
 }
 
+function drawGuardCone(g) {
+  // Translucent pie slice from the guard's position out to VISION_RANGE.
+  // Color depends on state so you can see the AI reacting.
+  let col;
+  if      (g.phase === 'patrol') col = 'rgba(251, 191, 36, 0.12)';  // yellow (calm)
+  else if (g.phase === 'alert')  col = 'rgba(251, 146, 60, 0.28)';  // amber (investigating)
+  else if (g.phase === 'chase')  col = 'rgba(239, 68, 68, 0.35)';   // red (hostile)
+  else                           col = 'rgba(251, 191, 36, 0.22)';  // search — yellow darker
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(g.x, g.y);
+  ctx.arc(g.x, g.y, GUARD_VISION_RANGE,
+          g.dir - GUARD_VISION_HALF,
+          g.dir + GUARD_VISION_HALF);
+  ctx.closePath();
+  ctx.fill();
+
+  // Thin border on the cone edges so the extent is visible
+  ctx.strokeStyle = col.replace(/,\s*[\d.]+\)$/, ', 0.5)');
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(g.x, g.y);
+  ctx.lineTo(g.x + Math.cos(g.dir - GUARD_VISION_HALF) * GUARD_VISION_RANGE,
+             g.y + Math.sin(g.dir - GUARD_VISION_HALF) * GUARD_VISION_RANGE);
+  ctx.moveTo(g.x, g.y);
+  ctx.lineTo(g.x + Math.cos(g.dir + GUARD_VISION_HALF) * GUARD_VISION_RANGE,
+             g.y + Math.sin(g.dir + GUARD_VISION_HALF) * GUARD_VISION_RANGE);
+  ctx.stroke();
+}
+
+function drawGuardBody(g) {
+  // Body + heading indicator, matching player style but red
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  ctx.rotate(g.dir);
+  ctx.fillStyle = '#ef4444';
+  ctx.beginPath();
+  ctx.arc(0, 0, GUARD_R, 0, Math.PI * 2);
+  ctx.fill();
+  // Heading bar
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(GUARD_R - 2, 0);
+  ctx.lineTo(GUARD_R + 6, 0);
+  ctx.stroke();
+  ctx.restore();
+
+  // Small state icon above the guard's head
+  let mark = '';
+  if      (g.phase === 'alert')  mark = '?';
+  else if (g.phase === 'chase')  mark = '!';
+  else if (g.phase === 'search') mark = '…';
+  if (mark) {
+    ctx.font      = "bold 16px 'Courier New', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillStyle = g.phase === 'chase' ? '#ef4444'
+                  : g.phase === 'alert' ? '#fb923c'
+                                        : '#fbbf24';
+    ctx.fillText(mark, g.x, g.y - GUARD_R - 6);
+  }
+}
+
+function drawGuards() {
+  // Draw all cones first (under guard bodies), then bodies on top
+  for (const g of state.guards) drawGuardCone(g);
+  for (const g of state.guards) drawGuardBody(g);
+}
+
 function drawPlayer() {
   const p = state.player;
   ctx.save();
@@ -663,7 +935,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText('PHASE 2 · WALLS', 14, 22);
+  ctx.fillText('PHASE 3 · GUARDS', 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -678,6 +950,7 @@ function drawHUD() {
 
 function draw() {
   drawFloor();
+  drawGuards();
   drawPlayer();
   drawHUD();
 }
