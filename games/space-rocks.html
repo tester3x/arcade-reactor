@@ -350,10 +350,19 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
-// Enter: start / restart (keyboard)
+// Enter: start / restart · Escape or P: pause / resume
 document.addEventListener('keydown', e => {
   if (e.code === 'Enter' && (!state || state.phase === 'gameover')) startGame();
+  if ((e.code === 'Escape' || e.code === 'KeyP') && state && (state.phase === 'play' || state.phase === 'paused')) {
+    togglePause();
+  }
 });
+
+function togglePause() {
+  if (!state) return;
+  if (state.phase === 'play')        { state.pausedFrom = 'play'; state.phase = 'paused'; }
+  else if (state.phase === 'paused') { state.phase = state.pausedFrom || 'play'; }
+}
 
 // ── Touch button wiring ───────────────────────────────────────────
 function wireBtn(id, prop) {
@@ -556,6 +565,7 @@ function pollGamepad() {
   const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
   if (startPressed && !padLastButtons[9]) {
     if (!state || state.phase === 'gameover') startGame();
+    else if (state.phase === 'play' || state.phase === 'paused') togglePause();
   }
   for (let i = 0; i < gp.buttons.length; i++) {
     padLastButtons[i] = gp.buttons[i] && gp.buttons[i].pressed;
@@ -939,9 +949,18 @@ function draw() {
     ctx.fill();
   }
 
-  if (state.phase === 'play') drawShip(state.ship);
+  if (state.phase === 'play' || state.phase === 'paused') drawShip(state.ship);
 
   drawHUD();
+
+  if (state.phase === 'paused') {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, GW, GH);
+    drawCenteredText('PAUSED',                                GH / 2 - 18, 42);
+    ctx.globalAlpha = 0.65;
+    drawCenteredText('PRESS  START  OR  ESC  TO  RESUME',     GH / 2 + 22, 13);
+    ctx.globalAlpha = 1;
+  }
 
   if (state.phase === 'gameover') {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
