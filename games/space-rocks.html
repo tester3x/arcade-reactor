@@ -52,7 +52,7 @@
 
   .ctrl-row {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     justify-content: space-between;
     height: 100%;
     padding: 6px 8px;
@@ -65,15 +65,14 @@
     align-items: center;
     justify-content: center;
     position: relative;
-    /* The zone is the full touch area; stick is the visible part */
     -webkit-tap-highlight-color: transparent;
   }
 
-  .ctrl-right {
-    flex: 1;
+  .ctrl-right-group {
+    flex: 0 0 auto;
     display: flex;
+    gap: 6px;
     align-items: center;
-    justify-content: center;
   }
 
   .btn {
@@ -92,15 +91,19 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.05s, border-color 0.05s;
-    width: 88px;
-    height: 88px;
+    width: 80px;
+    height: 80px;
   }
   .btn.active {
     background: rgba(255,255,255,0.18);
     border-color: rgba(255,255,255,0.7);
   }
-  .btn-icon  { font-size: 26px; line-height: 1; }
+  .btn-icon  { font-size: 24px; line-height: 1; }
   .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
+
+  #btn-thrust        { border-color: rgba(100,200,255,0.5); }
+  #btn-thrust.active { background: rgba(100,200,255,0.22); border-color: rgba(100,200,255,0.9); }
+  #btn-thrust .btn-icon { color: #9fd8ff; }
 
   #btn-fire { border-color: rgba(255,160,60,0.5); }
   #btn-fire.active {
@@ -108,7 +111,7 @@
     border-color: rgba(255,160,60,0.9);
   }
 
-  /* ── Virtual thumbstick ──────────────────────────────────────── */
+  /* ── Virtual thumbstick (horizontal-only) ────────────────────── */
   .stick-base {
     width: 96px; height: 96px;
     border-radius: 50%;
@@ -117,21 +120,13 @@
     position: relative;
     box-shadow: inset 0 0 20px rgba(255,255,255,0.04);
   }
-  .stick-base::before,
-  .stick-base::after {
+  .stick-base::before {
+    /* horizontal guide only — thrust is a button now */
     content: '';
     position: absolute;
     background: rgba(255,255,255,0.12);
-  }
-  .stick-base::before {
-    /* horizontal guide */
     top: 50%; left: 12%; right: 12%; height: 1px;
     transform: translateY(-0.5px);
-  }
-  .stick-base::after {
-    /* vertical guide */
-    left: 50%; top: 12%; bottom: 12%; width: 1px;
-    transform: translateX(-0.5px);
   }
   .stick-knob {
     position: absolute;
@@ -149,17 +144,6 @@
     border-color: rgba(34,211,238,0.9);
     box-shadow: 0 0 14px rgba(34,211,238,0.4);
   }
-  /* Small axis labels around the stick */
-  .stick-axis {
-    position: absolute;
-    font-family: 'Courier New', monospace;
-    font-size: 9px;
-    color: rgba(255,255,255,0.35);
-    letter-spacing: 0.08em;
-    pointer-events: none;
-  }
-  .stick-axis.up    { top:   -14px; left: 50%; transform: translateX(-50%); }
-  .stick-axis.down  { bottom: -14px; left: 50%; transform: translateX(-50%); }
 
   /* Hide on-screen controls when a gamepad is connected */
   body.gamepad-active #controls { display: none !important; }
@@ -254,12 +238,14 @@
     <div class="ctrl-row">
       <div class="ctrl-stick-zone" id="stick-zone">
         <div class="stick-base" id="stick-base">
-          <span class="stick-axis up">THRUST</span>
-          <span class="stick-axis down">BRAKE</span>
           <div class="stick-knob" id="stick-knob"></div>
         </div>
       </div>
-      <div class="ctrl-right">
+      <div class="ctrl-right-group">
+        <div class="btn" id="btn-thrust">
+          <span class="btn-icon">△</span>
+          <span class="btn-label">THRUST</span>
+        </div>
         <div class="btn" id="btn-fire">
           <span class="btn-icon">◉</span>
           <span class="btn-label">FIRE</span>
@@ -356,7 +342,7 @@ const ROCK_VERTS  = { large: 12, medium: 9,   small: 7   };
 // pad{} covers an optional Bluetooth gamepad. update() merges all three.
 const keys  = {};
 const touch = { left: false, right: false, thrust: false, brake: false, fire: false };
-const pad   = { left: false, right: false, thrust: false, brake: false, fire: false, connected: false };
+const pad   = { left: false, right: false, thrust: false, brake: false, fire: false, connected: false, turnAxis: 0 };
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -397,66 +383,50 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseleave',release);
 }
 
+wireBtn('btn-thrust', 'thrust');
 wireBtn('btn-fire',   'fire');
 
-// ── Virtual thumbstick ────────────────────────────────────────────
-// Digital zones: push knob past DEAD_ZONE in any direction. The
-// stick-zone (containing div) is the full touch target — finger can
-// land anywhere on that side of the screen. Visual knob tracks the
-// finger position, clamped to the base radius.
+// ── Virtual thumbstick (horizontal-only) ─────────────────────────
+// Stick only turns left/right. Thrust is a dedicated button to the
+// right of the stick, so slight vertical finger drift can never cause
+// accidental thrust. Finger-anchor: the base jumps to wherever the
+// finger lands, so no need to aim for the knob.
 function wireStick(zoneId, baseId, knobId) {
   const zone = document.getElementById(zoneId);
   const base = document.getElementById(baseId);
   const knob = document.getElementById(knobId);
   if (!zone || !base || !knob) return;
 
-  const DEAD_ZONE    = 12;   // px from center before a direction commits
-  const MAX_RADIUS   = 32;   // knob travel limit from base center
+  const DEAD_ZONE  = 10;
+  const MAX_RADIUS = 32;
 
   let trackingId = null;
-  let originCX   = 0, originCY = 0;  // the "center" is wherever finger landed
+  let originCX   = 0;
 
-  function setZones(dx, dy) {
-    // Digital: left/right dominant axis or up/down dominant axis; both allowed
-    const mag = Math.hypot(dx, dy);
-    if (mag < DEAD_ZONE) {
-      touch.left = touch.right = touch.thrust = touch.brake = false;
-      base.classList.remove('active');
-      return;
-    }
-    base.classList.add('active');
-    // Horizontal: dominant if |dx| > 0.4 * mag (roughly 22° off vertical)
-    touch.left  = (dx < -DEAD_ZONE);
-    touch.right = (dx >  DEAD_ZONE);
-    // Vertical: thrust on up-push, brake on down-push
-    touch.thrust = (dy < -DEAD_ZONE);
-    touch.brake  = (dy >  DEAD_ZONE);
+  function setDir(dir) {
+    touch.left  = (dir === -1);
+    touch.right = (dir === +1);
+    base.classList.toggle('active', dir !== 0);
   }
 
-  function moveKnob(dx, dy) {
-    const mag = Math.hypot(dx, dy);
-    let vx = dx, vy = dy;
-    if (mag > MAX_RADIUS) {
-      const s = MAX_RADIUS / mag;
-      vx = dx * s; vy = dy * s;
-    }
-    knob.style.transform = `translate(calc(-50% + ${vx}px), calc(-50% + ${vy}px))`;
+  function moveKnob(dx) {
+    const clamped = Math.max(-MAX_RADIUS, Math.min(MAX_RADIUS, dx));
+    knob.style.transform = `translate(calc(-50% + ${clamped}px), -50%)`;
   }
 
   function resetKnob() {
     knob.style.transform = 'translate(-50%, -50%)';
-    touch.left = touch.right = touch.thrust = touch.brake = false;
-    base.classList.remove('active');
+    setDir(0);
   }
 
-  function xyFromEvent(e) {
+  function xFromEvent(e) {
     if (e.touches && e.touches.length) {
       if (trackingId !== null) {
-        for (const t of e.touches) if (t.identifier === trackingId) return { x: t.clientX, y: t.clientY };
+        for (const t of e.touches) if (t.identifier === trackingId) return t.clientX;
       }
-      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      return e.touches[0].clientX;
     }
-    return { x: e.clientX, y: e.clientY };
+    return e.clientX;
   }
 
   function onDown(e) {
@@ -471,18 +441,12 @@ function wireStick(zoneId, baseId, knobId) {
       trackingId = 'mouse';
       cx = e.clientX; cy = e.clientY;
     }
-    // Anchor the stick wherever the finger landed — lets player drop thumb
-    // anywhere on the left half without having to find the knob exactly.
-    // We move the visible base to the finger position.
     const rect = zone.getBoundingClientRect();
-    const localX = cx - rect.left;
-    const localY = cy - rect.top;
-    base.style.position = 'absolute';
-    base.style.left = localX + 'px';
-    base.style.top  = localY + 'px';
+    base.style.position  = 'absolute';
+    base.style.left = (cx - rect.left) + 'px';
+    base.style.top  = (cy - rect.top)  + 'px';
     base.style.transform = 'translate(-50%, -50%)';
     originCX = cx;
-    originCY = cy;
     resetKnob();
     if (!state || state.phase === 'gameover') startGame();
   }
@@ -490,11 +454,12 @@ function wireStick(zoneId, baseId, knobId) {
   function onMove(e) {
     if (trackingId === null) return;
     e.preventDefault();
-    const { x, y } = xyFromEvent(e);
+    const x = xFromEvent(e);
     const dx = x - originCX;
-    const dy = y - originCY;
-    setZones(dx, dy);
-    moveKnob(dx, dy);
+    moveKnob(dx);
+    if (dx < -DEAD_ZONE)      setDir(-1);
+    else if (dx >  DEAD_ZONE) setDir(+1);
+    else                      setDir( 0);
   }
 
   function onUp(e) {
@@ -506,8 +471,7 @@ function wireStick(zoneId, baseId, knobId) {
     }
     e.preventDefault();
     trackingId = null;
-    // Reset base to its default centered position
-    base.style.position = '';
+    base.style.position  = '';
     base.style.left = '';
     base.style.top  = '';
     base.style.transform = '';
@@ -573,6 +537,17 @@ function pollGamepad() {
   pad.right  = (ax >  PAD_AXIS_DEAD) || dpadR;
   pad.thrust = (ay < -PAD_AXIS_DEAD) || dpadU;
   pad.brake  = (ay >  PAD_AXIS_DEAD) || dpadD;
+
+  // Analog turn axis: -1 (full left) to +1 (full right), 0 in dead zone.
+  // D-pad taps act as full-magnitude so digital-only pads still feel snappy.
+  if (dpadL)       pad.turnAxis = -1;
+  else if (dpadR)  pad.turnAxis =  1;
+  else if (ax < -PAD_AXIS_DEAD) pad.turnAxis = (ax + PAD_AXIS_DEAD) / (1 - PAD_AXIS_DEAD);
+  else if (ax >  PAD_AXIS_DEAD) pad.turnAxis = (ax - PAD_AXIS_DEAD) / (1 - PAD_AXIS_DEAD);
+  else pad.turnAxis = 0;
+  // Clamp just in case the pad reports outside [-1,1]
+  if (pad.turnAxis < -1) pad.turnAxis = -1;
+  if (pad.turnAxis >  1) pad.turnAxis =  1;
 
   // Face buttons: 0=A/X, 1=B/O, 2=X/square, 3=Y/triangle
   pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
@@ -719,8 +694,17 @@ function update() {
   const goBrake  = keys['ArrowDown']  || keys['KeyS']  || touch.brake  || pad.brake;
   const goFire   = keys['Space']      || keys['KeyZ']  || touch.fire   || pad.fire;
 
-  if (goLeft)  ship.angle -= TURN_SPEED;
-  if (goRight) ship.angle += TURN_SPEED;
+  // Turn: gamepad is analog (scaled by stick push, 1x→3x of keyboard rate).
+  // Keyboard/touch still use the fixed TURN_SPEED. Gamepad wins when active
+  // so a resting keyboard key doesn't double-count with a stick push.
+  const PAD_TURN_MULT = 3.0;   // max multiplier at full stick push
+  if (Math.abs(pad.turnAxis) > 0.001) {
+    // gamepad is the authority this frame
+    ship.angle += pad.turnAxis * TURN_SPEED * PAD_TURN_MULT;
+  } else {
+    if (goLeft)  ship.angle -= TURN_SPEED;
+    if (goRight) ship.angle += TURN_SPEED;
+  }
 
   ship.thrusting = goThrust;
   if (goThrust) {
