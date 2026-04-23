@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">7</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">8</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -269,7 +269,7 @@ document.addEventListener('keydown', e => {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter'].includes(e.code)) {
     e.preventDefault();
   }
-  if (e.code === 'Enter' && state && (state.gameover || state.won)) restartGame();
+  if (e.code === 'Enter' && state && (state.gameover || state.won || state.timesUp)) restartGame();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -404,7 +404,11 @@ function wireBtn(id, prop) {
 wireBtn('btn-fire', 'fire');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 document.addEventListener('touchstart', e => {
-  if (state && ((state.gameover && state.gameoverT > 30) || (state.won && state.wonT > 30))) {
+  if (state && (
+        (state.gameover && state.gameoverT > 30) ||
+        (state.won      && state.wonT      > 30) ||
+        (state.timesUp  && state.timesUpT  > 30)
+      )) {
     restartGame();
   }
 }, { passive: true });
@@ -472,7 +476,7 @@ function pollGamepad() {
   pad.firePrev = pad.fire;
   pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
   const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
-  if (startPressed && !padLastButtons[9] && (state.gameover || state.won)) {
+  if (startPressed && !padLastButtons[9] && (state.gameover || state.won || state.timesUp)) {
     restartGame();
   }
 
@@ -505,6 +509,12 @@ const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard 
 // ── Pickups / objectives — Phase 6 ───────────────────────────────
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
 const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (~2s)
+
+// ── Countdown timer — Phase 8 ────────────────────────────────────
+const TIMER_DURATION_FRAMES = 180 * 60;   // 3 minutes at 60fps
+const TIMER_YELLOW_FRAMES   = 60  * 60;   // turn yellow under 60s
+const TIMER_RED_FRAMES      = 30  * 60;   // turn red under 30s
+const TIMER_FLASH_FRAMES    = 10  * 60;   // flash under 10s
 
 // ── Ammo + pickups — Phase 7 ─────────────────────────────────────
 const PLAYER_AMMO_START   = 15;    // starting rounds — enough to fight through carelessly, not enough to waste
@@ -1095,6 +1105,12 @@ function buildState() {
     won:           false,
     wonT:          0,    // frames since win (for fade-in)
     visitedRooms:  { [LEVEL_1.startRoomId]: true },
+    // Phase 8: countdown timer. Doesn't start ticking until the
+    // player first moves — gives a beat to orient on spawn.
+    timerFrames:   TIMER_DURATION_FRAMES,
+    timerStarted:  false,
+    timesUp:       false,
+    timesUpT:      0,    // frames since TIME'S UP (for fade-in)
     gameover: false,
     gameoverT: 0
   };
@@ -1147,9 +1163,11 @@ const TRANSITION_OUT_FRAMES = 10;
 const TRANSITION_IN_FRAMES  = 10;
 
 function update() {
-  // Hard freeze on gameover or win; just increment the fade timer.
+  // Hard freeze on gameover / win / time's up; just increment the
+  // fade timer. All three are terminal states handled the same way.
   if (state.gameover) { state.gameoverT++; return; }
   if (state.won)      { state.wonT++;      return; }
+  if (state.timesUp)  { state.timesUpT++;  return; }
 
   // Tick down the "NEED N KEYS" prompt regardless of other updates
   // so it doesn't get stuck on screen forever after one trigger.
@@ -1178,6 +1196,23 @@ function update() {
 
   const p = state.player;
   const { vx, vy } = getMoveVector();
+
+  // ── Countdown timer ───────────────────────────────────────────
+  // Starts on first movement input (any non-zero vector). While
+  // started and gameplay is active, tick down each frame. Hits 0
+  // → TIME'S UP terminal state.
+  if (!state.timerStarted && (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01)) {
+    state.timerStarted = true;
+  }
+  if (state.timerStarted && state.timerFrames > 0) {
+    state.timerFrames--;
+    if (state.timerFrames <= 0) {
+      state.timesUp = true;
+      state.timesUpT = 0;
+      return;
+    }
+  }
+
 
   // Speed boost: while active, move faster. Decrement each frame.
   if (p.speedBoostT > 0) p.speedBoostT--;
@@ -1680,7 +1715,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText(`PHASE 7 · PICKUPS  [${state.currentRoomId}]`, 14, 22);
+  ctx.fillText(`PHASE 8 · TIMER  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -1758,6 +1793,66 @@ function drawNeedKeys() {
   ctx.textAlign = 'center';
   ctx.fillStyle = `rgba(252, 165, 165, ${a})`;
   ctx.fillText(`NEED ${remaining} KEY${remaining === 1 ? '' : 'S'}`, p.x, p.y - 28);
+}
+
+function drawTimer() {
+  // Top-center big mono readout: M:SS. White normally, yellow under
+  // 60s, red under 30s, flashing under 10s. Dim before it's started.
+  const f = Math.max(0, state.timerFrames);
+  const totalSec = Math.ceil(f / 60);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  const text = `${mm}:${ss.toString().padStart(2, '0')}`;
+
+  let color, alpha = 1;
+  if      (f <= TIMER_FLASH_FRAMES)  {
+    color = '#ef4444';
+    // 6 Hz flash — only while actively counting
+    if (state.timerStarted) alpha = 0.4 + 0.6 * (Math.sin(Date.now() / 60) * 0.5 + 0.5);
+  } else if (f <= TIMER_RED_FRAMES)    color = '#ef4444';
+  else if   (f <= TIMER_YELLOW_FRAMES) color = '#fbbf24';
+  else                                 color = '#e6edf3';
+  if (!state.timerStarted) alpha = 0.55;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = "bold 30px 'JetBrains Mono', 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  // Soft shadow for legibility over any tile color
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillText(text, GW / 2 + 2, 10 + 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, GW / 2, 10);
+  ctx.restore();
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawTimesUp() {
+  const fade = Math.min(1, state.timesUpT / 30);
+  ctx.fillStyle = `rgba(88, 12, 12, ${0.82 * fade})`;
+  ctx.fillRect(0, 0, GW, GH);
+
+  const t = (Date.now() % 1000) / 1000;
+  const pulse = 0.6 + 0.4 * Math.sin(t * Math.PI * 2);
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.font = "bold 52px 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  // Red halo behind the main text
+  ctx.fillStyle = `rgba(239, 68, 68, ${0.3 * pulse})`;
+  ctx.fillText("TIME'S  UP", GW / 2 + 2, GH / 2 - 28);
+  ctx.fillStyle = '#fecaca';
+  ctx.fillText("TIME'S  UP", GW / 2,     GH / 2 - 30);
+  ctx.restore();
+
+  if (fade >= 1) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    if      (pad.connected) drawCenteredText('PRESS  START  TO  TRY  AGAIN',  GH / 2 + 24, 14);
+    else if (touchMode)     drawCenteredText('TAP  ANYWHERE  TO  TRY  AGAIN', GH / 2 + 24, 14);
+    else                    drawCenteredText('PRESS  ENTER  TO  TRY  AGAIN',  GH / 2 + 24, 14);
+  }
 }
 
 function drawMinimap() {
@@ -1929,9 +2024,11 @@ function draw() {
   drawPlayer();
   drawNeedKeys();
   drawHUD();
+  drawTimer();
   drawMinimap();
   if (state.gameover)   drawGameOver();
   if (state.won)        drawWin();
+  if (state.timesUp)    drawTimesUp();
   if (state.transition) drawTransition();
 }
 
