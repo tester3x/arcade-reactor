@@ -806,6 +806,11 @@ function segmentHitsWall(x1, y1, x2, y2) {
 //   2. Angle from guard's facing is within GUARD_VISION_HALF
 //   3. No wall between guard and player
 function guardCanSeePlayer(g) {
+  // Simulation mode: when we're pre-rolling guard patrols during a
+  // room reset, the player isn't really "in the room" even if
+  // their coords say so. Skip the check entirely to avoid spurious
+  // alerts during the sim.
+  if (state._simulatingGuards) return false;
   // Stealth cloak: while the speed boost is active the player is
   // invisible to vision cones. Guards finish any chase/search they
   // already committed to, then resume patrol — which gives you a
@@ -1293,11 +1298,18 @@ function addAlertness(n) {
 }
 
 // Reset the surviving guards in a room back to their patrol anchors
-// and fresh AI state. Used when the player leaves the room so that
-// coming back doesn't leave guards mid-chase in the wrong place.
-// Dead guards stay dead — leaving the room only resets living
-// guards' behavior, not your kill progress. Also clears any bullets
-// in the room since they'd otherwise freeze mid-flight.
+// and fresh AI state, then pre-roll a random number of patrol
+// frames so they're not rubber-banded to anchor when the player
+// re-enters. Dead guards stay dead. Bullets in the room are cleared.
+//
+// The pre-roll runs updateGuard for each guard while _simulatingGuards
+// is set, which short-circuits canSee to false — so no spurious
+// alerts from a player who isn't really in the room yet. currentRoomId
+// is temporarily pointed at the target room so the guard AI's wall/
+// doorway lookups sample the right map.
+const RESET_SIM_FRAMES_MIN = 30;   // 0.5s of sim patrol minimum
+const RESET_SIM_FRAMES_MAX = 120;  // 2s of sim patrol maximum
+
 function resetGuardsInRoom(roomId) {
   const rs = state.rooms[roomId];
   if (!rs) return;
@@ -1317,6 +1329,22 @@ function resetGuardsInRoom(roomId) {
     g.investigateTimer = iv.min + Math.floor(Math.random() * (iv.max - iv.min));
   }
   rs.bullets = [];
+
+  // Pre-roll: let the guards wander for a random number of frames
+  // so they're somewhere along their patrol when the player comes
+  // back. currentRoomId points at this room already (we're called
+  // mid-transition from the leaving room), but we save/restore it
+  // so the function is safe to call from anywhere.
+  const savedRoomId = state.currentRoomId;
+  state.currentRoomId = roomId;
+  state._simulatingGuards = true;
+  const simFrames = RESET_SIM_FRAMES_MIN +
+                    Math.floor(Math.random() * (RESET_SIM_FRAMES_MAX - RESET_SIM_FRAMES_MIN));
+  for (let f = 0; f < simFrames; f++) {
+    for (const g of rs.guards) updateGuard(g);
+  }
+  state._simulatingGuards = false;
+  state.currentRoomId = savedRoomId;
 }
 
 // Short knockback: push the player away from (fromX, fromY) by up
