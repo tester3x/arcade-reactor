@@ -566,7 +566,8 @@ const LEVEL_1 = {
         [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
         [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
       ],
-      playerSpawn: { x: 2, y: 6 },
+      playerSpawn:  { x: 2, y: 6 },
+      respawnPoint: { x: 2, y: 6 },
       doorways: [
         { x: 17, y: 5, toRoom: 'B', toX: 1, toY: 5 },
         { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
@@ -592,6 +593,7 @@ const LEVEL_1 = {
         [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
         [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
       ],
+      respawnPoint: { x: 1, y: 5 },
       doorways: [
         // West → back to A
         { x: 0, y: 5, toRoom: 'A', toX: 16, toY: 5 },
@@ -625,6 +627,7 @@ const LEVEL_1 = {
         { x: 0, y: 5, toRoom: 'B', toX: 16, toY: 5 },
         { x: 0, y: 6, toRoom: 'B', toX: 16, toY: 6 },
       ],
+      respawnPoint:  { x: 1, y: 5 },
       // Exit tile: walkable floor on the east wall. Renders as a
       // green door regardless of locked state. Stepping onto it
       // with all keys collected triggers the WIN; without all keys
@@ -1359,12 +1362,11 @@ function update() {
   updateGuards();
 
   // ── Guard contact damages player ──────────────────────────────
-  // One hit per contact event per guard: once a guard has damaged
-  // the player, they can't hit again until the player has moved
-  // outside GUARD_DISENGAGE_R (hysteresis so flickering right at
-  // the edge doesn't re-trigger). Previous behavior was "damage
-  // when iframes expire and guard still in range" → getting stuck
-  // on a guard ate your whole life bar in ~3 seconds.
+  // On a fresh hit: take 1 HP and teleport back to the room's
+  // respawnPoint. This prevents the "stuck on guard" exploit
+  // (contact flag would otherwise keep you pinned indefinitely)
+  // and gives the game a "don't get caught" feel — being touched
+  // costs you ground, not just health.
   if (p.iframes > 0) p.iframes--;
   for (const g of rs.guards) {
     const ddx  = g.x - p.x, ddy = g.y - p.y;
@@ -1378,7 +1380,18 @@ function update() {
       if (p.hp <= 0) {
         state.gameover = true;
         state.gameoverT = 0;
+      } else {
+        // Teleport to room respawn point, reset all guard contact
+        // flags in this room so the slate is clean at the new spot.
+        const rp = currentRoom().respawnPoint;
+        if (rp) {
+          const px = tileToPx(rp.x, rp.y);
+          p.x = px.x;
+          p.y = px.y;
+          for (const other of rs.guards) other.contacted = false;
+        }
       }
+      break;  // one hit per frame is plenty
     } else if (outOfRange) {
       g.contacted = false;
     }
