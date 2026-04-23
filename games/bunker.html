@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">8</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">9</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -510,6 +510,24 @@ const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard 
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
 const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (~2s)
 
+// ── Global alertness — Phase 9 ───────────────────────────────────
+// Scalar 0..100 that rises when the player is loud/sloppy and
+// decays slowly otherwise. Affects vision cone width, patrol speed,
+// and investigate interval for all guards in the level.
+const ALERTNESS_MAX          = 100;
+const ALERTNESS_ON_FIRE      = 8;    // each shot fired (loudness)
+const ALERTNESS_ON_KILL      = 20;   // each guard killed (evidence)
+const ALERTNESS_ON_SPOTTED   = 15;   // anytime a guard spots you
+const ALERTNESS_DECAY_PER_F  = 0.02; // per frame — ~1.2 per second
+const ALERTNESS_SPOT_COOLDOWN = 30;  // frames between spotted+bumps from the SAME guard (avoid per-frame spam)
+
+// Scaling of guard behavior by alertness level. Value at 100 /
+// value at 0 = multiplier at max alertness. Linear interpolation.
+const ALERTNESS_CONE_SCALE_MAX      = 1.5;   // 36° cone half-width -> 54° at max
+const ALERTNESS_SPEED_SCALE_MAX     = 1.55;  // 1.6 patrol -> 2.48 at max
+const ALERTNESS_INVEST_MIN_AT_MAX   = 240;   // frames (4s) — was 600 base
+const ALERTNESS_INVEST_MAX_AT_MAX   = 480;   // frames (8s) — was 1500 base
+
 // ── Countdown timer — Phase 8 ────────────────────────────────────
 const TIMER_DURATION_FRAMES = 180 * 60;   // 3 minutes at 60fps
 const TIMER_YELLOW_FRAMES   = 60  * 60;   // turn yellow under 60s
@@ -756,7 +774,7 @@ function guardCanSeePlayer(g) {
   let diff = angleToPlayer - g.dir;
   while (diff >  Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
-  if (Math.abs(diff) > GUARD_VISION_HALF) return false;
+  if (Math.abs(diff) > guardVisionHalfNow()) return false;
   if (segmentHitsWall(g.x, g.y, px, py)) return false;
   return true;
 }
@@ -861,10 +879,11 @@ function updateGuard(g) {
       g.phaseT = GUARD_ALERT_TIME;
       g.lastSeenX = state.player.x;
       g.lastSeenY = state.player.y;
+      addAlertness(ALERTNESS_ON_SPOTTED);
       return;
     }
 
-    const speed = GUARD_PATROL_SPEED;
+    const speed = guardPatrolSpeedNow();
     const mvx = Math.cos(g.dir) * speed;
     const mvy = Math.sin(g.dir) * speed;
 
@@ -912,7 +931,8 @@ function updateGuard(g) {
         g.phaseT = 0;  // not used during walking; used during look-around
       }
       // Reset timer whether or not we found a spot
-      g.investigateTimer = GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN));
+      const iv = guardInvestigateIntervalNow();
+      g.investigateTimer = iv.min + Math.floor(Math.random() * (iv.max - iv.min));
     }
   } else if (g.phase === 'investigate') {
     // Head purposefully toward investigateX/Y, then look around for a
@@ -925,6 +945,7 @@ function updateGuard(g) {
       g.phaseT = GUARD_ALERT_TIME;
       g.lastSeenX = state.player.x;
       g.lastSeenY = state.player.y;
+      addAlertness(ALERTNESS_ON_SPOTTED);
       return;
     }
     if (g.phaseT > 0) {
@@ -939,7 +960,7 @@ function updateGuard(g) {
       }
     } else {
       // Walking to the spot — faster than patrol speed, slower than chase
-      const arrived = moveGuardToward(g, g.investigateX, g.investigateY, GUARD_PATROL_SPEED * 1.35);
+      const arrived = moveGuardToward(g, g.investigateX, g.investigateY, guardPatrolSpeedNow() * 1.35);
       if (arrived) {
         g.phaseT = GUARD_INVESTIGATE_LOOK;
       }
@@ -1000,6 +1021,7 @@ function updateGuard(g) {
       g.phaseT = GUARD_ALERT_TIME;
       g.lastSeenX = state.player.x;
       g.lastSeenY = state.player.y;
+      addAlertness(ALERTNESS_ON_SPOTTED);
       return;
     }
     // Sweep: oscillate facing by ±60° over ~2 sec
@@ -1114,6 +1136,10 @@ function buildState() {
     timerStarted:  false,
     timesUp:       false,
     timesUpT:      0,    // frames since TIME'S UP (for fade-in)
+    // Phase 9: global alertness (0..ALERTNESS_MAX). Rises on noise
+    // events, decays over time. Drives cone width, patrol speed,
+    // investigate cadence for all guards.
+    alertness:     0,
     gameover: false,
     gameoverT: 0
   };
@@ -1165,12 +1191,43 @@ function getMoveVector() {
 const TRANSITION_OUT_FRAMES = 10;
 const TRANSITION_IN_FRAMES  = 10;
 
+// ── Alertness helpers (Phase 9) ─────────────────────────────────
+// Scale factor 0..1. Used as linear interp factor for all the
+// alertness-driven guard behaviors.
+function alertnessScale() {
+  return Math.min(1, Math.max(0, state.alertness / ALERTNESS_MAX));
+}
+// Current effective values that scale with alertness. Called on
+// demand by cone/patrol/investigate code so behavior updates in
+// real time as alertness rises and decays.
+function guardVisionHalfNow() {
+  return GUARD_VISION_HALF * (1 + (ALERTNESS_CONE_SCALE_MAX - 1) * alertnessScale());
+}
+function guardPatrolSpeedNow() {
+  return GUARD_PATROL_SPEED * (1 + (ALERTNESS_SPEED_SCALE_MAX - 1) * alertnessScale());
+}
+function guardInvestigateIntervalNow() {
+  const s = alertnessScale();
+  const min = GUARD_INVESTIGATE_MIN + (ALERTNESS_INVEST_MIN_AT_MAX - GUARD_INVESTIGATE_MIN) * s;
+  const max = GUARD_INVESTIGATE_MAX + (ALERTNESS_INVEST_MAX_AT_MAX - GUARD_INVESTIGATE_MAX) * s;
+  return { min: Math.floor(min), max: Math.floor(max) };
+}
+function addAlertness(n) {
+  state.alertness = Math.min(ALERTNESS_MAX, state.alertness + n);
+}
+
 function update() {
   // Hard freeze on gameover / win / time's up; just increment the
   // fade timer. All three are terminal states handled the same way.
   if (state.gameover) { state.gameoverT++; return; }
   if (state.won)      { state.wonT++;      return; }
   if (state.timesUp)  { state.timesUpT++;  return; }
+
+  // Alertness decay — continuous, only while gameplay is active.
+  // Rising triggers are hooked in the firing/kill/spot sites.
+  if (state.alertness > 0) {
+    state.alertness = Math.max(0, state.alertness - ALERTNESS_DECAY_PER_F);
+  }
 
   // Tick down the "NEED N KEYS" prompt regardless of other updates
   // so it doesn't get stuck on screen forever after one trigger.
@@ -1335,6 +1392,7 @@ function update() {
     });
     p.shootCooldown = FIRE_COOLDOWN;
     p.ammo--;
+    addAlertness(ALERTNESS_ON_FIRE);
   }
 
   // ── Bullets ───────────────────────────────────────────────────
@@ -1352,6 +1410,7 @@ function update() {
       if (ddx * ddx + ddy * ddy < (GUARD_R + BULLET_R) * (GUARD_R + BULLET_R)) {
         g.dead = true;
         b.dead = true;
+        addAlertness(ALERTNESS_ON_KILL);
         break;
       }
     }
@@ -1594,12 +1653,15 @@ function drawGuardCone(g) {
   else if (g.phase === 'alert')       col = 'rgba(251, 146, 60, 0.28)';  // amber (investigating player)
   else if (g.phase === 'chase')       col = 'rgba(239, 68, 68, 0.35)';   // red (hostile)
   else                                col = 'rgba(251, 191, 36, 0.22)';  // search — yellow darker
+  // Alertness widens the cone — match the visual to the effective
+  // vision half-width so players can see "these guys are edgier."
+  const half = guardVisionHalfNow();
   ctx.fillStyle = col;
   ctx.beginPath();
   ctx.moveTo(g.x, g.y);
   ctx.arc(g.x, g.y, GUARD_VISION_RANGE,
-          g.dir - GUARD_VISION_HALF,
-          g.dir + GUARD_VISION_HALF);
+          g.dir - half,
+          g.dir + half);
   ctx.closePath();
   ctx.fill();
 
@@ -1608,11 +1670,11 @@ function drawGuardCone(g) {
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(g.x, g.y);
-  ctx.lineTo(g.x + Math.cos(g.dir - GUARD_VISION_HALF) * GUARD_VISION_RANGE,
-             g.y + Math.sin(g.dir - GUARD_VISION_HALF) * GUARD_VISION_RANGE);
+  ctx.lineTo(g.x + Math.cos(g.dir - half) * GUARD_VISION_RANGE,
+             g.y + Math.sin(g.dir - half) * GUARD_VISION_RANGE);
   ctx.moveTo(g.x, g.y);
-  ctx.lineTo(g.x + Math.cos(g.dir + GUARD_VISION_HALF) * GUARD_VISION_RANGE,
-             g.y + Math.sin(g.dir + GUARD_VISION_HALF) * GUARD_VISION_RANGE);
+  ctx.lineTo(g.x + Math.cos(g.dir + half) * GUARD_VISION_RANGE,
+             g.y + Math.sin(g.dir + half) * GUARD_VISION_RANGE);
   ctx.stroke();
 }
 
@@ -1728,7 +1790,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText(`PHASE 8 · TIMER  [${state.currentRoomId}]`, 14, 22);
+  ctx.fillText(`PHASE 9 · ALERT  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -1806,6 +1868,41 @@ function drawNeedKeys() {
   ctx.textAlign = 'center';
   ctx.fillStyle = `rgba(252, 165, 165, ${a})`;
   ctx.fillText(`NEED ${remaining} KEY${remaining === 1 ? '' : 'S'}`, p.x, p.y - 28);
+}
+
+function drawAlertness() {
+  // Thin horizontal bar, top-center under the timer. Dimmed when
+  // alertness is 0 so HUD stays clean during calm play.
+  const v = state.alertness;
+  const frac = Math.min(1, Math.max(0, v / ALERTNESS_MAX));
+  const barW = 200, barH = 8;
+  const x = (GW - barW) / 2;
+  const y = 48;
+
+  // Label
+  ctx.font      = "9px 'Courier News', 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = v > 0 ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.25)';
+  ctx.fillText('ALERT', GW / 2, y - 4);
+
+  // Background track
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(x, y, barW, barH);
+
+  // Filled portion — color shifts with level
+  let col;
+  if      (frac >= 0.9)  col = '#ef4444';   // red  (alarm-threshold territory)
+  else if (frac >= 0.6)  col = '#fb923c';   // orange (alert)
+  else if (frac >= 0.3)  col = '#fbbf24';   // yellow (warned)
+  else                   col = '#34d399';   // green (calm)
+  ctx.fillStyle = col;
+  ctx.fillRect(x, y, barW * frac, barH);
+
+  // Border
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, barH - 1);
 }
 
 function drawTimer() {
@@ -2038,6 +2135,7 @@ function draw() {
   drawNeedKeys();
   drawHUD();
   drawTimer();
+  drawAlertness();
   drawMinimap();
   if (state.gameover)   drawGameOver();
   if (state.won)        drawWin();
