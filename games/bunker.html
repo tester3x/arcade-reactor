@@ -497,8 +497,9 @@ const PLAYER_SPEED = 3.2;   // pixels per frame at full input
 const PLAYER_R     = 12;    // collision radius
 
 // ── Shooting / damage — Phase 4 ──────────────────────────────────
-const PLAYER_HP_MAX   = 3;
-const PLAYER_IFRAMES  = 60;    // frames of invulnerability after taking a hit
+const PLAYER_HP_MAX      = 5;      // baseline hit buffer so combat has a "hurt but alive" middle zone
+const PLAYER_IFRAMES     = 60;     // frames of invulnerability after taking a hit
+const KNOCKBACK_DISTANCE = 150;    // ~3 tiles; how far a guard hit pushes you back (replaces teleport-on-hit)
 const BULLET_SPEED    = 7.5;
 const BULLET_R        = 3;
 const BULLET_RANGE    = 500;   // max travel distance before bullet dies
@@ -616,7 +617,10 @@ const LEVEL_1 = {
         { x: 10, y: 10 }
       ],
       keySpawns:     [{ x: 15, y: 10 }],
-      pickupSpawns:  [{ x: 4, y: 10, type: 'speed' }],
+      pickupSpawns:  [
+        { x: 4,  y: 10, type: 'speed' },
+        { x: 15, y: 2,  type: 'health' },   // bandage tucked in the top-right — risk: exposed to sentry cone
+      ],
     },
     B: {
       name: 'Junction',
@@ -686,7 +690,10 @@ const LEVEL_1 = {
         { x: 15, y: 10, type: 'alarm' }
       ],
       keySpawns:     [{ x: 3, y: 2 }],
-      pickupSpawns:  [{ x: 10, y: 11, type: 'ammo' }],
+      pickupSpawns:  [
+        { x: 10, y: 11, type: 'ammo' },
+        { x: 5,  y: 11, type: 'health' },   // bandage before the final push — alarm guard patrols this area
+      ],
     },
   },
 };
@@ -1278,6 +1285,23 @@ function addAlertness(n) {
   state.alertness = Math.min(ALERTNESS_MAX, state.alertness + n);
 }
 
+// Short knockback: push the player away from (fromX, fromY) by up
+// to `distance` pixels, stepping to respect walls so they can't
+// clip through geometry. Used when a guard hits the player.
+function applyKnockback(p, fromX, fromY, distance) {
+  const dx = p.x - fromX, dy = p.y - fromY;
+  const dist = Math.hypot(dx, dy) || 1;
+  const nx = dx / dist, ny = dy / dist;
+  const stepSize = PLAYER_R;       // half a tile per iteration
+  const steps    = Math.ceil(distance / stepSize);
+  for (let i = 0; i < steps; i++) {
+    const tryX = p.x + nx * stepSize;
+    if (!circleHitsWall(tryX, p.y, PLAYER_R)) p.x = tryX;
+    const tryY = p.y + ny * stepSize;
+    if (!circleHitsWall(p.x, tryY, PLAYER_R)) p.y = tryY;
+  }
+}
+
 // ── Per-guard-type behavior overrides (Phase 10) ────────────────
 // Base values come from the Phase 3 constants and are scaled by
 // alertness. These per-type helpers apply the additional per-guard
@@ -1524,11 +1548,12 @@ function update() {
   updateGuards();
 
   // ── Guard contact damages player ──────────────────────────────
-  // On a fresh hit: take 1 HP and teleport back to the room's
-  // respawnPoint. This prevents the "stuck on guard" exploit
-  // (contact flag would otherwise keep you pinned indefinitely)
-  // and gives the game a "don't get caught" feel — being touched
-  // costs you ground, not just health.
+  // On a fresh hit: take 1 HP and get knocked back ~3 tiles away
+  // from the guard. Knockback respects walls (steps through collision
+  // rather than teleporting). Per-guard contact flag + hysteresis
+  // still prevent the same guard re-hitting you before you've
+  // actually separated. Less punishing than the earlier full-room
+  // teleport — you lose ground, not the whole approach.
   if (p.iframes > 0) p.iframes--;
   for (const g of rs.guards) {
     const ddx  = g.x - p.x, ddy = g.y - p.y;
@@ -1543,15 +1568,7 @@ function update() {
         state.gameover = true;
         state.gameoverT = 0;
       } else {
-        // Teleport to room respawn point, reset all guard contact
-        // flags in this room so the slate is clean at the new spot.
-        const rp = currentRoom().respawnPoint;
-        if (rp) {
-          const px = tileToPx(rp.x, rp.y);
-          p.x = px.x;
-          p.y = px.y;
-          for (const other of rs.guards) other.contacted = false;
-        }
+        applyKnockback(p, g.x, g.y, KNOCKBACK_DISTANCE);
       }
       break;  // one hit per frame is plenty
     } else if (outOfRange) {
