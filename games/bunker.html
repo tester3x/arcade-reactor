@@ -801,10 +801,17 @@ function segmentHitsWall(x1, y1, x2, y2) {
 }
 
 // Can the guard currently see the player?
+//   0. Player is NOT stealthed (speed boost = cloak; Phase 11)
 //   1. Distance within GUARD_VISION_RANGE
 //   2. Angle from guard's facing is within GUARD_VISION_HALF
 //   3. No wall between guard and player
 function guardCanSeePlayer(g) {
+  // Stealth cloak: while the speed boost is active the player is
+  // invisible to vision cones. Guards finish any chase/search they
+  // already committed to, then resume patrol — which gives you a
+  // short window to vanish. The boost timer in the HUD is your
+  // cloak clock.
+  if (state.player.speedBoostT > 0) return false;
   const px = state.player.x, py = state.player.y;
   const dx = px - g.x, dy = py - g.y;
   const dist = Math.hypot(dx, dy);
@@ -1285,6 +1292,33 @@ function addAlertness(n) {
   state.alertness = Math.min(ALERTNESS_MAX, state.alertness + n);
 }
 
+// Reset the surviving guards in a room back to their patrol anchors
+// and fresh AI state. Used when the player leaves the room so that
+// coming back doesn't leave guards mid-chase in the wrong place.
+// Dead guards stay dead — leaving the room only resets living
+// guards' behavior, not your kill progress. Also clears any bullets
+// in the room since they'd otherwise freeze mid-flight.
+function resetGuardsInRoom(roomId) {
+  const rs = state.rooms[roomId];
+  if (!rs) return;
+  for (const g of rs.guards) {
+    g.x = g.anchorX;
+    g.y = g.anchorY;
+    g.dir = g.anchorDir;
+    g.phase = 'patrol';
+    g.phaseT = 0;
+    g.lastSeenX = 0;
+    g.lastSeenY = 0;
+    g.stillT = 0;
+    g.stuckT = 0;
+    g.contacted = false;
+    g.wanderTimer = 300 + Math.floor(Math.random() * 600);
+    const iv = guardInvestigateIntervalNow();
+    g.investigateTimer = iv.min + Math.floor(Math.random() * (iv.max - iv.min));
+  }
+  rs.bullets = [];
+}
+
 // Short knockback: push the player away from (fromX, fromY) by up
 // to `distance` pixels, stepping to respect walls so they can't
 // clip through geometry. Used when a guard hits the player.
@@ -1355,7 +1389,11 @@ function update() {
     const tr = state.transition;
     tr.t++;
     if (tr.phase === 'out' && tr.t >= TRANSITION_OUT_FRAMES) {
-      // Fade to black complete — swap rooms and reposition player.
+      // Fade to black complete — reset the room we're leaving so
+      // guards there return to their patrol anchors (living ones
+      // only), then swap rooms and reposition the player.
+      const leavingRoom = state.currentRoomId;
+      if (leavingRoom !== tr.toRoom) resetGuardsInRoom(leavingRoom);
       state.currentRoomId = tr.toRoom;
       state.visitedRooms[tr.toRoom] = true;   // minimap reveal
       const dst = tileToPx(tr.toX, tr.toY);
@@ -1880,9 +1918,11 @@ function drawPlayer() {
   // the player visibly blinks after taking a hit
   if (p.iframes > 0 && Math.floor(p.iframes / 4) % 2 === 0) return;
 
-  // Speed-boost aura: orange/yellow pulsing halo drawn under the body
-  // so the player clearly reads as "buffed" while the boost is active.
-  if (p.speedBoostT > 0) {
+  // Speed-boost + stealth cloak visual. Pulsing halo underneath, and
+  // a translucent body so the player reads as "phased out" to match
+  // the invisible-to-cones mechanic.
+  const cloaked = p.speedBoostT > 0;
+  if (cloaked) {
     const t = (Date.now() % 400) / 400;
     const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
     ctx.save();
@@ -1895,6 +1935,7 @@ function drawPlayer() {
   }
 
   ctx.save();
+  if (cloaked) ctx.globalAlpha = 0.55;
   ctx.translate(p.x, p.y);
   ctx.rotate(p.dir);
 
@@ -2031,12 +2072,14 @@ function drawHUD() {
   ctx.font      = "bold 14px 'Courier New', monospace";
   ctx.fillText(`AMMO  ${pl.ammo}`, GW - 14, GH - 42);
 
-  // Speed-boost indicator: shows only while active, right above ammo.
+  // Stealth+speed indicator: shows only while active, right above ammo.
+  // Matches the cloak mechanic — while it's up you're invisible to
+  // guard cones and moving at 1.5x speed.
   if (pl.speedBoostT > 0) {
     const secsLeft = Math.ceil(pl.speedBoostT / 60);
     ctx.fillStyle = '#fbbf24';
     ctx.font      = "bold 12px 'Courier New', monospace";
-    ctx.fillText(`SPEED x${SPEED_BOOST_MULT}  ${secsLeft}s`, GW - 14, GH - 66);
+    ctx.fillText(`STEALTH x${SPEED_BOOST_MULT}  ${secsLeft}s`, GW - 14, GH - 66);
   }
 
   // Remaining-guards count across the whole level (bottom-right)
