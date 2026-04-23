@@ -656,6 +656,38 @@ function circleHitsWall(cx, cy, r) {
   return false;
 }
 
+// Guard-only collision: walls AND doorway tiles block. Guards stay
+// inside their room; doorways are player-only transit. Without this,
+// guards get biased toward doorway tiles (the ray-to-wall distance
+// through the doorway is long) and end up standing in what visually
+// reads as the wall position.
+function isGuardBlockerAt(x, y) {
+  if (isWallAt(x, y)) return true;
+  const col = Math.floor(x / TILE);
+  const row = Math.floor(y / TILE);
+  return doorwayAt(col, row) !== null;
+}
+function circleHitsGuardBlocker(cx, cy, r) {
+  if (isGuardBlockerAt(cx, cy)) return true;
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    if (isGuardBlockerAt(cx + Math.cos(a) * r, cy + Math.sin(a) * r)) return true;
+  }
+  return false;
+}
+// Ray distance for guards: also stops at doorway tiles so the wander
+// AI doesn't prefer heading toward exits.
+function rayDistToGuardBlocker(x, y, angle, offset) {
+  const nx = Math.cos(angle), ny = Math.sin(angle);
+  const maxDist = TILE * 10;
+  const step = TILE / 4;
+  for (let d = offset; d < maxDist; d += step) {
+    if (isGuardBlockerAt(x + nx * d, y + ny * d)) return d;
+  }
+  return maxDist;
+}
+
 // Convert a tile coord {x, y} (in the room grid) to world pixel
 // center. Used by room data (playerSpawn, guardSpawns, doorways).
 function tileToPx(tx, ty) {
@@ -730,7 +762,7 @@ function pickNewWanderDir(g) {
     while (diff >  Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     if (Math.abs(diff) < Math.PI / 3) continue;
-    const rayDist = rayDistToWall(g.x, g.y, c, GUARD_R);
+    const rayDist = rayDistToGuardBlocker(g.x, g.y, c, GUARD_R);
     // Add small random noise so tied corridors don't always go the same way
     const score = rayDist + Math.random() * TILE;
     if (score > bestDist) {
@@ -785,9 +817,9 @@ function moveGuardToward(g, tx, ty, speed) {
   const mvx = nx * speed;
   const mvy = ny * speed;
   const nx0 = g.x + mvx;
-  if (!circleHitsWall(nx0, g.y, GUARD_R)) g.x = nx0;
+  if (!circleHitsGuardBlocker(nx0, g.y, GUARD_R)) g.x = nx0;
   const ny0 = g.y + mvy;
-  if (!circleHitsWall(g.x, ny0, GUARD_R)) g.y = ny0;
+  if (!circleHitsGuardBlocker(g.x, ny0, GUARD_R)) g.y = ny0;
   return false;
 }
 
@@ -813,11 +845,13 @@ function updateGuard(g) {
     // Record position before the move so we can measure actual progress
     const preX = g.x, preY = g.y;
 
-    // Per-axis collision: try X, try Y. Committed axes move; blocked ones don't.
+    // Per-axis collision: try X, try Y. Committed axes move; blocked
+    // ones don't. Uses the guard-specific blocker so patrols can't
+    // drift onto doorway tiles (which are player-only transit).
     const nx0 = g.x + mvx;
-    if (!circleHitsWall(nx0, g.y, GUARD_R)) g.x = nx0;
+    if (!circleHitsGuardBlocker(nx0, g.y, GUARD_R)) g.x = nx0;
     const ny0 = g.y + mvy;
-    if (!circleHitsWall(g.x, ny0, GUARD_R)) g.y = ny0;
+    if (!circleHitsGuardBlocker(g.x, ny0, GUARD_R)) g.y = ny0;
 
     // "Not moving" watchdog: project actual motion onto the guard's
     // facing direction. A guard oscillating E-W while facing N reads
@@ -1573,43 +1607,76 @@ function drawNeedKeys() {
 }
 
 function drawMinimap() {
-  // Top-right corner. Renders the LEVEL_1 rooms as a chain of small
-  // squares. Visited rooms filled, unvisited outlined, current room
-  // gets a bright cyan border. Stub Phase 6 layout — works because
-  // we know LEVEL_1 has 3 rooms in a line. When multi-level lands
-  // this will need a real layout descriptor in LEVEL_1.
+  // Top-right corner, inside its own dark panel. Renders the LEVEL_1
+  // rooms as a chain of small squares. Visited rooms filled,
+  // unvisited outlined, current room gets a bright cyan border.
+  // Phase 6 layout: rooms in a line. Multi-level will replace this
+  // with a real layout descriptor on LEVEL_1.
   const ids = Object.keys(LEVEL_1.rooms);
-  const cellW = 22, cellH = 16, gap = 6;
-  const totalW = ids.length * cellW + (ids.length - 1) * gap;
-  const x0 = GW - totalW - 14;
-  const y0 = 38;
-  // Title above
-  ctx.font      = "9px 'Courier New', monospace";
+  const cellW = 28, cellH = 22, gap = 8;
+  const roomsW = ids.length * cellW + (ids.length - 1) * gap;
+  const padX   = 12, padY = 8;
+  const titleH = 14;
+  const panelW = roomsW + padX * 2;
+  const panelH = titleH + cellH + padY * 2;
+  const panelX = GW - panelW - 12;
+  const panelY = 10;
+
+  // Panel background
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.78)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+
+  // Title
+  ctx.font      = "bold 9px 'Courier New', monospace";
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(34, 211, 238, 0.85)';
+  ctx.fillText('MAP', panelX + padX, panelY + padY + 9);
+
+  // Key progress — small digit count on the right of the title row
   ctx.textAlign = 'right';
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.fillText('MAP', GW - 14, y0 - 4);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillText(`${state.keysCollected}/${state.totalKeys}  KEYS`,
+               panelX + panelW - padX, panelY + padY + 9);
+
+  // Room cells
+  const roomsX = panelX + padX;
+  const roomsY = panelY + padY + titleH;
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
-    const x  = x0 + i * (cellW + gap);
+    const x  = roomsX + i * (cellW + gap);
     const visited = !!state.visitedRooms[id];
     const current = id === state.currentRoomId;
     if (visited) {
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.fillRect(x, y0, cellW, cellH);
+      ctx.fillStyle = current ? 'rgba(34, 211, 238, 0.35)'
+                              : 'rgba(255, 255, 255, 0.18)';
+      ctx.fillRect(x, roomsY, cellW, cellH);
     }
     ctx.strokeStyle = current ? '#22d3ee'
-                    : visited ? 'rgba(255,255,255,0.5)'
-                              : 'rgba(255,255,255,0.18)';
+                    : visited ? 'rgba(255,255,255,0.55)'
+                              : 'rgba(255,255,255,0.22)';
     ctx.lineWidth = current ? 2 : 1;
-    ctx.strokeRect(x + 0.5, y0 + 0.5, cellW - 1, cellH - 1);
+    ctx.strokeRect(x + 0.5, roomsY + 0.5, cellW - 1, cellH - 1);
+    // Room id letter inside the cell
+    ctx.font      = "bold 10px 'Courier New', monospace";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = current ? '#22d3ee'
+                  : visited ? 'rgba(255,255,255,0.65)'
+                            : 'rgba(255,255,255,0.25)';
+    ctx.fillText(id, x + cellW / 2, roomsY + cellH / 2 + 1);
   }
-  // Connection lines between adjacent rooms (thin gray)
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.textBaseline = 'alphabetic';
+
+  // Connection lines between adjacent rooms
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.lineWidth = 1;
   for (let i = 0; i < ids.length - 1; i++) {
-    const x1 = x0 + i * (cellW + gap) + cellW;
+    const x1 = roomsX + i * (cellW + gap) + cellW;
     const x2 = x1 + gap;
-    const y  = y0 + cellH / 2;
+    const y  = roomsY + cellH / 2;
     ctx.beginPath();
     ctx.moveTo(x1, y);
     ctx.lineTo(x2, y);
