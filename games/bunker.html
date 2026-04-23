@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">6</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">7</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -505,6 +505,15 @@ const GUARD_CONTACT_R = 20;    // distance from guard center where contact damag
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
 const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (~2s)
 
+// ── Ammo + pickups — Phase 7 ─────────────────────────────────────
+const PLAYER_AMMO_START   = 15;    // starting rounds — enough to fight through carelessly, not enough to waste
+const PLAYER_AMMO_MAX     = 30;    // cap when picking up ammo
+const AMMO_PICKUP_AMOUNT  = 8;     // rounds per ammo pickup
+const HEALTH_PICKUP_HEAL  = 1;     // HP per health pickup (capped at PLAYER_HP_MAX)
+const SPEED_BOOST_MULT    = 1.5;   // movement multiplier while active
+const SPEED_BOOST_DURATION = 300;  // frames the boost lasts (~5s)
+const PICKUP_R            = 14;    // pickup radius, same feel as keys
+
 // ================================================================
 // LEVEL 1 — Phase 5
 // ----------------------------------------------------------------
@@ -551,8 +560,9 @@ const LEVEL_1 = {
         { x: 17, y: 5, toRoom: 'B', toX: 1, toY: 5 },
         { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
       ],
-      guardSpawns: [{ x: 8, y: 2 }, { x: 10, y: 10 }],
-      keySpawns:   [{ x: 15, y: 10 }],
+      guardSpawns:   [{ x: 8, y: 2 }, { x: 10, y: 10 }],
+      keySpawns:     [{ x: 15, y: 10 }],
+      pickupSpawns:  [{ x: 4, y: 10, type: 'speed' }],
     },
     B: {
       name: 'Junction',
@@ -579,8 +589,9 @@ const LEVEL_1 = {
         { x: 17, y: 5, toRoom: 'C', toX: 1, toY: 5 },
         { x: 17, y: 6, toRoom: 'C', toX: 1, toY: 6 },
       ],
-      guardSpawns: [{ x: 3, y: 11 }, { x: 14, y: 2 }],
-      keySpawns:   [{ x: 8, y: 2 }],
+      guardSpawns:   [{ x: 3, y: 11 }, { x: 14, y: 2 }],
+      keySpawns:     [{ x: 8, y: 2 }],
+      pickupSpawns:  [{ x: 14, y: 11, type: 'health' }],
     },
     C: {
       name: 'East Block',
@@ -607,9 +618,10 @@ const LEVEL_1 = {
       // green door regardless of locked state. Stepping onto it
       // with all keys collected triggers the WIN; without all keys
       // shows the "NEED N KEYS" feedback.
-      exit:        { x: 17, y: 6 },
-      guardSpawns: [{ x: 15, y: 10 }],
-      keySpawns:   [{ x: 3, y: 2 }],
+      exit:          { x: 17, y: 6 },
+      guardSpawns:   [{ x: 15, y: 10 }],
+      keySpawns:     [{ x: 3, y: 2 }],
+      pickupSpawns:  [{ x: 10, y: 11, type: 'ammo' }],
     },
   },
 };
@@ -1029,10 +1041,10 @@ function makeGuardsForRoom(roomDef) {
   });
 }
 
-// Build the per-room runtime state (guards + bullets + keys per
-// room) so rooms remember their own state when the player leaves
-// and returns. Bullets stay with the room they were fired in;
-// collected keys disappear and stay gone.
+// Build the per-room runtime state (guards + bullets + keys +
+// pickups per room) so rooms remember their own state when the
+// player leaves and returns. Bullets stay with the room they were
+// fired in; collected keys/pickups disappear and stay gone.
 function makeRoomsState() {
   const rooms = {};
   for (const id in LEVEL_1.rooms) {
@@ -1040,9 +1052,10 @@ function makeRoomsState() {
     rooms[id] = {
       guards:  makeGuardsForRoom(def),
       bullets: [],
-      // Keys are clones of the spawn list (so we can splice them
-      // out as collected without mutating the level definition).
-      keys:    (def.keySpawns || []).map(k => ({ x: k.x, y: k.y }))
+      // Keys and pickups are clones of the spawn lists so we can
+      // splice them out as collected without mutating definitions.
+      keys:    (def.keySpawns    || []).map(k => ({ x: k.x, y: k.y })),
+      pickups: (def.pickupSpawns || []).map(p => ({ x: p.x, y: p.y, type: p.type }))
     };
   }
   return rooms;
@@ -1065,7 +1078,9 @@ function buildState() {
       dir: -Math.PI / 2,
       hp: PLAYER_HP_MAX,
       iframes: 0,
-      shootCooldown: 0
+      shootCooldown: 0,
+      ammo: PLAYER_AMMO_START,
+      speedBoostT: 0   // frames remaining on the speed boost pickup
     },
     currentRoomId: LEVEL_1.startRoomId,
     rooms:      makeRoomsState(),
@@ -1163,8 +1178,11 @@ function update() {
   const p = state.player;
   const { vx, vy } = getMoveVector();
 
-  const dx = vx * PLAYER_SPEED;
-  const dy = vy * PLAYER_SPEED;
+  // Speed boost: while active, move faster. Decrement each frame.
+  if (p.speedBoostT > 0) p.speedBoostT--;
+  const moveSpeed = p.speedBoostT > 0 ? PLAYER_SPEED * SPEED_BOOST_MULT : PLAYER_SPEED;
+  const dx = vx * moveSpeed;
+  const dy = vy * moveSpeed;
 
   // Per-axis collision: attempt X, revert if it lands in a wall, then
   // attempt Y, revert if it lands in a wall.
@@ -1180,6 +1198,26 @@ function update() {
   // Update facing direction only when actually moving (so idle holds the last angle)
   if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
+  }
+
+  // ── Pickup collection ────────────────────────────────────────
+  // Walk over a pickup → apply effect, remove it. Pickups always
+  // collect (no max-refuse) — the cap just clamps the resulting
+  // value. Simpler than "only pick up if needed" and the strategic
+  // choice is still there: do I detour for ammo I don't need yet?
+  {
+    const rs = currentRoomState();
+    for (let i = rs.pickups.length - 1; i >= 0; i--) {
+      const pk = rs.pickups[i];
+      const pp = tileToPx(pk.x, pk.y);
+      const ddx = p.x - pp.x, ddy = p.y - pp.y;
+      if (ddx * ddx + ddy * ddy < PICKUP_R * PICKUP_R) {
+        if      (pk.type === 'health') p.hp    = Math.min(PLAYER_HP_MAX,    p.hp   + HEALTH_PICKUP_HEAL);
+        else if (pk.type === 'ammo')   p.ammo  = Math.min(PLAYER_AMMO_MAX,  p.ammo + AMMO_PICKUP_AMOUNT);
+        else if (pk.type === 'speed')  p.speedBoostT = SPEED_BOOST_DURATION;
+        rs.pickups.splice(i, 1);
+      }
+    }
   }
 
   // ── Key pickup ────────────────────────────────────────────────
@@ -1241,9 +1279,12 @@ function update() {
   }
 
   // ── Firing ────────────────────────────────────────────────────
+  // Gated on ammo > 0. At 0 the press is silently ignored; no
+  // click-empty feedback yet (Phase 7 scope is the mechanic, not
+  // the audio).
   const firePressed = keys['Space'] || touch.fire || pad.fire;
   if (p.shootCooldown > 0) p.shootCooldown--;
-  if (firePressed && p.shootCooldown === 0) {
+  if (firePressed && p.shootCooldown === 0 && p.ammo > 0) {
     // Spawn bullet from the player's nose in their facing direction.
     const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
     const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
@@ -1254,6 +1295,7 @@ function update() {
       traveled: 0
     });
     p.shootCooldown = FIRE_COOLDOWN;
+    p.ammo--;
   }
 
   // ── Bullets ───────────────────────────────────────────────────
@@ -1417,6 +1459,74 @@ function drawKeys() {
   ctx.globalAlpha = 1;
 }
 
+function drawPickups() {
+  // Three pickup types with distinct shapes:
+  //   health = red cross
+  //   ammo   = cyan capsule (bullet silhouette)
+  //   speed  = yellow double-chevron (>>)
+  // All share the same pulsing-glow pattern so they read as "same
+  // category of thing" — a walkable pickup.
+  const rs = currentRoomState();
+  if (rs.pickups.length === 0) return;
+  const t = (Date.now() % 700) / 700;
+  const pulse = 0.6 + 0.4 * Math.sin(t * Math.PI * 2);
+
+  for (const pk of rs.pickups) {
+    const p = tileToPx(pk.x, pk.y);
+    let color;
+    if      (pk.type === 'health') color = '#ef4444';
+    else if (pk.type === 'ammo')   color = '#22d3ee';
+    else                           color = '#fbbf24';
+
+    // Shared outer glow
+    ctx.globalAlpha = 0.3 * pulse;
+    ctx.fillStyle   = color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1.5;
+
+    if (pk.type === 'health') {
+      // Red plus — two overlapping rects
+      ctx.fillRect(-8, -3, 16, 6);
+      ctx.fillRect(-3, -8, 6, 16);
+      ctx.strokeRect(-8, -3, 16, 6);
+      ctx.strokeRect(-3, -8, 6, 16);
+    } else if (pk.type === 'ammo') {
+      // Cyan capsule, oriented horizontally, nose on the right
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Bullet nose tick
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(4, -2, 4, 4);
+    } else {
+      // Yellow double-chevron pointing right
+      ctx.beginPath();
+      ctx.moveTo(-8, -7); ctx.lineTo(-2, 0); ctx.lineTo(-8, 7);
+      ctx.lineTo(-4, 7);  ctx.lineTo(2,  0); ctx.lineTo(-4, -7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0,  -7); ctx.lineTo(6, 0); ctx.lineTo(0, 7);
+      ctx.lineTo(4,  7);  ctx.lineTo(10, 0); ctx.lineTo(4, -7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawGuardCone(g) {
   // Translucent pie slice from the guard's position out to VISION_RANGE.
   // Color depends on state so you can see the AI reacting.
@@ -1496,6 +1606,20 @@ function drawPlayer() {
   // the player visibly blinks after taking a hit
   if (p.iframes > 0 && Math.floor(p.iframes / 4) % 2 === 0) return;
 
+  // Speed-boost aura: orange/yellow pulsing halo drawn under the body
+  // so the player clearly reads as "buffed" while the boost is active.
+  if (p.speedBoostT > 0) {
+    const t = (Date.now() % 400) / 400;
+    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.25 * pulse;
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PLAYER_R + 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.dir);
@@ -1546,7 +1670,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText(`PHASE 6 · ESCAPE  [${state.currentRoomId}]`, 14, 22);
+  ctx.fillText(`PHASE 7 · PICKUPS  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -1583,6 +1707,26 @@ function drawHUD() {
   ctx.textAlign = 'left';
   ctx.fillStyle = allKeys ? '#fbbf24' : 'rgba(255,255,255,0.7)';
   ctx.fillText(`KEYS  ${state.keysCollected}/${state.totalKeys}`, 14, GH - 50);
+
+  // Ammo counter (bottom-right, above guard count).
+  // Cyan when comfortable, amber at low, red at empty.
+  const pl = state.player;
+  let ammoColor;
+  if      (pl.ammo === 0)   ammoColor = '#ef4444';
+  else if (pl.ammo <= 3)    ammoColor = '#fb923c';
+  else                      ammoColor = '#22d3ee';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = ammoColor;
+  ctx.font      = "bold 14px 'Courier New', monospace";
+  ctx.fillText(`AMMO  ${pl.ammo}`, GW - 14, GH - 42);
+
+  // Speed-boost indicator: shows only while active, right above ammo.
+  if (pl.speedBoostT > 0) {
+    const secsLeft = Math.ceil(pl.speedBoostT / 60);
+    ctx.fillStyle = '#fbbf24';
+    ctx.font      = "bold 12px 'Courier New', monospace";
+    ctx.fillText(`SPEED x${SPEED_BOOST_MULT}  ${secsLeft}s`, GW - 14, GH - 66);
+  }
 
   // Remaining-guards count across the whole level (bottom-right)
   ctx.textAlign = 'right';
@@ -1769,6 +1913,7 @@ function drawTransition() {
 function draw() {
   drawFloor();
   drawKeys();
+  drawPickups();
   drawGuards();
   drawBullets();
   drawPlayer();
