@@ -499,7 +499,8 @@ const BULLET_SPEED    = 7.5;
 const BULLET_R        = 3;
 const BULLET_RANGE    = 500;   // max travel distance before bullet dies
 const FIRE_COOLDOWN   = 10;    // frames between shots (~6 shots/sec)
-const GUARD_CONTACT_R = 20;    // distance from guard center where contact damages player
+const GUARD_CONTACT_R   = 20;    // distance where contact damages player
+const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard can hit again (hysteresis)
 
 // ── Pickups / objectives — Phase 6 ───────────────────────────────
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
@@ -1323,19 +1324,28 @@ function update() {
   updateGuards();
 
   // ── Guard contact damages player ──────────────────────────────
+  // One hit per contact event per guard: once a guard has damaged
+  // the player, they can't hit again until the player has moved
+  // outside GUARD_DISENGAGE_R (hysteresis so flickering right at
+  // the edge doesn't re-trigger). Previous behavior was "damage
+  // when iframes expire and guard still in range" → getting stuck
+  // on a guard ate your whole life bar in ~3 seconds.
   if (p.iframes > 0) p.iframes--;
-  if (p.iframes === 0 && p.hp > 0) {
-    for (const g of rs.guards) {
-      const ddx = g.x - p.x, ddy = g.y - p.y;
-      if (ddx * ddx + ddy * ddy < GUARD_CONTACT_R * GUARD_CONTACT_R) {
-        p.hp--;
-        p.iframes = PLAYER_IFRAMES;
-        if (p.hp <= 0) {
-          state.gameover = true;
-          state.gameoverT = 0;
-        }
-        break;
+  for (const g of rs.guards) {
+    const ddx  = g.x - p.x, ddy = g.y - p.y;
+    const dsq  = ddx * ddx + ddy * ddy;
+    const inHit       = dsq < GUARD_CONTACT_R   * GUARD_CONTACT_R;
+    const outOfRange  = dsq > GUARD_DISENGAGE_R * GUARD_DISENGAGE_R;
+    if (inHit && !g.contacted && p.iframes === 0 && p.hp > 0) {
+      p.hp--;
+      p.iframes = PLAYER_IFRAMES;
+      g.contacted = true;
+      if (p.hp <= 0) {
+        state.gameover = true;
+        state.gameoverT = 0;
       }
+    } else if (outOfRange) {
+      g.contacted = false;
     }
   }
 }
