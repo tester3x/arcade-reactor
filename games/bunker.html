@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">4</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">5</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -502,32 +502,125 @@ const FIRE_COOLDOWN   = 10;    // frames between shots (~6 shots/sec)
 const GUARD_CONTACT_R = 20;    // distance from guard center where contact damages player
 
 // ================================================================
-// MAP — Phase 2
+// LEVEL 1 — Phase 5
 // ----------------------------------------------------------------
-// Grid: 18 columns × 13 rows × TILE px = 900×650 (matches GW×GH)
-// Legend:  0 = floor    1 = wall
-// Laid out visually so the level is readable in source. This is a
-// simple test level — a few rooms connected by corridors, with
-// interior pillars/walls to test collision and sliding.
+// Screen-based room architecture. Each room has its own tile map
+// (18 cols × 13 rows), its own doorways, guard spawns, and—for the
+// start room—a player spawn. Walking onto a doorway tile triggers a
+// fade transition to the target room at the target tile position.
+//
+// Legend in maps:  0 = floor    1 = wall
+// Doorway tiles are 0's (walkable floor) on the outer edge; the
+// LEVEL_1.rooms[id].doorways array tells us which tiles trigger
+// transitions and where they lead.
+//
+// LAYOUT (Phase 5 stub):  [A] ⇄ [B] ⇄ [C]
+// Room A is the spawn room. Room C is a stub end-room (its east
+// wall will host the locked exit once Phase 6 lands).
 // ================================================================
 const TILE = 50;
 const MAP_COLS = 18;
 const MAP_ROWS = 13;
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,1,1,0,0,1,0,0,0,0,1,1,1,0,0,1],
-  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-  [1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1],
-  [1,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-];
+
+const LEVEL_1 = {
+  startRoomId: 'A',
+  rooms: {
+    A: {
+      name: 'West Block',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      playerSpawn: { x: 2, y: 6 },
+      doorways: [
+        { x: 17, y: 5, toRoom: 'B', toX: 1, toY: 5 },
+        { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
+      ],
+      guardSpawns: [{ x: 8, y: 2 }, { x: 10, y: 10 }],
+    },
+    B: {
+      name: 'Junction',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,1],
+        [1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1],
+        [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0],
+        [1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1],
+        [1,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      doorways: [
+        // West → back to A
+        { x: 0, y: 5, toRoom: 'A', toX: 16, toY: 5 },
+        { x: 0, y: 6, toRoom: 'A', toX: 16, toY: 6 },
+        // East → to C
+        { x: 17, y: 5, toRoom: 'C', toX: 1, toY: 5 },
+        { x: 17, y: 6, toRoom: 'C', toX: 1, toY: 6 },
+      ],
+      guardSpawns: [{ x: 3, y: 11 }, { x: 14, y: 2 }],
+    },
+    C: {
+      name: 'East Block',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      doorways: [
+        { x: 0, y: 5, toRoom: 'B', toX: 16, toY: 5 },
+        { x: 0, y: 6, toRoom: 'B', toX: 16, toY: 6 },
+      ],
+      guardSpawns: [{ x: 15, y: 10 }],
+    },
+  },
+};
+
+// Current room helpers — single source of truth. All collision
+// sampling and guard updates read through these, so switching
+// rooms is a one-line change (state.currentRoomId = 'B').
+function currentRoom() {
+  return LEVEL_1.rooms[state.currentRoomId];
+}
+function currentRoomState() {
+  return state.rooms[state.currentRoomId];
+}
+
+// Is the tile at (col, row) a doorway in the current room? Returns
+// the doorway definition if so, else null.
+function doorwayAt(col, row) {
+  const room = currentRoom();
+  for (const d of room.doorways) {
+    if (d.x === col && d.y === row) return d;
+  }
+  return null;
+}
 
 // Sample the map at a world pixel (x, y). Returns true if that
 // point is inside a wall tile. Out-of-bounds counts as wall.
@@ -535,7 +628,7 @@ function isWallAt(x, y) {
   const col = Math.floor(x / TILE);
   const row = Math.floor(y / TILE);
   if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return true;
-  return MAP[row][col] === 1;
+  return currentRoom().map[row][col] === 1;
 }
 
 // Does a circle of radius r centered at (cx, cy) overlap any wall tile?
@@ -551,26 +644,10 @@ function circleHitsWall(cx, cy, r) {
   return false;
 }
 
-// Find a spawn point (in world px) at the center of the first floor
-// tile we can find, starting from the map center and spiraling out.
-// Keeps us safe from hardcoding an x/y that happens to land in a wall
-// if the map layout changes.
-function findSpawn() {
-  const cx = Math.floor(MAP_COLS / 2);
-  const cy = Math.floor(MAP_ROWS / 2);
-  for (let r = 0; r < Math.max(MAP_COLS, MAP_ROWS); r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue; // ring only
-        const col = cx + dx, row = cy + dy;
-        if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
-        if (MAP[row][col] === 0) {
-          return { x: col * TILE + TILE / 2, y: row * TILE + TILE / 2 };
-        }
-      }
-    }
-  }
-  return { x: GW / 2, y: GH / 2 };  // fallback, shouldn't hit
+// Convert a tile coord {x, y} (in the room grid) to world pixel
+// center. Used by room data (playerSpawn, guardSpawns, doorways).
+function tileToPx(tx, ty) {
+  return { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 };
 }
 
 // ================================================================
@@ -868,7 +945,7 @@ function updateGuard(g) {
 }
 
 function updateGuards() {
-  for (const g of state.guards) updateGuard(g);
+  for (const g of currentRoomState().guards) updateGuard(g);
 }
 
 // ── Guards — Phase 3 ─────────────────────────────────────────────
@@ -887,50 +964,58 @@ const GUARD_INVESTIGATE_MAX    = 1500;  // max frames between investigations (25
 const GUARD_INVESTIGATE_RANGE  = 400;   // max distance of chosen investigate spot (px)
 const GUARD_INVESTIGATE_LOOK   = 90;    // frames spent looking at the spot (~1.5s)
 
-// Guards list — positions in PIXEL coordinates, wander-based AI.
-// Each guard wanders freely: walks forward along 'dir' at patrol speed,
-// picks a new random direction when they hit a wall, and also picks a
-// new direction on a random timer so they stay unpredictable.
-// No waypoints, no level-specific routes.
-function makeGuards() {
-  const tc = (c, r) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 });
-  // Spawn positions picked from open floor spread across the map. Each
-  // guard gets a random initial direction and a random "next turn" timer.
-  const spawns = [
-    tc(4, 2),    // upper-left area
-    tc(13, 4),   // upper-right area
-    tc(4, 10)    // lower-left area
-  ];
-  return spawns.map(s => ({
-    x: s.x, y: s.y,
-    dir: Math.random() * Math.PI * 2,
-    phase: 'patrol',
-    phaseT: 0,
-    wanderTimer: 300 + Math.floor(Math.random() * 600),  // 5-15 sec committed walking
-    investigateTimer: GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN)),
-    investigateX: 0, investigateY: 0,
-    lastSeenX: 0, lastSeenY: 0
-  }));
+// Build guards for a specific room from its guardSpawns definition.
+// Same wander-based AI as before — each room gets its own independent
+// guard list because guards never cross room boundaries.
+function makeGuardsForRoom(roomDef) {
+  return (roomDef.guardSpawns || []).map(tile => {
+    const p = tileToPx(tile.x, tile.y);
+    return {
+      x: p.x, y: p.y,
+      dir: Math.random() * Math.PI * 2,
+      phase: 'patrol',
+      phaseT: 0,
+      wanderTimer: 300 + Math.floor(Math.random() * 600),
+      investigateTimer: GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN)),
+      investigateX: 0, investigateY: 0,
+      lastSeenX: 0, lastSeenY: 0
+    };
+  });
 }
 
-// var so window.state is exposed for the score bridge in other games;
-// we don't use the score bridge for this game yet (top bar shows "PHASE 4")
-const SPAWN = findSpawn();
+// Build the per-room runtime state (guards + bullets per room) so
+// rooms remember their own guards when the player leaves and returns.
+// Bullets stay with the room they were fired in.
+function makeRoomsState() {
+  const rooms = {};
+  for (const id in LEVEL_1.rooms) {
+    rooms[id] = {
+      guards:  makeGuardsForRoom(LEVEL_1.rooms[id]),
+      bullets: []
+    };
+  }
+  return rooms;
+}
 
 function buildState() {
+  const startRoom = LEVEL_1.rooms[LEVEL_1.startRoomId];
+  const sp = tileToPx(startRoom.playerSpawn.x, startRoom.playerSpawn.y);
   return {
     player: {
-      x: SPAWN.x,
-      y: SPAWN.y,
+      x: sp.x,
+      y: sp.y,
       dir: -Math.PI / 2,
       hp: PLAYER_HP_MAX,
       iframes: 0,
       shootCooldown: 0
     },
-    guards:   makeGuards(),
-    bullets:  [],
+    currentRoomId: LEVEL_1.startRoomId,
+    rooms:      makeRoomsState(),
+    // transition: null when not transitioning, else
+    // { t, phase: 'out'|'in', toRoom, toX, toY } while fading.
+    transition: null,
     gameover: false,
-    gameoverT: 0   // frames since gameover (for fade-in)
+    gameoverT: 0
   };
 }
 
@@ -976,9 +1061,33 @@ function getMoveVector() {
   return { vx, vy };
 }
 
+// Room transition timing (frames at 60fps → ~167ms each half)
+const TRANSITION_OUT_FRAMES = 10;
+const TRANSITION_IN_FRAMES  = 10;
+
 function update() {
   // Hard freeze when game is over; just increment gameoverT for fade-in
   if (state.gameover) { state.gameoverT++; return; }
+
+  // If a room transition is in flight, advance it and skip gameplay
+  // updates. Bullets/guards in the OLD room freeze for the duration
+  // and resume when we come back (or get discarded if we never do).
+  if (state.transition) {
+    const tr = state.transition;
+    tr.t++;
+    if (tr.phase === 'out' && tr.t >= TRANSITION_OUT_FRAMES) {
+      // Fade to black complete — swap rooms and reposition player.
+      state.currentRoomId = tr.toRoom;
+      const dst = tileToPx(tr.toX, tr.toY);
+      state.player.x = dst.x;
+      state.player.y = dst.y;
+      tr.phase = 'in';
+      tr.t = 0;
+    } else if (tr.phase === 'in' && tr.t >= TRANSITION_IN_FRAMES) {
+      state.transition = null;
+    }
+    return;
+  }
 
   const p = state.player;
   const { vx, vy } = getMoveVector();
@@ -1002,6 +1111,25 @@ function update() {
     p.dir = Math.atan2(vy, vx);
   }
 
+  // ── Doorway check ─────────────────────────────────────────────
+  // After movement, see if the player landed on a doorway tile.
+  // If so, start a fade transition to the target room.
+  {
+    const col = Math.floor(p.x / TILE);
+    const row = Math.floor(p.y / TILE);
+    const door = doorwayAt(col, row);
+    if (door) {
+      state.transition = {
+        t: 0,
+        phase: 'out',
+        toRoom: door.toRoom,
+        toX: door.toX,
+        toY: door.toY
+      };
+      return;   // freeze the rest of update() this frame
+    }
+  }
+
   // ── Firing ────────────────────────────────────────────────────
   const firePressed = keys['Space'] || touch.fire || pad.fire;
   if (p.shootCooldown > 0) p.shootCooldown--;
@@ -1009,7 +1137,7 @@ function update() {
     // Spawn bullet from the player's nose in their facing direction.
     const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
     const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
-    state.bullets.push({
+    currentRoomState().bullets.push({
       x: bx, y: by,
       vx: Math.cos(p.dir) * BULLET_SPEED,
       vy: Math.sin(p.dir) * BULLET_SPEED,
@@ -1019,7 +1147,8 @@ function update() {
   }
 
   // ── Bullets ───────────────────────────────────────────────────
-  for (const b of state.bullets) {
+  const rs = currentRoomState();
+  for (const b of rs.bullets) {
     b.x += b.vx;
     b.y += b.vy;
     b.traveled += BULLET_SPEED;
@@ -1027,7 +1156,7 @@ function update() {
     if (isWallAt(b.x, b.y)) b.dead = true;
     if (b.traveled > BULLET_RANGE) b.dead = true;
     // Guard hit: find nearest guard within BULLET_R + GUARD_R
-    for (const g of state.guards) {
+    for (const g of rs.guards) {
       const ddx = g.x - b.x, ddy = g.y - b.y;
       if (ddx * ddx + ddy * ddy < (GUARD_R + BULLET_R) * (GUARD_R + BULLET_R)) {
         g.dead = true;
@@ -1036,15 +1165,15 @@ function update() {
       }
     }
   }
-  state.bullets = state.bullets.filter(b => !b.dead);
-  state.guards  = state.guards.filter(g => !g.dead);
+  rs.bullets = rs.bullets.filter(b => !b.dead);
+  rs.guards  = rs.guards.filter(g => !g.dead);
 
   updateGuards();
 
   // ── Guard contact damages player ──────────────────────────────
   if (p.iframes > 0) p.iframes--;
   if (p.iframes === 0 && p.hp > 0) {
-    for (const g of state.guards) {
+    for (const g of rs.guards) {
       const ddx = g.x - p.x, ddy = g.y - p.y;
       if (ddx * ddx + ddy * ddy < GUARD_CONTACT_R * GUARD_CONTACT_R) {
         p.hp--;
@@ -1064,6 +1193,9 @@ function update() {
 // ================================================================
 
 function drawFloor() {
+  const map  = currentRoom().map;
+  const room = currentRoom();
+
   // Solid dark backdrop (covers everything outside the map too)
   ctx.fillStyle = '#060809';
   ctx.fillRect(0, 0, GW, GH);
@@ -1072,7 +1204,7 @@ function drawFloor() {
   ctx.fillStyle = '#0e1115';
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
-      if (MAP[row][col] === 0) {
+      if (map[row][col] === 0) {
         ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
       }
     }
@@ -1083,7 +1215,7 @@ function drawFloor() {
   ctx.lineWidth = 1;
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
-      if (MAP[row][col] === 0) {
+      if (map[row][col] === 0) {
         ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
       }
     }
@@ -1092,7 +1224,7 @@ function drawFloor() {
   // Pass 3: walls with a slightly brighter top-edge highlight for depth
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
-      if (MAP[row][col] === 1) {
+      if (map[row][col] === 1) {
         const x = col * TILE, y = row * TILE;
         // Wall body
         ctx.fillStyle = '#242a33';
@@ -1103,12 +1235,24 @@ function drawFloor() {
         ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
         // Top edge highlight (only if tile above is floor — makes
         // walls look extruded when there's floor adjacent to them)
-        if (row > 0 && MAP[row - 1][col] === 0) {
+        if (row > 0 && map[row - 1][col] === 0) {
           ctx.fillStyle = 'rgba(34,211,238,0.18)';
           ctx.fillRect(x, y, TILE, 2);
         }
       }
     }
+  }
+
+  // Pass 4: doorway tiles — render a subtle cyan glow so the player
+  // can see where the exits are. These are floor tiles in the map
+  // array, we just overdraw them with a tint.
+  for (const d of room.doorways) {
+    const x = d.x * TILE, y = d.y * TILE;
+    ctx.fillStyle = 'rgba(34, 211, 238, 0.12)';
+    ctx.fillRect(x, y, TILE, TILE);
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE - 2);
   }
 }
 
@@ -1180,8 +1324,9 @@ function drawGuardBody(g) {
 
 function drawGuards() {
   // Draw all cones first (under guard bodies), then bodies on top
-  for (const g of state.guards) drawGuardCone(g);
-  for (const g of state.guards) drawGuardBody(g);
+  const guards = currentRoomState().guards;
+  for (const g of guards) drawGuardCone(g);
+  for (const g of guards) drawGuardBody(g);
 }
 
 function drawPlayer() {
@@ -1215,7 +1360,7 @@ function drawPlayer() {
 
 function drawBullets() {
   ctx.fillStyle = '#22d3ee';
-  for (const b of state.bullets) {
+  for (const b of currentRoomState().bullets) {
     // Soft glow then bright core
     ctx.globalAlpha = 0.35;
     ctx.beginPath();
@@ -1228,12 +1373,19 @@ function drawBullets() {
   }
 }
 
+// Count guards across every room in the level (for HUD + endgame).
+function totalGuardsLeft() {
+  let n = 0;
+  for (const id in state.rooms) n += state.rooms[id].guards.length;
+  return n;
+}
+
 function drawHUD() {
   // Phase label in corner — makes it obvious which build this is
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText('PHASE 4 · COMBAT', 14, 22);
+  ctx.fillText(`PHASE 5 · ROOMS  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -1264,11 +1416,11 @@ function drawHUD() {
     }
   }
 
-  // Remaining-guards count (bottom-right)
+  // Remaining-guards count across the whole level (bottom-right)
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.font = "12px 'Courier New', monospace";
-  ctx.fillText(`GUARDS  ${state.guards.length}`, GW - 14, GH - 16);
+  ctx.fillText(`GUARDS  ${totalGuardsLeft()}`, GW - 14, GH - 16);
 }
 
 function drawCenteredText(text, y, size, alpha) {
@@ -1286,8 +1438,8 @@ function drawGameOver() {
   ctx.fillStyle = `rgba(0,0,0,${0.65 * fade})`;
   ctx.fillRect(0, 0, GW, GH);
   drawCenteredText('GAME  OVER', GH / 2 - 30, 38, fade);
-  if (state.guards.length === 0) {
-    // Edge case: you killed all 3 then died — recognize the effort
+  if (totalGuardsLeft() === 0) {
+    // Edge case: you killed every guard in the level then died
     ctx.fillStyle = '#22d3ee';
     drawCenteredText('ALL  GUARDS  DOWN', GH / 2 + 6, 14, fade);
   }
@@ -1300,6 +1452,19 @@ function drawGameOver() {
   }
 }
 
+function drawTransition() {
+  // Black overlay whose alpha ramps up during 'out' and down during
+  // 'in'. The room switch happens at peak opacity so the player
+  // never sees the swap.
+  const tr = state.transition;
+  let a;
+  if (tr.phase === 'out') a = tr.t / TRANSITION_OUT_FRAMES;
+  else                    a = 1 - (tr.t / TRANSITION_IN_FRAMES);
+  a = Math.max(0, Math.min(1, a));
+  ctx.fillStyle = `rgba(0, 0, 0, ${a})`;
+  ctx.fillRect(0, 0, GW, GH);
+}
+
 function draw() {
   drawFloor();
   drawGuards();
@@ -1307,6 +1472,7 @@ function draw() {
   drawPlayer();
   drawHUD();
   if (state.gameover) drawGameOver();
+  if (state.transition) drawTransition();
 }
 
 // ================================================================
