@@ -522,7 +522,7 @@ const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (
 const GUARD_SENTRY_CONE_MULT    = 1.3;
 const GUARD_SENTRY_SWEEP_RANGE  = Math.PI / 3;    // ±60° sweep
 const GUARD_SENTRY_SWEEP_PERIOD = 200;            // frames per half-cycle
-const GUARD_SENTRY_ANCHOR_TOL   = TILE * 0.4;     // arrived-at-anchor threshold
+const GUARD_SENTRY_ANCHOR_TOL   = 20;             // arrived-at-anchor threshold (= TILE * 0.4; TILE isn't defined yet here)
 const GUARD_HUNTER_PATROL_MULT  = 1.2;
 const GUARD_HUNTER_CHASE_MULT   = 1.3;
 const GUARD_HUNTER_ALERT_MULT   = 0.5;
