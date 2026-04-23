@@ -1939,21 +1939,58 @@ function drawHUD() {
     ctx.fillText('WASD / ARROWS  MOVE  ·  SPACE  FIRE', GW - 14, 22);
   }
 
-  // HP hearts (bottom-left): filled for remaining HP, hollow for lost
+  // HP indicator (bottom-left): "HP" label + actual heart shapes so
+  // it reads as health, not as a lives counter. Filled red for
+  // remaining, hollow red for lost.
   const p = state.player;
+  ctx.font      = "bold 12px 'Courier New', monospace";
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  const hpLabelY = GH - 18;
+  ctx.fillText('HP', 14, hpLabelY);
+
+  const heartStartX = 42;
+  const heartY      = GH - 28;
+  const heartSize   = 11;
+  const heartGap    = 22;
   for (let i = 0; i < PLAYER_HP_MAX; i++) {
-    const cx = 22 + i * 24;
-    const cy = GH - 22;
-    if (i < p.hp) {
+    const hx = heartStartX + i * heartGap;
+    const filled = i < p.hp;
+    // Heart path: two top lobes that meet in a dip at the top-center,
+    // tapering to a V at the bottom. Coords relative to (hx, heartY).
+    const s = heartSize;
+    ctx.beginPath();
+    ctx.moveTo(hx, heartY + s * 0.15);
+    ctx.bezierCurveTo(
+      hx, heartY - s * 0.35,
+      hx - s * 1.05, heartY - s * 0.35,
+      hx - s * 1.05, heartY + s * 0.15
+    );
+    ctx.bezierCurveTo(
+      hx - s * 1.05, heartY + s * 0.55,
+      hx - s * 0.5, heartY + s * 0.75,
+      hx, heartY + s * 1.1
+    );
+    ctx.bezierCurveTo(
+      hx + s * 0.5, heartY + s * 0.75,
+      hx + s * 1.05, heartY + s * 0.55,
+      hx + s * 1.05, heartY + s * 0.15
+    );
+    ctx.bezierCurveTo(
+      hx + s * 1.05, heartY - s * 0.35,
+      hx, heartY - s * 0.35,
+      hx, heartY + s * 0.15
+    );
+    ctx.closePath();
+    if (filled) {
       ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#7f1d1d';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     } else {
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
       ctx.stroke();
     }
   }
