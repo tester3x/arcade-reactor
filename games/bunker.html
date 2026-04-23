@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">5</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">6</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -269,7 +269,7 @@ document.addEventListener('keydown', e => {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter'].includes(e.code)) {
     e.preventDefault();
   }
-  if (e.code === 'Enter' && state && state.gameover) restartGame();
+  if (e.code === 'Enter' && state && (state.gameover || state.won)) restartGame();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -404,7 +404,7 @@ function wireBtn(id, prop) {
 wireBtn('btn-fire', 'fire');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 document.addEventListener('touchstart', e => {
-  if (state && state.gameover && state.gameoverT > 30) {
+  if (state && ((state.gameover && state.gameoverT > 30) || (state.won && state.wonT > 30))) {
     restartGame();
   }
 }, { passive: true });
@@ -472,7 +472,7 @@ function pollGamepad() {
   pad.firePrev = pad.fire;
   pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
   const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
-  if (startPressed && !padLastButtons[9] && state.gameover) {
+  if (startPressed && !padLastButtons[9] && (state.gameover || state.won)) {
     restartGame();
   }
 
@@ -500,6 +500,10 @@ const BULLET_R        = 3;
 const BULLET_RANGE    = 500;   // max travel distance before bullet dies
 const FIRE_COOLDOWN   = 10;    // frames between shots (~6 shots/sec)
 const GUARD_CONTACT_R = 20;    // distance from guard center where contact damages player
+
+// ── Pickups / objectives — Phase 6 ───────────────────────────────
+const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
+const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (~2s)
 
 // ================================================================
 // LEVEL 1 — Phase 5
@@ -548,6 +552,7 @@ const LEVEL_1 = {
         { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
       ],
       guardSpawns: [{ x: 8, y: 2 }, { x: 10, y: 10 }],
+      keySpawns:   [{ x: 15, y: 10 }],
     },
     B: {
       name: 'Junction',
@@ -575,6 +580,7 @@ const LEVEL_1 = {
         { x: 17, y: 6, toRoom: 'C', toX: 1, toY: 6 },
       ],
       guardSpawns: [{ x: 3, y: 11 }, { x: 14, y: 2 }],
+      keySpawns:   [{ x: 8, y: 2 }],
     },
     C: {
       name: 'East Block',
@@ -585,7 +591,7 @@ const LEVEL_1 = {
         [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
         [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
         [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
         [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
         [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
         [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -597,7 +603,13 @@ const LEVEL_1 = {
         { x: 0, y: 5, toRoom: 'B', toX: 16, toY: 5 },
         { x: 0, y: 6, toRoom: 'B', toX: 16, toY: 6 },
       ],
+      // Exit tile: walkable floor on the east wall. Renders as a
+      // green door regardless of locked state. Stepping onto it
+      // with all keys collected triggers the WIN; without all keys
+      // shows the "NEED N KEYS" feedback.
+      exit:        { x: 17, y: 6 },
       guardSpawns: [{ x: 15, y: 10 }],
+      keySpawns:   [{ x: 3, y: 2 }],
     },
   },
 };
@@ -983,18 +995,30 @@ function makeGuardsForRoom(roomDef) {
   });
 }
 
-// Build the per-room runtime state (guards + bullets per room) so
-// rooms remember their own guards when the player leaves and returns.
-// Bullets stay with the room they were fired in.
+// Build the per-room runtime state (guards + bullets + keys per
+// room) so rooms remember their own state when the player leaves
+// and returns. Bullets stay with the room they were fired in;
+// collected keys disappear and stay gone.
 function makeRoomsState() {
   const rooms = {};
   for (const id in LEVEL_1.rooms) {
+    const def = LEVEL_1.rooms[id];
     rooms[id] = {
-      guards:  makeGuardsForRoom(LEVEL_1.rooms[id]),
-      bullets: []
+      guards:  makeGuardsForRoom(def),
+      bullets: [],
+      // Keys are clones of the spawn list (so we can splice them
+      // out as collected without mutating the level definition).
+      keys:    (def.keySpawns || []).map(k => ({ x: k.x, y: k.y }))
     };
   }
   return rooms;
+}
+
+// Count keys defined across the whole level (used for HUD + win check).
+function totalKeysInLevel() {
+  let n = 0;
+  for (const id in LEVEL_1.rooms) n += (LEVEL_1.rooms[id].keySpawns || []).length;
+  return n;
 }
 
 function buildState() {
@@ -1014,6 +1038,13 @@ function buildState() {
     // transition: null when not transitioning, else
     // { t, phase: 'out'|'in', toRoom, toX, toY } while fading.
     transition: null,
+    // Phase 6: progression state
+    keysCollected: 0,
+    totalKeys:     totalKeysInLevel(),
+    needKeysT:     0,    // frames remaining of "NEED N KEYS" prompt
+    won:           false,
+    wonT:          0,    // frames since win (for fade-in)
+    visitedRooms:  { [LEVEL_1.startRoomId]: true },
     gameover: false,
     gameoverT: 0
   };
@@ -1066,8 +1097,13 @@ const TRANSITION_OUT_FRAMES = 10;
 const TRANSITION_IN_FRAMES  = 10;
 
 function update() {
-  // Hard freeze when game is over; just increment gameoverT for fade-in
+  // Hard freeze on gameover or win; just increment the fade timer.
   if (state.gameover) { state.gameoverT++; return; }
+  if (state.won)      { state.wonT++;      return; }
+
+  // Tick down the "NEED N KEYS" prompt regardless of other updates
+  // so it doesn't get stuck on screen forever after one trigger.
+  if (state.needKeysT > 0) state.needKeysT--;
 
   // If a room transition is in flight, advance it and skip gameplay
   // updates. Bullets/guards in the OLD room freeze for the duration
@@ -1078,6 +1114,7 @@ function update() {
     if (tr.phase === 'out' && tr.t >= TRANSITION_OUT_FRAMES) {
       // Fade to black complete — swap rooms and reposition player.
       state.currentRoomId = tr.toRoom;
+      state.visitedRooms[tr.toRoom] = true;   // minimap reveal
       const dst = tileToPx(tr.toX, tr.toY);
       state.player.x = dst.x;
       state.player.y = dst.y;
@@ -1109,6 +1146,45 @@ function update() {
   // Update facing direction only when actually moving (so idle holds the last angle)
   if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
+  }
+
+  // ── Key pickup ────────────────────────────────────────────────
+  // Walk over a key in the current room → collect it. Compares
+  // pixel distance against KEY_R so you don't have to be exactly
+  // on the tile center.
+  {
+    const rs = currentRoomState();
+    for (let i = rs.keys.length - 1; i >= 0; i--) {
+      const k  = rs.keys[i];
+      const kp = tileToPx(k.x, k.y);
+      const dx = p.x - kp.x, dy = p.y - kp.y;
+      if (dx * dx + dy * dy < KEY_R * KEY_R) {
+        rs.keys.splice(i, 1);
+        state.keysCollected++;
+      }
+    }
+  }
+
+  // ── Exit check ────────────────────────────────────────────────
+  // Stepping onto the exit tile of the current room either wins
+  // (all keys collected) or shows the "NEED N KEYS" feedback.
+  // Checked BEFORE doorways so the exit can't double as a transition.
+  {
+    const room = currentRoom();
+    if (room.exit) {
+      const col = Math.floor(p.x / TILE);
+      const row = Math.floor(p.y / TILE);
+      if (col === room.exit.x && row === room.exit.y) {
+        if (state.keysCollected >= state.totalKeys) {
+          state.won = true;
+          state.wonT = 0;
+          return;
+        } else {
+          state.needKeysT = NEED_KEYS_DURATION;
+          // Don't return — let the rest of the frame run normally
+        }
+      }
+    }
   }
 
   // ── Doorway check ─────────────────────────────────────────────
@@ -1254,6 +1330,57 @@ function drawFloor() {
     ctx.lineWidth = 2;
     ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE - 2);
   }
+
+  // Pass 5: exit door — pulses green if unlocked (all keys collected),
+  // dimmer green if still locked. Drawn over the floor tile so it
+  // reads as a door cut into the wall.
+  if (room.exit) {
+    const unlocked = state.keysCollected >= state.totalKeys;
+    const x = room.exit.x * TILE, y = room.exit.y * TILE;
+    const t = (Date.now() % 1000) / 1000;
+    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+    const baseAlpha = unlocked ? 0.45 + pulse * 0.45 : 0.18;
+    const ringAlpha = unlocked ? 0.7  + pulse * 0.3  : 0.4;
+    ctx.fillStyle = `rgba(52, 211, 153, ${baseAlpha})`;
+    ctx.fillRect(x, y, TILE, TILE);
+    ctx.strokeStyle = `rgba(110, 231, 183, ${ringAlpha})`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 2, y + 2, TILE - 4, TILE - 4);
+    // Small "EXIT" tag above the door, inside the room
+    ctx.font = "bold 10px 'Courier New', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillStyle = unlocked ? 'rgba(110, 231, 183, 0.95)' : 'rgba(110, 231, 183, 0.4)';
+    ctx.fillText('EXIT', x + TILE / 2, y - 4);
+  }
+}
+
+function drawKeys() {
+  // Render all uncollected keys in the current room. Pulsing yellow
+  // diamonds with a soft glow so they read as "pickup" not "decor".
+  const room = currentRoomState();
+  const t = (Date.now() % 700) / 700;
+  const pulse = 0.6 + 0.4 * Math.sin(t * Math.PI * 2);
+  for (const k of room.keys) {
+    const p = tileToPx(k.x, k.y);
+    // Outer glow
+    ctx.globalAlpha = 0.3 * pulse;
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+    ctx.fill();
+    // Diamond body (rotated square)
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(-7, -7, 14, 14);
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-7, -7, 14, 14);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawGuardCone(g) {
@@ -1385,7 +1512,7 @@ function drawHUD() {
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText(`PHASE 5 · ROOMS  [${state.currentRoomId}]`, 14, 22);
+  ctx.fillText(`PHASE 6 · ESCAPE  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
@@ -1416,11 +1543,118 @@ function drawHUD() {
     }
   }
 
+  // Key counter (bottom-left, above the HP hearts)
+  const allKeys = state.keysCollected >= state.totalKeys;
+  ctx.font      = "bold 14px 'Courier New', monospace";
+  ctx.textAlign = 'left';
+  ctx.fillStyle = allKeys ? '#fbbf24' : 'rgba(255,255,255,0.7)';
+  ctx.fillText(`KEYS  ${state.keysCollected}/${state.totalKeys}`, 14, GH - 50);
+
   // Remaining-guards count across the whole level (bottom-right)
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.font = "12px 'Courier New', monospace";
   ctx.fillText(`GUARDS  ${totalGuardsLeft()}`, GW - 14, GH - 16);
+}
+
+// ── Phase 6 overlays ────────────────────────────────────────────
+
+function drawNeedKeys() {
+  // Floating "NEED N KEYS" text above the player. Used when player
+  // walks into a locked exit. Fades over the duration.
+  if (state.needKeysT <= 0) return;
+  const remaining = state.totalKeys - state.keysCollected;
+  const a = Math.min(1, state.needKeysT / 30);   // fade out over last 30 frames
+  const p = state.player;
+  ctx.font      = "bold 14px 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  ctx.fillStyle = `rgba(252, 165, 165, ${a})`;
+  ctx.fillText(`NEED ${remaining} KEY${remaining === 1 ? '' : 'S'}`, p.x, p.y - 28);
+}
+
+function drawMinimap() {
+  // Top-right corner. Renders the LEVEL_1 rooms as a chain of small
+  // squares. Visited rooms filled, unvisited outlined, current room
+  // gets a bright cyan border. Stub Phase 6 layout — works because
+  // we know LEVEL_1 has 3 rooms in a line. When multi-level lands
+  // this will need a real layout descriptor in LEVEL_1.
+  const ids = Object.keys(LEVEL_1.rooms);
+  const cellW = 22, cellH = 16, gap = 6;
+  const totalW = ids.length * cellW + (ids.length - 1) * gap;
+  const x0 = GW - totalW - 14;
+  const y0 = 38;
+  // Title above
+  ctx.font      = "9px 'Courier New', monospace";
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fillText('MAP', GW - 14, y0 - 4);
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const x  = x0 + i * (cellW + gap);
+    const visited = !!state.visitedRooms[id];
+    const current = id === state.currentRoomId;
+    if (visited) {
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(x, y0, cellW, cellH);
+    }
+    ctx.strokeStyle = current ? '#22d3ee'
+                    : visited ? 'rgba(255,255,255,0.5)'
+                              : 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = current ? 2 : 1;
+    ctx.strokeRect(x + 0.5, y0 + 0.5, cellW - 1, cellH - 1);
+  }
+  // Connection lines between adjacent rooms (thin gray)
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < ids.length - 1; i++) {
+    const x1 = x0 + i * (cellW + gap) + cellW;
+    const x2 = x1 + gap;
+    const y  = y0 + cellH / 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+  }
+}
+
+function drawWin() {
+  // Celebratory escape overlay. Green-tinted background, gold text,
+  // fades in over first 30 frames like gameover but brighter palette.
+  const fade = Math.min(1, state.wonT / 30);
+  ctx.fillStyle = `rgba(6, 78, 59, ${0.78 * fade})`;
+  ctx.fillRect(0, 0, GW, GH);
+
+  // Title with subtle pulsing glow
+  const t = (Date.now() % 1400) / 1400;
+  const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.font      = "bold 56px 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  // Gold glow halo
+  ctx.fillStyle = `rgba(251, 191, 36, ${0.25 * pulse})`;
+  ctx.fillText('YOU  ESCAPED', GW / 2 + 1, GH / 2 - 28);
+  // Main text
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('YOU  ESCAPED', GW / 2, GH / 2 - 30);
+  ctx.restore();
+
+  if (totalGuardsLeft() === 0) {
+    ctx.fillStyle = `rgba(110, 231, 183, ${fade})`;
+    drawCenteredText('AND  EVERY  GUARD  DOWN', GH / 2 + 14, 14, fade);
+  } else {
+    ctx.fillStyle = `rgba(255,255,255,0.6)`;
+    drawCenteredText(`KEYS  ${state.keysCollected}/${state.totalKeys}  ·  GUARDS  LEFT  ${totalGuardsLeft()}`,
+                     GH / 2 + 14, 12, fade);
+  }
+
+  if (fade >= 1) {
+    ctx.fillStyle = 'rgba(230,237,243,0.85)';
+    if      (pad.connected) drawCenteredText('PRESS  START  TO  PLAY  AGAIN', GH / 2 + 56, 14);
+    else if (touchMode)     drawCenteredText('TAP  ANYWHERE  TO  PLAY  AGAIN', GH / 2 + 56, 14);
+    else                    drawCenteredText('PRESS  ENTER  TO  PLAY  AGAIN', GH / 2 + 56, 14);
+  }
 }
 
 function drawCenteredText(text, y, size, alpha) {
@@ -1467,11 +1701,15 @@ function drawTransition() {
 
 function draw() {
   drawFloor();
+  drawKeys();
   drawGuards();
   drawBullets();
   drawPlayer();
+  drawNeedKeys();
   drawHUD();
-  if (state.gameover) drawGameOver();
+  drawMinimap();
+  if (state.gameover)   drawGameOver();
+  if (state.won)        drawWin();
   if (state.transition) drawTransition();
 }
 
