@@ -2067,6 +2067,42 @@ function update() {
 // DRAW
 // ================================================================
 
+// ── Kenney topdown shooter sprites (CC0, by Kenney.nl) ───────────
+// Paths are URL-encoded so the space in "TD Shooter" survives both
+// GitHub Pages and local file serving. imgReady() gates every draw
+// so if a sprite 404s or is still loading we fall back to the
+// original procedural render — gameplay never blocks on art.
+const IMG = {};
+function loadImg(key, path) {
+  const im = new Image();
+  im.src = path;
+  IMG[key] = im;
+}
+const _TD = '../assets/TD%20Shooter/PNG';
+loadImg('floor',  `${_TD}/Tiles/tile_40.png`);
+loadImg('wall',   `${_TD}/Tiles/tile_70.png`);
+loadImg('player', `${_TD}/Survivor%201/survivor1_gun.png`);
+loadImg('patrol', `${_TD}/Hitman%201/hitman1_gun.png`);
+loadImg('sentry', `${_TD}/Soldier%201/soldier1_gun.png`);
+loadImg('hunter', `${_TD}/Robot%201/robot1_gun.png`);
+loadImg('alarm',  `${_TD}/Zombie%201/zoimbie1_gun.png`);
+
+function imgReady(key) {
+  const im = IMG[key];
+  return im && im.complete && im.naturalWidth > 0;
+}
+
+// Kenney characters face UP in source art. Game `dir` uses 0 = east
+// (standard canvas math), so we rotate by dir + π/2 to align them.
+function drawChar(key, x, y, dir, size) {
+  const im = IMG[key];
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(dir + Math.PI / 2);
+  ctx.drawImage(im, -size / 2, -size / 2, size, size);
+  ctx.restore();
+}
+
 function drawFloor() {
   const map  = currentRoom().map;
   const room = currentRoom();
@@ -2075,44 +2111,54 @@ function drawFloor() {
   ctx.fillStyle = '#060809';
   ctx.fillRect(0, 0, GW, GH);
 
+  const floorReady = imgReady('floor');
+  const wallReady  = imgReady('wall');
+
   // Pass 1: floor tiles
-  ctx.fillStyle = '#0e1115';
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
       if (map[row][col] === 0) {
-        ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+        if (floorReady) {
+          ctx.drawImage(IMG.floor, col * TILE, row * TILE, TILE, TILE);
+        } else {
+          ctx.fillStyle = '#0e1115';
+          ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+        }
       }
     }
   }
 
-  // Pass 2: subtle grout grid over floor tiles only
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-  ctx.lineWidth = 1;
-  for (let row = 0; row < MAP_ROWS; row++) {
-    for (let col = 0; col < MAP_COLS; col++) {
-      if (map[row][col] === 0) {
-        ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
+  // Pass 2: grout grid — only for procedural floor; Kenney tile has its own edges
+  if (!floorReady) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    for (let row = 0; row < MAP_ROWS; row++) {
+      for (let col = 0; col < MAP_COLS; col++) {
+        if (map[row][col] === 0) {
+          ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
+        }
       }
     }
   }
 
-  // Pass 3: walls with a slightly brighter top-edge highlight for depth
+  // Pass 3: walls
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
       if (map[row][col] === 1) {
         const x = col * TILE, y = row * TILE;
-        // Wall body
-        ctx.fillStyle = '#242a33';
-        ctx.fillRect(x, y, TILE, TILE);
-        // Inner outline
-        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
-        // Top edge highlight (only if tile above is floor — makes
-        // walls look extruded when there's floor adjacent to them)
-        if (row > 0 && map[row - 1][col] === 0) {
-          ctx.fillStyle = 'rgba(34,211,238,0.18)';
-          ctx.fillRect(x, y, TILE, 2);
+        if (wallReady) {
+          ctx.drawImage(IMG.wall, x, y, TILE, TILE);
+        } else {
+          ctx.fillStyle = '#242a33';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
+          // Top edge highlight — procedural-only extrusion cue
+          if (row > 0 && map[row - 1][col] === 0) {
+            ctx.fillStyle = 'rgba(34,211,238,0.18)';
+            ctx.fillRect(x, y, TILE, 2);
+          }
         }
       }
     }
@@ -2286,56 +2332,61 @@ function drawGuardCone(g) {
 }
 
 function drawGuardBody(g) {
-  // Body shape + color vary by type so you can read the threat at
-  // a glance: circle=patrol, square=sentry, triangle=hunter,
-  // diamond=alarm.
-  let bodyColor;
-  if      (g.type === 'sentry') bodyColor = '#60a5fa';  // blue
-  else if (g.type === 'hunter') bodyColor = '#f97316';  // orange
-  else if (g.type === 'alarm')  bodyColor = '#d946ef';  // magenta
-  else                          bodyColor = '#ef4444';  // red
-
-  ctx.save();
-  ctx.translate(g.x, g.y);
-  ctx.rotate(g.dir);
-  ctx.fillStyle = bodyColor;
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 1;
-
-  ctx.beginPath();
-  if (g.type === 'sentry') {
-    // Square, axis-aligned to facing — so "sides" point forward/back/up/down
-    const s = GUARD_R;
-    ctx.rect(-s, -s, s * 2, s * 2);
-  } else if (g.type === 'hunter') {
-    // Triangle pointing forward — reads as "moving fast"
-    ctx.moveTo(GUARD_R + 2, 0);
-    ctx.lineTo(-GUARD_R * 0.7, -GUARD_R);
-    ctx.lineTo(-GUARD_R * 0.7,  GUARD_R);
-    ctx.closePath();
-  } else if (g.type === 'alarm') {
-    // Diamond (45° square) — distinct silhouette
-    ctx.moveTo(GUARD_R, 0);
-    ctx.lineTo(0, -GUARD_R);
-    ctx.lineTo(-GUARD_R, 0);
-    ctx.lineTo(0,  GUARD_R);
-    ctx.closePath();
+  // Sprite per guard type — readability from silhouette/color comes
+  // from the sprite. If a sprite isn't ready we fall back to the old
+  // shape/color scheme (circle=patrol, square=sentry, triangle=hunter,
+  // diamond=alarm).
+  const spriteKey = g.type === 'sentry' ? 'sentry'
+                  : g.type === 'hunter' ? 'hunter'
+                  : g.type === 'alarm'  ? 'alarm'
+                                        : 'patrol';
+  if (imgReady(spriteKey)) {
+    drawChar(spriteKey, g.x, g.y, g.dir, 40);
   } else {
-    // Patrol — circle (default)
-    ctx.arc(0, 0, GUARD_R, 0, Math.PI * 2);
-  }
-  ctx.fill();
-  ctx.stroke();
+    let bodyColor;
+    if      (g.type === 'sentry') bodyColor = '#60a5fa';
+    else if (g.type === 'hunter') bodyColor = '#f97316';
+    else if (g.type === 'alarm')  bodyColor = '#d946ef';
+    else                          bodyColor = '#ef4444';
 
-  // Heading bar (white)
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(GUARD_R - 2, 0);
-  ctx.lineTo(GUARD_R + 6, 0);
-  ctx.stroke();
-  ctx.restore();
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    ctx.rotate(g.dir);
+    ctx.fillStyle = bodyColor;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    if (g.type === 'sentry') {
+      const s = GUARD_R;
+      ctx.rect(-s, -s, s * 2, s * 2);
+    } else if (g.type === 'hunter') {
+      ctx.moveTo(GUARD_R + 2, 0);
+      ctx.lineTo(-GUARD_R * 0.7, -GUARD_R);
+      ctx.lineTo(-GUARD_R * 0.7,  GUARD_R);
+      ctx.closePath();
+    } else if (g.type === 'alarm') {
+      ctx.moveTo(GUARD_R, 0);
+      ctx.lineTo(0, -GUARD_R);
+      ctx.lineTo(-GUARD_R, 0);
+      ctx.lineTo(0,  GUARD_R);
+      ctx.closePath();
+    } else {
+      ctx.arc(0, 0, GUARD_R, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    // Heading bar (white)
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(GUARD_R - 2, 0);
+    ctx.lineTo(GUARD_R + 6, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Small state icon above the guard's head
   let mark = '';
@@ -2382,28 +2433,33 @@ function drawPlayer() {
     ctx.restore();
   }
 
-  ctx.save();
-  if (cloaked) ctx.globalAlpha = 0.55;
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.dir);
+  if (imgReady('player')) {
+    const prevAlpha = ctx.globalAlpha;
+    if (cloaked) ctx.globalAlpha = 0.55;
+    drawChar('player', p.x, p.y, p.dir, 40);
+    ctx.globalAlpha = prevAlpha;
+  } else {
+    ctx.save();
+    if (cloaked) ctx.globalAlpha = 0.55;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.dir);
 
-  // Body: small square/circle. Top-down sprite — a circle with a
-  // nose/heading indicator so you can see which way you're facing.
-  ctx.fillStyle = '#e6edf3';
-  ctx.beginPath();
-  ctx.arc(0, 0, PLAYER_R, 0, Math.PI * 2);
-  ctx.fill();
+    // Procedural fallback: circle body + cyan heading bar
+    ctx.fillStyle = '#e6edf3';
+    ctx.beginPath();
+    ctx.arc(0, 0, PLAYER_R, 0, Math.PI * 2);
+    ctx.fill();
 
-  // Heading indicator (a short bar out the front)
-  ctx.strokeStyle = '#22d3ee';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(PLAYER_R - 2, 0);
-  ctx.lineTo(PLAYER_R + 7, 0);
-  ctx.stroke();
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(PLAYER_R - 2, 0);
+    ctx.lineTo(PLAYER_R + 7, 0);
+    ctx.stroke();
 
-  ctx.restore();
+    ctx.restore();
+  }
 }
 
 function drawBullets() {
