@@ -27,9 +27,15 @@ Comfortable with PowerShell, git, Windows. Long-session worker.
 Pure HTML/CSS/JS. No frameworks, no build step. Each game is one
 self-contained HTML file under `games/`.
 
-**Deploy flow:** GitHub Pages serves from `main`. Mike develops on
-the feature branch `claude/arcade-reactor-handoff-mwRLq`, pulls
-locally to test, then merges to main → Pages redeploys in 1-2 min.
+**Deploy flow:** GitHub Pages serves from `main`. Historically Mike
+developed on the feature branch `claude/arcade-reactor-handoff-mwRLq`
+and merged to main. In practice Phases 11.5–11.7 landed directly on
+`main`, which left the feature branch behind and caused a merge
+conflict when we tried to land the art pass. **Going forward, work
+on whichever branch Mike hands you — but before editing, always
+verify the branch is ancestor-of-main with `git merge-base --is-ancestor`
+and rebase/merge main in first if not.** Otherwise your commit will
+conflict on the way back.
 
 ## Games
 
@@ -110,28 +116,25 @@ without explicit reason.
 
 Built ✓:
 
-- **Phase 1-4:** Player movement, walls, guards, combat, HP, game
-  over (in `bunker.html`).
-- **Phase 5 ✓ shipped:** Screen-based room architecture. `LEVEL_1`
-  has 3 rooms (A↔B↔C) with per-room maps, doorways, guards.
-  Fade transitions on doorway entry. Per-room state persistence
-  (guards stay where they were when you re-enter a room).
+- **Phase 1–4:** Player movement, walls, guards, combat, HP, game over.
+- **Phase 5:** Screen-based room architecture. Per-room maps, doorways,
+  fade transitions, per-room guard/bullet state persistence.
+- **Phase 6:** Keys + locked exit + WIN overlay + fog-of-war minimap.
+- **Phase 7:** Pickups (health, speed boost) + limited ammo.
+- **Phase 8:** Countdown timer + TIME'S UP overlay.
+- **Phase 9:** Global alertness system (shooting raises alertness →
+  wider cones + faster patrols + shorter investigate cooldowns).
+- **Phase 10:** Guard types — sentry, hunter, alarm-raiser.
+- **Phase 11:** Multi-level (L1 Bunker, L2 North Wing, L3 Core Reactor).
+- **Phase 11.5–11.7:** Cook-and-throw grenades, aim reticle with
+  landing/blast preview, cook-hint, guard dodge, grenades lob over walls.
+- **Art pass (2026-04-24):** Swapped procedural wall, player, and
+  guard rendering for Kenney CC0 Topdown Shooter sprites. Floor stays
+  procedural — Kenney has no solid dark-gray floor tile. See
+  "Sprites / TD Shooter assets" below.
 
 Up next:
 
-- **Phase 6:** First playable level. Keys (3 scattered across
-  rooms), exit door in Room C (locked until all keys collected),
-  WIN overlay, basic fog-of-war minimap (top corner).
-- **Phase 7:** Pickups (health, speed boost) + limited ammo.
-- **Phase 8:** Countdown timer (3 min default, color shift as it
-  drops, "TIME'S UP" overlay).
-- **Phase 9:** Global alertness system. Shooting raises alertness
-  → guards get wider cones + faster patrols + shorter investigate
-  cooldowns.
-- **Phase 10:** New guard types. Sentry (stationary, wide cone),
-  hunter (faster), alarm-raiser (alerts whole level on spot).
-- **Phase 11:** Multi-level. Levels 2, 3, 4+ with bigger maps,
-  more rooms, more guards.
 - **Phase 12:** Adaptive director. Reads player skill, tunes
   difficulty knobs + adaptive minimap detail.
 - **Phase 13:** Speed-run bonus rounds every N levels.
@@ -139,59 +142,85 @@ Up next:
   `escape.html` (and update home page card) or keep filename and
   swap the in-game title. Mike's call.
 - **Phase 15+:** PWA manifest. Capacitor native wrap. App store
-  prep.
+  prep. Mobile build may opt into a richer sprite set (more tiles,
+  character poses) — decision for later.
 
-## bunker.html architecture (current — Phase 5)
+## bunker.html architecture (current — Phase 11.7 + art pass)
 
-Single file, ~1500 lines. Key sections:
+Single file, ~3550 lines. `grep -n "function draw\|// =====" games/bunker.html`
+is the fastest way to navigate. Key sections by header comment:
 
-- **HTML/CSS** (lines 1-216): topbar, canvas, virtual thumbstick,
-  styles. Topbar shows `PHASE N` indicator — bump when phase
-  changes.
-- **Input merge** (~lines 260-490): keyboard, touch thumbstick,
-  Gamepad API → unified `keys{}`, `touch{}`, `pad{}`. `getMoveVector()`
-  produces normalized (vx, vy).
-- **`LEVEL_1`** (~line 525): the room data. `LEVEL_1.rooms.{A,B,C}`
-  each contain: `map` (2D 0/1 array, 18 cols × 13 rows), `doorways`
-  (array of `{x,y,toRoom,toX,toY}`), `guardSpawns` (array of
-  `{x,y}` in tile coords), and (for start room) `playerSpawn`.
-- **Helpers** (~lines 608-655): `currentRoom()` returns the active
-  room definition, `currentRoomState()` returns the active runtime
-  state (guards + bullets), `doorwayAt(col,row)` checks transition
-  triggers, `isWallAt(x,y)` samples the current room's map,
-  `tileToPx(tx,ty)` converts tile coords to pixel center.
-- **Guard AI** (~lines 660-950): unchanged from Phase 4. Wander
-  patrol with forward-progress watchdog, alert→chase→search cycle,
-  investigate behavior. Per-guard, no cross-room logic needed
-  (rooms isolate guards naturally).
-- **State** (~lines 1000-1022): `state.player`, `state.currentRoomId`,
-  `state.rooms[id].guards`, `state.rooms[id].bullets`,
-  `state.transition` (null or `{t, phase, toRoom, toX, toY}`),
-  `state.gameover`, `state.gameoverT`.
-- **`update()`** (~line 1068): freezes during gameover and during
-  active transition. After movement, checks for doorway tile under
-  player → starts transition. Otherwise: firing, bullets, guards,
-  player damage. All loops use `currentRoomState()`.
-- **Draw** (~line 1195+): `drawFloor()` renders current room's map
-  + doorway tints, `drawGuards()` and `drawBullets()` only render
-  current room's, `drawTransition()` overlays black fade when
-  transitioning, `drawGameOver()` for death.
+- **HTML/CSS** (lines 1–216): topbar, canvas, virtual thumbstick,
+  styles. Topbar shows `PHASE N` indicator (currently 11).
+- **Input merge:** keyboard, touch thumbstick, Gamepad API → unified
+  `keys{}`, `touch{}`, `pad{}`. `getMoveVector()` produces normalized (vx, vy).
+- **Level data (`LEVEL_1`, `LEVEL_2`, `LEVEL_3`):** each level has
+  `.rooms.{id}` with `map` (18×13 0/1 array), `doorways`, `guardSpawns`
+  (with `type`), `keySpawns`, `pickupSpawns`, `exit`, and (start room)
+  `playerSpawn`. 50px tile grid. Collision still uses the logical grid,
+  not sprite bounds.
+- **Helpers:** `currentRoom()`, `currentRoomState()`, `doorwayAt()`,
+  `isWallAt()`, `tileToPx()`.
+- **Guard AI:** wander patrol (forward-progress watchdog) → alert → chase
+  → search → investigate. Grenade dodge behavior added in 11.7.
+  Room-bound (no cross-room logic needed).
+- **State:** `state.player`, `state.currentLevelId`, `state.currentRoomId`,
+  `state.rooms[id].{guards,bullets,grenades,keys,pickups}`, alertness,
+  timer, transition, gameover.
+- **`update()`**: freezes during gameover/transition. Handles movement,
+  firing (bullets or grenade cook/throw), bullet/grenade physics, guards,
+  pickups, damage, doorway transitions.
+- **Draw:** `drawFloor()` (floor + walls + doorway tints + exit door),
+  `drawGuards()` (cones + bodies + state icons), `drawPlayer()`, `drawBullets()`,
+  `drawGrenades()`, `drawKeys()`, `drawPickups()`, `drawHUD()`, `drawMinimap()`,
+  overlays (gameover, level complete, times up, transition).
 
-When adding new room-scoped state (e.g., keys in Phase 6), put it
-in `LEVEL_1.rooms[id]` (definition: where keys spawn) AND in
-`state.rooms[id]` (runtime: which keys remain). Mirror the
-guards/bullets pattern.
+**Sprite system (art pass):** Near the top of the DRAW section, a small
+`IMG` object + `loadImg()`/`imgReady()`/`drawChar()` preload and render
+Kenney sprites. Every sprite-using draw call is gated on `imgReady(key)`
+and falls back to the original procedural render — so a missing or
+slow-loading image never blocks gameplay.
+
+When adding new room-scoped state (new pickup type, etc.), put it in
+`LEVELs[id].rooms[id]` (definition) AND in `state.rooms[id]` (runtime).
+Mirror the guards/bullets/keys/pickups pattern.
+
+## Sprites / TD Shooter assets
+
+Located at `assets/TD Shooter/` (601 files). Source: Kenney's Topdown
+Shooter pack, **CC0 public domain** — free to use commercially, credit
+optional. Per-file categories: `PNG/{Character Name}/`, `PNG/Tiles/`,
+`Spritesheet/`, `Tilesheet/`, `Vector/`.
+
+Currently used in `bunker.html`:
+- Wall: `PNG/Tiles/tile_70.png` (orange ridged industrial panel)
+- Player: `PNG/Survivor 1/survivor1_gun.png`
+- Guard sprites by type: `Hitman 1` (patrol), `Soldier 1` (sentry),
+  `Robot 1` (hunter), `Zombie 1` (alarm) — all the `_gun.png` variant.
+
+**Gotchas:**
+- Kenney topdown sprites face **RIGHT (east)** in source, matching our
+  `dir = 0 = east` convention. **No rotation offset.** Don't add +π/2.
+- Kenney misspelled "zombie" as `zoimbie` in filenames. Use literally.
+- "TD Shooter" folder has a space — URL-encode as `TD%20Shooter` in paths.
+- `Thumbs.db` files are in the commit (Windows artifact). Harmless.
+- There is **no solid dark-gray floor tile** in the pack. All dark
+  grays are wall-interior tiles with white borders that dominate when
+  tiled. Floor stays procedural.
 
 ## Workflow
 
-**Branch:** `claude/arcade-reactor-handoff-mwRLq` for development.
-Mike merges to main when phase is verified.
+**Branch:** Default to whatever branch Mike's session hands you.
+Before editing, `git merge-base --is-ancestor origin/main <branch>` —
+if it fails, the branch is behind main and needs `git merge main` first,
+or cherry-pick onto main instead. Skipping this step causes merge pain
+when the work lands on main.
 
 **Per-phase loop:**
 1. Read current `bunker.html` (Mike may have made manual edits)
 2. Confirm scope + tuning details with Mike before coding
 3. Build the phase, syntax-check (`node --check` on extracted JS)
-4. Commit + push to feature branch
+4. Commit + push
 5. Mike pulls, tests at `arcadereactor.com/games/bunker.html`
 6. If good → he merges to main (or asks Claude to)
 7. Update CLAUDE.md if architecture changed
@@ -223,6 +252,17 @@ awk '/<script>/,/<\/script>/' games/bunker.html | grep -v '^<script>\|^</script>
 5. **Don't argue past the user's clarifying point.** When Mike
    says "you must be misunderstanding something," he's usually
    right and I'm describing a different model than he's picturing.
+6. **Verify sprite orientation by looking at the file, not assuming.**
+   Kenney's topdown shooter sprites face RIGHT, not up. I assumed up,
+   added +π/2 rotation, and every character walked sideways on first
+   ship. Fix was trivial (remove the offset) but avoidable — Read the
+   actual PNG once before picking a rotation formula.
+7. **Don't trust that a "development branch" is ancestor-of-main
+   without checking.** Phases 11.5–11.7 went direct to main and were
+   never back-merged to `claude/arcade-reactor-handoff-mwRLq`, so when
+   we pushed the art pass to handoff then tried to merge → conflict.
+   Fix was a cherry-pick onto main. See Workflow section above for
+   the check to do before editing.
 
 ## Scope guidance
 
@@ -238,9 +278,18 @@ What to actually hold the line on:
 
 ## Specific things he's asked for that aren't built yet
 
-- Door sprite (Phase 6+ has a door but visual treatment TBD)
-- "NEED N KEYS" text feedback when locked (Phase 6)
-- Celebratory win overlay (Phase 6 — green/gold, more than the
-  sober gameover fade)
-- Adaptive difficulty (Phase 12)
+- Adaptive difficulty / director (Phase 12)
 - "Trifecta-style" hidden bonuses (consider once core is fun)
+- Swap the survivor character sprite if the gun-side still reads
+  wrong (try `manBlue_gun` or `soldier1_gun` — Mike will say)
+- Branch hygiene: `claude/arcade-reactor-handoff-mwRLq` is still
+  behind main after the art pass landed direct on main. Either
+  merge main into handoff and keep using it, or retire handoff
+  and work on main going forward. Mike's call next session.
+
+## Session end log
+
+**2026-04-24 (art pass):** Imported Kenney TD Shooter asset pack,
+did a minimal art pass on bunker (walls, player, guards → sprites;
+floor stays procedural). Shipped to main: commits `ced1203`, `273bd69`,
+`d5270b7`. Tablet confirmed working. Parked for the night.
