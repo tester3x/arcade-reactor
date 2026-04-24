@@ -237,7 +237,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.4';
+const BUILD_LABEL = '11.5';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -287,8 +287,8 @@ document.addEventListener('keydown', e => {
   }
   // Grenade-mode toggle (G) — keyboard equivalent of B. Same gating
   // as the gamepad version: must have a grenade, can't toggle while
-  // paused.
-  if (e.code === 'KeyG' && !e.repeat && state && state.player.grenades > 0 && !state.paused && canTogglePause()) {
+  // paused, and can't switch out mid-cook (pin's already out).
+  if (e.code === 'KeyG' && !e.repeat && state && state.player.grenades > 0 && !state.paused && !state.player.cooking && canTogglePause()) {
     state.player.weaponMode = state.player.weaponMode === 'grenade' ? 'gun' : 'grenade';
   }
 });
@@ -517,10 +517,10 @@ function pollGamepad() {
     (gp.buttons[7] && gp.buttons[7].pressed)
   );
   // B (button 1) — edge-triggered weapon-mode toggle. Only flips if
-  // you actually have grenades; otherwise it's a no-op (no point
-  // entering a mode you can't fire from).
+  // you have grenades and aren't already cooking one (pin's out,
+  // can't put it back). No toggling while paused either.
   const bPressed = gp.buttons[1] && gp.buttons[1].pressed;
-  if (bPressed && !padLastButtons[1] && state.player.grenades > 0 && !state.paused) {
+  if (bPressed && !padLastButtons[1] && state.player.grenades > 0 && !state.paused && !state.player.cooking) {
     state.player.weaponMode = state.player.weaponMode === 'grenade' ? 'gun' : 'grenade';
   }
   // Start (9) — edge-triggered. On terminal states (gameover / won /
@@ -567,21 +567,27 @@ const BURST_COOLDOWN      = 28;    // forced delay before next burst can start (
 const GUARD_CONTACT_R   = 20;    // distance where contact damages player
 const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard can hit again (hysteresis)
 
-// ── Grenades (11.2) ──────────────────────────────────────────────
-// Tap B to switch into grenade mode (only if you have grenades).
-// Aim with the right stick (or rely on facing direction). Pull the
-// trigger to throw — straight-line travel, fixed fuse, blast radius
-// kills any guard caught inside. After throwing, weapon mode auto-
-// reverts to gun. Loud as hell — big alertness bump.
+// ── Grenades (11.2 base, 11.5 cook-to-throw) ─────────────────────
+// Tap B (or G on keyboard) to switch into grenade mode (only if
+// you have grenades). HOLD the fire trigger to "cook" — fuse
+// timer counts down on screen above your head. RELEASE to throw,
+// and the grenade flies with whatever fuse time was left. Cook
+// past zero and it detonates in your hand. Self-damage applies if
+// you're caught in your own blast.
+//
+// Quick tap+release ≈ throw with full fuse (classic toss).
+// Long hold then release ≈ airburst right where it lands.
+// Hold too long ≈ you done blew yourself up.
 const GRENADE_START          = 1;     // grenades you spawn with
 const GRENADE_MAX            = 3;     // cap on carried grenades
 const GRENADE_PICKUP_AMOUNT  = 1;     // grenades per pickup
 const GRENADE_SPEED          = 4.5;   // px/frame — slower than bullets, lobbed feel
-const GRENADE_FUSE           = 55;    // frames to live before exploding (~0.9s)
+const GRENADE_FUSE           = 72;    // frames to live before exploding (~1.2s) — cook window + flight time
 const GRENADE_RADIUS         = 7;     // visual radius
 const EXPLOSION_RADIUS       = 110;   // blast radius (px) — kills any guard inside
 const EXPLOSION_FRAMES       = 24;    // frames the explosion stays on screen
 const ALERTNESS_ON_GRENADE   = 60;    // single grenade ≈ caught spotting
+const GRENADE_SELF_DAMAGE    = 2;     // HP lost if caught in your own blast (~40% of max)
 
 // ── Pickups / objectives — Phase 6 ───────────────────────────────
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
@@ -1682,8 +1688,13 @@ function buildStateFor(levelIndex, carryPlayer) {
       ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
       // Grenades (11.2): inventory carries between levels like ammo.
       // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
+      // 11.5: cooking + cookT track an in-hand grenade with the pin
+      // pulled. Set when trigger goes down in grenade mode, cleared
+      // on release (throw) or when cookT hits the fuse (in-hand boom).
       grenades:   carryPlayer ? carryPlayer.grenades : GRENADE_START,
       weaponMode: 'gun',
+      cooking:    false,
+      cookT:      0,
       speedBoostT: 0
     },
     levelIndex:    levelIndex,
@@ -1872,6 +1883,39 @@ function applyKnockback(p, fromX, fromY, distance) {
     if (!circleHitsWall(tryX, p.y, PLAYER_R)) p.x = tryX;
     const tryY = p.y + ny * stepSize;
     if (!circleHitsWall(p.x, tryY, PLAYER_R)) p.y = tryY;
+  }
+}
+
+// 11.5: shared detonation handler used by both in-flight grenades
+// (wall hit / fuse-out) and in-hand cook-overs. Spawns the explosion
+// entity, kills guards inside the blast radius, dumps alertness,
+// and applies self-damage if the player is in their own boom.
+function detonateGrenadeAt(x, y) {
+  const rs = currentRoomState();
+  rs.explosions.push({ x: x, y: y, t: 0 });
+  addAlertness(ALERTNESS_ON_GRENADE);
+  const r2 = EXPLOSION_RADIUS * EXPLOSION_RADIUS;
+  for (const g of rs.guards) {
+    const ddx = g.x - x, ddy = g.y - y;
+    if (ddx * ddx + ddy * ddy < r2) {
+      g.dead = true;
+      addAlertness(ALERTNESS_ON_KILL);
+    }
+  }
+  // Self-damage: standing in your own blast costs HP and gets you
+  // knocked out of the radius. iframes gate prevents double-counting
+  // overlapping explosions on the same frame.
+  const p = state.player;
+  const pdx = p.x - x, pdy = p.y - y;
+  if (pdx * pdx + pdy * pdy < r2 && p.iframes === 0 && p.hp > 0) {
+    p.hp = Math.max(0, p.hp - GRENADE_SELF_DAMAGE);
+    p.iframes = PLAYER_IFRAMES;
+    if (p.hp <= 0) {
+      state.gameover  = true;
+      state.gameoverT = 0;
+    } else {
+      applyKnockback(p, x, y, KNOCKBACK_DISTANCE);
+    }
   }
 }
 
@@ -2161,23 +2205,50 @@ function update() {
       }
     }
   } else if (p.weaponMode === 'grenade') {
-    // Throw on trigger edge. Out of grenades silently flips you
-    // back to gun mode rather than stranding you in a useless mode.
+    // Cook-and-throw (11.5). Press to start cooking (pin out, fuse
+    // ticking). Hold to extend the cook. Release to throw with
+    // remaining fuse, so a quick tap is a normal toss and a long
+    // hold airbursts where it lands. Hold past the fuse and it
+    // detonates in your hand — self-damage included.
     if (p.grenades <= 0) {
       p.weaponMode = 'gun';
-    } else if (fireEdge && p.shootCooldown === 0) {
+      p.cooking    = false;
+      p.cookT      = 0;
+    } else if (firePressed) {
+      if (!p.cooking && p.shootCooldown === 0) {
+        // Just started cooking this frame.
+        p.cooking = true;
+        p.cookT   = 0;
+      } else if (p.cooking) {
+        p.cookT++;
+        if (p.cookT >= GRENADE_FUSE) {
+          // Cook-over: detonate in hand at player position.
+          detonateGrenadeAt(p.x, p.y);
+          p.grenades--;
+          p.cooking       = false;
+          p.cookT         = 0;
+          p.weaponMode    = 'gun';
+          p.shootCooldown = BURST_COOLDOWN;
+        }
+      }
+    } else if (p.cooking) {
+      // Released: throw with remaining fuse. Floor at 1 frame so a
+      // simultaneous press+release doesn't divide-by-zero anywhere.
+      const remainingFuse = Math.max(1, GRENADE_FUSE - p.cookT);
       const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
       const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
       currentRoomState().grenades.push({
         x: bx, y: by,
         vx: Math.cos(p.dir) * GRENADE_SPEED,
         vy: Math.sin(p.dir) * GRENADE_SPEED,
-        fuse: GRENADE_FUSE
+        fuse: remainingFuse
       });
       p.grenades--;
-      p.weaponMode    = 'gun';   // auto-revert per design
+      p.cooking       = false;
+      p.cookT         = 0;
+      p.weaponMode    = 'gun';
       p.shootCooldown = BURST_COOLDOWN;
-      addAlertness(ALERTNESS_ON_FIRE);   // throw itself is loud; explosion adds more
+      addAlertness(ALERTNESS_ON_FIRE);
     }
   }
 
@@ -2203,31 +2274,19 @@ function update() {
   }
   rs.bullets = rs.bullets.filter(b => !b.dead);
 
-  // ── Grenades (11.2) ───────────────────────────────────────────
+  // ── Grenades (11.2 base, 11.5 cook) ───────────────────────────
   // In-flight: travel until they hit a wall or run out of fuse,
-  // then detonate. Fuse is the skill mechanic — you have to time
-  // the throw so the grenade lands near the target as it explodes.
-  // Detonation spawns an explosion entity, kills every guard inside
-  // EXPLOSION_RADIUS, and dumps a big chunk of alertness.
-  //
-  // Note: deliberately NOT contact-detonating on guards. Real
-  // grenades are timer-fused, and the timing is half the fun.
+  // then detonate. Fuse is the skill mechanic — time the throw so
+  // the grenade lands near the target as it explodes. Deliberately
+  // NOT contact-detonating on guards (real grenades are timer-fused;
+  // the timing IS the gameplay).
   for (const gn of rs.grenades) {
     gn.x += gn.vx;
     gn.y += gn.vy;
     gn.fuse--;
     if (isWallAt(gn.x, gn.y) || gn.fuse <= 0) {
       gn.dead = true;
-      rs.explosions.push({ x: gn.x, y: gn.y, t: 0 });
-      addAlertness(ALERTNESS_ON_GRENADE);
-      const r2 = EXPLOSION_RADIUS * EXPLOSION_RADIUS;
-      for (const g of rs.guards) {
-        const ddx = g.x - gn.x, ddy = g.y - gn.y;
-        if (ddx * ddx + ddy * ddy < r2) {
-          g.dead = true;
-          addAlertness(ALERTNESS_ON_KILL);
-        }
-      }
+      detonateGrenadeAt(gn.x, gn.y);
     }
   }
   rs.grenades = rs.grenades.filter(gn => !gn.dead);
@@ -2644,6 +2703,39 @@ function drawBullets() {
     ctx.arc(b.x, b.y, BULLET_R, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawCookTimer() {
+  // Above-head fuse readout while cooking. Seconds-remaining as
+  // text plus a pulsing red ring in the last quarter of the fuse so
+  // the "release NOW" beat is visceral.
+  const p = state.player;
+  if (!p.cooking) return;
+  const remaining = Math.max(0, GRENADE_FUSE - p.cookT);
+  const seconds   = (remaining / 60).toFixed(1);
+  const frac      = remaining / GRENADE_FUSE;
+  const col = frac > 0.5  ? '#fde047'   // yellow (plenty of time)
+            : frac > 0.25 ? '#fb923c'   // orange (cook deeper)
+                          : '#ef4444';  // red (release or eat it)
+  ctx.save();
+  ctx.font         = "bold 18px 'Courier New', monospace";
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'alphabetic';
+  // Soft shadow so the digits stay legible over any tile color
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillText(seconds, p.x + 1, p.y - 26 + 1);
+  ctx.fillStyle = col;
+  ctx.fillText(seconds, p.x, p.y - 26);
+  // Final-quarter danger ring around the player
+  if (frac < 0.3) {
+    const pulse = 0.45 + 0.55 * Math.sin(Date.now() / 50);
+    ctx.strokeStyle = `rgba(239, 68, 68, ${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PLAYER_R + 7, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawGrenades() {
@@ -3162,6 +3254,7 @@ function draw() {
   drawBullets();
   drawGrenades();
   drawPlayer();
+  drawCookTimer();    // 11.5: fuse digits over the player while cooking
   drawExplosions();   // on top of player so the flash visually wins
   drawNeedKeys();
   drawHUD();
