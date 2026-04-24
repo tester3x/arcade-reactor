@@ -237,7 +237,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.1';
+const BUILD_LABEL = '11.2';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -276,7 +276,7 @@ const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter','Escape','KeyP'].includes(e.code)) {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter','Escape','KeyP','KeyG'].includes(e.code)) {
     e.preventDefault();
   }
   if (e.code === 'Enter' && state && (state.gameover || state.won || state.timesUp)) restartGame();
@@ -284,6 +284,12 @@ document.addEventListener('keydown', e => {
   // holding the key doesn't flicker pause on/off.
   if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat && state && canTogglePause()) {
     state.paused = !state.paused;
+  }
+  // Grenade-mode toggle (G) — keyboard equivalent of B. Same gating
+  // as the gamepad version: must have a grenade, can't toggle while
+  // paused.
+  if (e.code === 'KeyG' && !e.repeat && state && state.player.grenades > 0 && !state.paused && canTogglePause()) {
+    state.player.weaponMode = state.player.weaponMode === 'grenade' ? 'gun' : 'grenade';
   }
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -510,6 +516,13 @@ function pollGamepad() {
     (gp.buttons[0] && gp.buttons[0].pressed) ||
     (gp.buttons[7] && gp.buttons[7].pressed)
   );
+  // B (button 1) — edge-triggered weapon-mode toggle. Only flips if
+  // you actually have grenades; otherwise it's a no-op (no point
+  // entering a mode you can't fire from).
+  const bPressed = gp.buttons[1] && gp.buttons[1].pressed;
+  if (bPressed && !padLastButtons[1] && state.player.grenades > 0 && !state.paused) {
+    state.player.weaponMode = state.player.weaponMode === 'grenade' ? 'gun' : 'grenade';
+  }
   // Start (9) — edge-triggered. On terminal states (gameover / won /
   // time's up) it restarts. Otherwise it toggles pause. Restart is
   // checked first so Start always gets you out of a dead/won screen.
@@ -545,9 +558,30 @@ const KNOCKBACK_DISTANCE = 150;    // ~3 tiles; how far a guard hit pushes you b
 const BULLET_SPEED    = 7.5;
 const BULLET_R        = 3;
 const BULLET_RANGE    = 500;   // max travel distance before bullet dies
-const FIRE_COOLDOWN   = 10;    // frames between shots (~6 shots/sec)
+// Burst-fire (11.2): one trigger pull = 3 bullets, then a forced
+// inter-burst cooldown so you can't spam. Edge-detected — must
+// release and re-press the trigger to fire the next burst.
+const BURST_SIZE          = 3;     // bullets per trigger pull
+const BURST_INTRA_FRAMES  = 4;     // frames between bullets within a burst
+const BURST_COOLDOWN      = 28;    // forced delay before next burst can start (~0.45s)
 const GUARD_CONTACT_R   = 20;    // distance where contact damages player
 const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard can hit again (hysteresis)
+
+// ── Grenades (11.2) ──────────────────────────────────────────────
+// Tap B to switch into grenade mode (only if you have grenades).
+// Aim with the right stick (or rely on facing direction). Pull the
+// trigger to throw — straight-line travel, fixed fuse, blast radius
+// kills any guard caught inside. After throwing, weapon mode auto-
+// reverts to gun. Loud as hell — big alertness bump.
+const GRENADE_START          = 1;     // grenades you spawn with
+const GRENADE_MAX            = 3;     // cap on carried grenades
+const GRENADE_PICKUP_AMOUNT  = 1;     // grenades per pickup
+const GRENADE_SPEED          = 4.5;   // px/frame — slower than bullets, lobbed feel
+const GRENADE_FUSE           = 55;    // frames to live before exploding (~0.9s)
+const GRENADE_RADIUS         = 7;     // visual radius
+const EXPLOSION_RADIUS       = 110;   // blast radius (px) — kills any guard inside
+const EXPLOSION_FRAMES       = 24;    // frames the explosion stays on screen
+const ALERTNESS_ON_GRENADE   = 60;    // single grenade ≈ caught spotting
 
 // ── Pickups / objectives — Phase 6 ───────────────────────────────
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
@@ -714,7 +748,10 @@ const LEVEL_1 = {
         { x: 14, y: 2 }
       ],
       keySpawns:     [{ x: 8, y: 2 }],
-      pickupSpawns:  [{ x: 14, y: 11, type: 'health' }],
+      pickupSpawns:  [
+        { x: 14, y: 11, type: 'health' },
+        { x: 8,  y: 11, type: 'grenade' },   // 11.2: one grenade in mid-level
+      ],
     },
     C: {
       name: 'East Block',
@@ -878,7 +915,8 @@ const LEVEL_2 = {
       ],
       keySpawns:    [{ x: 8, y: 10 }],   // south of the island
       pickupSpawns: [
-        { x: 9, y: 1, type: 'ammo' },
+        { x: 9,  y: 1,  type: 'ammo' },
+        { x: 15, y: 1,  type: 'grenade' },   // 11.2: tucked corner pickup
       ],
     },
     D: {
@@ -1070,7 +1108,8 @@ const LEVEL_3 = {
       ],
       keySpawns:    [{ x: 15, y: 2 }],
       pickupSpawns: [
-        { x: 2, y: 10, type: 'health' },
+        { x: 2,  y: 10, type: 'health' },
+        { x: 15, y: 10, type: 'grenade' },   // 11.2: stash before the final room — clear an alarm with it
       ],
     },
     E: {
@@ -1596,6 +1635,11 @@ function makeRoomsState(levelDef) {
     rooms[id] = {
       guards:  makeGuardsForRoom(def),
       bullets: [],
+      // Grenades in flight + active explosion animations (11.2).
+      // Both are room-scoped just like bullets — leaving the room
+      // discards anything mid-air.
+      grenades:   [],
+      explosions: [],
       // Keys and pickups are clones of the spawn lists so we can
       // splice them out as collected without mutating definitions.
       keys:    (def.keySpawns    || []).map(k => ({ x: k.x, y: k.y })),
@@ -1628,8 +1672,18 @@ function buildStateFor(levelIndex, carryPlayer) {
       dir: -Math.PI / 2,
       hp:       carryPlayer ? carryPlayer.hp   : PLAYER_HP_MAX,
       iframes:  0,
-      shootCooldown: 0,
-      ammo:     carryPlayer ? carryPlayer.ammo : PLAYER_AMMO_START,
+      // Burst-fire (11.2): shootCooldown is the inter-burst gate;
+      // burstRemaining/burstStep run within an in-flight burst;
+      // lastFirePressed gates the trigger to edge-detect.
+      shootCooldown:   0,
+      burstRemaining:  0,
+      burstStep:       0,
+      lastFirePressed: false,
+      ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
+      // Grenades (11.2): inventory carries between levels like ammo.
+      // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
+      grenades:   carryPlayer ? carryPlayer.grenades : GRENADE_START,
+      weaponMode: 'gun',
       speedBoostT: 0
     },
     levelIndex:    levelIndex,
@@ -1679,9 +1733,13 @@ function restartGame() {
 
 // Phase 11: between-level advance. Called from update() once the
 // levelComplete card has been shown long enough. Preserves HP+ammo
-// so choices in the prior level matter.
+// (and grenades since 11.2) so choices in the prior level matter.
 function advanceLevel() {
-  const carry = { hp: state.player.hp, ammo: state.player.ammo };
+  const carry = {
+    hp:       state.player.hp,
+    ammo:     state.player.ammo,
+    grenades: state.player.grenades
+  };
   state = buildStateFor(state.levelIndex + 1, carry);
 }
 
@@ -1978,6 +2036,11 @@ function update() {
         } else if (pk.type === 'speed') {
           p.speedBoostT = SPEED_BOOST_DURATION;
           consume = true;
+        } else if (pk.type === 'grenade') {
+          if (p.grenades < GRENADE_MAX) {
+            p.grenades = Math.min(GRENADE_MAX, p.grenades + GRENADE_PICKUP_AMOUNT);
+            consume = true;
+          }
         }
         if (consume) rs.pickups.splice(i, 1);
       }
@@ -2051,25 +2114,71 @@ function update() {
     }
   }
 
-  // ── Firing ────────────────────────────────────────────────────
-  // Gated on ammo > 0. At 0 the press is silently ignored; no
-  // click-empty feedback yet (Phase 7 scope is the mechanic, not
-  // the audio).
+  // ── Firing (11.2: burst fire + grenade throw) ─────────────────
+  // Trigger pull is edge-detected (release + re-press required for
+  // each new shot) so a held trigger doesn't auto-spam. Behavior
+  // forks on weaponMode:
+  //   gun     : start a 3-bullet burst, then forced cooldown
+  //   grenade : throw a single grenade and revert to gun mode
   const firePressed = keys['Space'] || touch.fire || pad.fire;
+  const fireEdge    = firePressed && !p.lastFirePressed;
+  p.lastFirePressed = firePressed;
+
   if (p.shootCooldown > 0) p.shootCooldown--;
-  if (firePressed && p.shootCooldown === 0 && p.ammo > 0) {
-    // Spawn bullet from the player's nose in their facing direction.
-    const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
-    const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
-    currentRoomState().bullets.push({
-      x: bx, y: by,
-      vx: Math.cos(p.dir) * BULLET_SPEED,
-      vy: Math.sin(p.dir) * BULLET_SPEED,
-      traveled: 0
-    });
-    p.shootCooldown = FIRE_COOLDOWN;
-    p.ammo--;
-    addAlertness(ALERTNESS_ON_FIRE);
+
+  if (p.weaponMode === 'gun') {
+    // Start a new burst on trigger edge — gated by cooldown + ammo.
+    if (fireEdge && p.shootCooldown === 0 && p.burstRemaining === 0 && p.ammo > 0) {
+      p.burstRemaining = Math.min(BURST_SIZE, p.ammo);
+      p.burstStep      = 0;
+    }
+    // Fire the next bullet of the in-flight burst when the intra-
+    // burst tick reaches zero. When the burst empties, set the
+    // long inter-burst cooldown so the next trigger pull has to wait.
+    if (p.burstRemaining > 0) {
+      if (p.burstStep > 0) {
+        p.burstStep--;
+      } else if (p.ammo > 0) {
+        const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
+        const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
+        currentRoomState().bullets.push({
+          x: bx, y: by,
+          vx: Math.cos(p.dir) * BULLET_SPEED,
+          vy: Math.sin(p.dir) * BULLET_SPEED,
+          traveled: 0
+        });
+        p.ammo--;
+        addAlertness(ALERTNESS_ON_FIRE);
+        p.burstRemaining--;
+        p.burstStep = BURST_INTRA_FRAMES;
+        if (p.burstRemaining === 0 || p.ammo === 0) {
+          p.burstRemaining = 0;
+          p.shootCooldown  = BURST_COOLDOWN;
+        }
+      } else {
+        p.burstRemaining = 0;   // ran dry mid-burst
+        p.shootCooldown  = BURST_COOLDOWN;
+      }
+    }
+  } else if (p.weaponMode === 'grenade') {
+    // Throw on trigger edge. Out of grenades silently flips you
+    // back to gun mode rather than stranding you in a useless mode.
+    if (p.grenades <= 0) {
+      p.weaponMode = 'gun';
+    } else if (fireEdge && p.shootCooldown === 0) {
+      const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
+      const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
+      currentRoomState().grenades.push({
+        x: bx, y: by,
+        vx: Math.cos(p.dir) * GRENADE_SPEED,
+        vy: Math.sin(p.dir) * GRENADE_SPEED,
+        fuse: GRENADE_FUSE
+      });
+      p.grenades--;
+      p.weaponMode    = 'gun';   // auto-revert per design
+      p.shootCooldown = BURST_COOLDOWN;
+      addAlertness(ALERTNESS_ON_FIRE);   // throw itself is loud; explosion adds more
+    }
   }
 
   // ── Bullets ───────────────────────────────────────────────────
@@ -2093,6 +2202,36 @@ function update() {
     }
   }
   rs.bullets = rs.bullets.filter(b => !b.dead);
+
+  // ── Grenades (11.2) ───────────────────────────────────────────
+  // In-flight: travel until they hit a wall or run out of fuse,
+  // then detonate. Detonation spawns an explosion entity, kills
+  // every guard inside EXPLOSION_RADIUS, and dumps a big chunk
+  // of alertness into the level.
+  for (const gn of rs.grenades) {
+    gn.x += gn.vx;
+    gn.y += gn.vy;
+    gn.fuse--;
+    if (isWallAt(gn.x, gn.y) || gn.fuse <= 0) {
+      gn.dead = true;
+      rs.explosions.push({ x: gn.x, y: gn.y, t: 0 });
+      addAlertness(ALERTNESS_ON_GRENADE);
+      const r2 = EXPLOSION_RADIUS * EXPLOSION_RADIUS;
+      for (const g of rs.guards) {
+        const ddx = g.x - gn.x, ddy = g.y - gn.y;
+        if (ddx * ddx + ddy * ddy < r2) {
+          g.dead = true;
+          addAlertness(ALERTNESS_ON_KILL);
+        }
+      }
+    }
+  }
+  rs.grenades = rs.grenades.filter(gn => !gn.dead);
+
+  // Tick active explosions; clear when they've finished animating.
+  for (const ex of rs.explosions) ex.t++;
+  rs.explosions = rs.explosions.filter(ex => ex.t < EXPLOSION_FRAMES);
+
   rs.guards  = rs.guards.filter(g => !g.dead);
 
   updateGuards();
@@ -2247,10 +2386,11 @@ function drawKeys() {
 }
 
 function drawPickups() {
-  // Three pickup types with distinct shapes:
-  //   health = red cross
-  //   ammo   = cyan capsule (bullet silhouette)
-  //   speed  = yellow double-chevron (>>)
+  // Four pickup types with distinct shapes:
+  //   health  = red cross
+  //   ammo    = cyan capsule (bullet silhouette)
+  //   speed   = yellow double-chevron (>>)
+  //   grenade = olive ball with a fuse (11.2)
   // All share the same pulsing-glow pattern so they read as "same
   // category of thing" — a walkable pickup.
   const rs = currentRoomState();
@@ -2261,9 +2401,10 @@ function drawPickups() {
   for (const pk of rs.pickups) {
     const p = tileToPx(pk.x, pk.y);
     let color;
-    if      (pk.type === 'health') color = '#ef4444';
-    else if (pk.type === 'ammo')   color = '#22d3ee';
-    else                           color = '#fbbf24';
+    if      (pk.type === 'health')  color = '#ef4444';
+    else if (pk.type === 'ammo')    color = '#22d3ee';
+    else if (pk.type === 'grenade') color = '#84cc16';
+    else                            color = '#fbbf24';
 
     // Shared outer glow
     ctx.globalAlpha = 0.3 * pulse;
@@ -2294,6 +2435,21 @@ function drawPickups() {
       // Bullet nose tick
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.fillRect(4, -2, 4, 4);
+    } else if (pk.type === 'grenade') {
+      // Olive ball + a tiny stick "fuse" on top — reads as grenade
+      // without needing the iconic pineapple texture.
+      ctx.beginPath();
+      ctx.arc(0, 1, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Fuse cap
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.9)';
+      ctx.fillRect(-2, -10, 4, 4);
+      // Spark
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(0, -11, 1.6, 0, Math.PI * 2);
+      ctx.fill();
     } else {
       // Yellow double-chevron pointing right
       ctx.beginPath();
@@ -2458,8 +2614,9 @@ function drawPlayer() {
   ctx.arc(0, 0, PLAYER_R, 0, Math.PI * 2);
   ctx.fill();
 
-  // Heading indicator (a short bar out the front)
-  ctx.strokeStyle = '#22d3ee';
+  // Heading indicator (a short bar out the front). Lime when grenade
+  // mode is armed so the active weapon reads at a glance.
+  ctx.strokeStyle = p.weaponMode === 'grenade' ? '#a3e635' : '#22d3ee';
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -2485,6 +2642,50 @@ function drawBullets() {
   }
 }
 
+function drawGrenades() {
+  // Olive-green ball with a small dark crosshatch — distinct from
+  // the cyan bullets so a thrown grenade reads at a glance.
+  for (const gn of currentRoomState().grenades) {
+    ctx.fillStyle = '#65a30d';
+    ctx.beginPath();
+    ctx.arc(gn.x, gn.y, GRENADE_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20, 30, 10, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(gn.x - GRENADE_RADIUS * 0.6, gn.y);
+    ctx.lineTo(gn.x + GRENADE_RADIUS * 0.6, gn.y);
+    ctx.moveTo(gn.x, gn.y - GRENADE_RADIUS * 0.6);
+    ctx.lineTo(gn.x, gn.y + GRENADE_RADIUS * 0.6);
+    ctx.stroke();
+  }
+}
+
+function drawExplosions() {
+  // Two-stage radial flash: bright white-yellow core out to ~30%
+  // of life, fading orange ring out to full radius. Alpha drops
+  // off over the explosion's lifetime.
+  for (const ex of currentRoomState().explosions) {
+    const t = ex.t / EXPLOSION_FRAMES;     // 0..1 progress
+    const r = EXPLOSION_RADIUS * Math.min(1, t * 2.2);
+    const a = 1 - t;
+    ctx.save();
+    // Outer ring (orange)
+    ctx.globalAlpha = 0.55 * a;
+    ctx.fillStyle = '#fb923c';
+    ctx.beginPath();
+    ctx.arc(ex.x, ex.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner core (hot yellow-white)
+    ctx.globalAlpha = 0.85 * a;
+    ctx.fillStyle = '#fef3c7';
+    ctx.beginPath();
+    ctx.arc(ex.x, ex.y, r * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // Count guards across every room in the level (for HUD + endgame).
 function totalGuardsLeft() {
   let n = 0;
@@ -2503,11 +2704,11 @@ function drawHUD() {
   // Control hints
   ctx.textAlign = 'right';
   if (pad.connected) {
-    ctx.fillText('LEFT STICK  MOVE  ·  A  FIRE', GW - 14, 22);
+    ctx.fillText('STICKS  MOVE/AIM  ·  RT  FIRE  ·  B  GRENADE', GW - 14, 22);
   } else if (touchMode) {
     ctx.fillText('STICK  MOVE  ·  FIRE  SHOOT', GW - 14, 22);
   } else {
-    ctx.fillText('WASD / ARROWS  MOVE  ·  SPACE  FIRE', GW - 14, 22);
+    ctx.fillText('WASD  MOVE  ·  SPACE  FIRE  ·  G  GRENADE', GW - 14, 22);
   }
 
   // HP indicator (bottom-left): "HP" label + actual heart shapes so
@@ -2585,14 +2786,25 @@ function drawHUD() {
   ctx.font      = "bold 14px 'Courier New', monospace";
   ctx.fillText(`AMMO  ${pl.ammo}`, GW - 14, GH - 42);
 
-  // Stealth+speed indicator: shows only while active, right above ammo.
-  // Matches the cloak mechanic — while it's up you're invisible to
-  // guard cones and moving at 1.5x speed.
+  // Grenade counter (11.2). Shown above AMMO. Olive when stowed,
+  // bright lime when armed (weapon mode = grenade) so the active
+  // weapon is unambiguous at a glance.
+  const grArmed = pl.weaponMode === 'grenade';
+  const grColor = pl.grenades === 0 ? 'rgba(255,255,255,0.35)'
+                  : grArmed         ? '#a3e635'
+                                    : '#84cc16';
+  ctx.fillStyle = grColor;
+  ctx.font      = "bold 14px 'Courier New', monospace";
+  ctx.fillText(`GRN  ${pl.grenades}${grArmed ? '  •ARMED' : ''}`, GW - 14, GH - 66);
+
+  // Stealth+speed indicator: shows only while active, above grenade
+  // count. Matches the cloak mechanic — while it's up you're
+  // invisible to guard cones and moving at 1.5x speed.
   if (pl.speedBoostT > 0) {
     const secsLeft = Math.ceil(pl.speedBoostT / 60);
     ctx.fillStyle = '#fbbf24';
     ctx.font      = "bold 12px 'Courier New', monospace";
-    ctx.fillText(`STEALTH x${SPEED_BOOST_MULT}  ${secsLeft}s`, GW - 14, GH - 66);
+    ctx.fillText(`STEALTH x${SPEED_BOOST_MULT}  ${secsLeft}s`, GW - 14, GH - 88);
   }
 
   // Remaining-guards count across the whole level (bottom-right)
@@ -2944,7 +3156,9 @@ function draw() {
   drawPickups();
   drawGuards();
   drawBullets();
+  drawGrenades();
   drawPlayer();
+  drawExplosions();   // on top of player so the flash visually wins
   drawNeedKeys();
   drawHUD();
   drawTimer();
