@@ -237,7 +237,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.2';
+const BUILD_LABEL = '11.3';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2204,15 +2204,27 @@ function update() {
   rs.bullets = rs.bullets.filter(b => !b.dead);
 
   // ── Grenades (11.2) ───────────────────────────────────────────
-  // In-flight: travel until they hit a wall or run out of fuse,
-  // then detonate. Detonation spawns an explosion entity, kills
-  // every guard inside EXPLOSION_RADIUS, and dumps a big chunk
-  // of alertness into the level.
+  // In-flight: travel until they hit a wall, contact a guard, or
+  // run out of fuse — whichever comes first. Detonation spawns an
+  // explosion entity, kills every guard inside EXPLOSION_RADIUS,
+  // and dumps a big chunk of alertness into the level.
+  //
+  // 11.3: contact-detonate on a guard. Without this, a grenade flew
+  // through guards and only exploded at fuse-end (often well past
+  // the target), which made aiming feel broken in close combat.
   for (const gn of rs.grenades) {
     gn.x += gn.vx;
     gn.y += gn.vy;
     gn.fuse--;
-    if (isWallAt(gn.x, gn.y) || gn.fuse <= 0) {
+    let detonate = isWallAt(gn.x, gn.y) || gn.fuse <= 0;
+    if (!detonate) {
+      const contactR2 = (GRENADE_RADIUS + GUARD_R) * (GRENADE_RADIUS + GUARD_R);
+      for (const g of rs.guards) {
+        const ddx = g.x - gn.x, ddy = g.y - gn.y;
+        if (ddx * ddx + ddy * ddy < contactR2) { detonate = true; break; }
+      }
+    }
+    if (detonate) {
       gn.dead = true;
       rs.explosions.push({ x: gn.x, y: gn.y, t: 0 });
       addAlertness(ALERTNESS_ON_GRENADE);
