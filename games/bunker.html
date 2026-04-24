@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">11</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">--</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -229,6 +229,16 @@ const ctrlBar = document.getElementById('controls');
 
 const AR_TOPBAR_H = 48;
 const GW = 900, GH = 650;        // logical play field (matches other games)
+
+// Single source of truth for the build label. Shown in the topbar
+// (synced into the HTML on load) and in the in-game HUD. Versioning
+// scheme:
+//   N.0  — new phase lands (e.g. 12.0 when Phase 12 ships)
+//   N.x  — refinements / tuning / bug fixes within a phase
+// Bumping this on every deploy gives a visual "new build is live"
+// check regardless of cache — if the old label shows, refresh again.
+const BUILD_LABEL = '11.1';
+document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
 const CTRL_BAR_H = 140;          // taller than other games — we have a big stick
@@ -2483,11 +2493,12 @@ function totalGuardsLeft() {
 }
 
 function drawHUD() {
-  // Phase label in corner — makes it obvious which build this is
+  // Build label + current room ID. Phase comes from BUILD_LABEL so
+  // the topbar and this HUD corner stay in lockstep.
   ctx.font      = "11px 'Courier New', monospace";
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.textAlign = 'left';
-  ctx.fillText(`PHASE 10 · GUARDS  [${state.currentRoomId}]`, 14, 22);
+  ctx.fillText(`PHASE ${BUILD_LABEL} · ROOM  [${state.currentRoomId}]`, 14, 22);
 
   // Control hints
   ctx.textAlign = 'right';
