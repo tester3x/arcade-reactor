@@ -237,7 +237,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.6';
+const BUILD_LABEL = '11.7';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -588,6 +588,10 @@ const EXPLOSION_RADIUS       = 110;   // blast radius (px) — kills any guard i
 const EXPLOSION_FRAMES       = 24;    // frames the explosion stays on screen
 const ALERTNESS_ON_GRENADE   = 60;    // single grenade ≈ caught spotting
 const GRENADE_SELF_DAMAGE    = 2;     // HP lost if caught in your own blast (~40% of max)
+// Guards detect grenades inside this radius and bolt away (11.7).
+// Bigger than EXPLOSION_RADIUS (110) so they have escape margin.
+const GUARD_DODGE_RADIUS     = 150;
+const GUARD_DODGE_SPEED      = 2.6;   // sprint when escaping — between patrol and chase
 
 // ── Pickups / objectives — Phase 6 ───────────────────────────────
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
@@ -1388,8 +1392,46 @@ function moveGuardToward(g, tx, ty, speed) {
   return false;
 }
 
+// 11.7: a guard's "oh shit, grenade" reflex. Returns the closest
+// in-flight grenade within GUARD_DODGE_RADIUS or null. Skipped
+// during the room-reset simulation so pre-rolled patrols don't see
+// phantom grenades.
+function nearbyGrenadeFor(g) {
+  if (state._simulatingGuards) return null;
+  const rs = currentRoomState();
+  let best = null, bestD2 = GUARD_DODGE_RADIUS * GUARD_DODGE_RADIUS;
+  for (const gn of rs.grenades) {
+    const ddx = gn.x - g.x, ddy = gn.y - g.y;
+    const d2  = ddx * ddx + ddy * ddy;
+    if (d2 < bestD2) { best = gn; bestD2 = d2; }
+  }
+  return best;
+}
+
 // Per-guard update: drive the state machine
 function updateGuard(g) {
+  // 11.7: dodge first. Any guard that sees a grenade close enough
+  // bolts directly away from it for this frame, skipping the rest
+  // of the AI tick. Sentries get displaced from anchor and walk
+  // back via their normal "return to anchor" logic once the grenade
+  // is gone (detonated or out of range). The dodge speed is between
+  // patrol and chase — fast enough to actually escape but reads as
+  // panic, not chase.
+  const dodgeFrom = nearbyGrenadeFor(g);
+  if (dodgeFrom) {
+    const dgx = g.x - dodgeFrom.x, dgy = g.y - dodgeFrom.y;
+    const ddist = Math.hypot(dgx, dgy) || 1;
+    const moveX = (dgx / ddist) * GUARD_DODGE_SPEED;
+    const moveY = (dgy / ddist) * GUARD_DODGE_SPEED;
+    const tryX = g.x + moveX;
+    if (!circleHitsGuardBlocker(tryX, g.y, GUARD_R)) g.x = tryX;
+    const tryY = g.y + moveY;
+    if (!circleHitsGuardBlocker(g.x, tryY, GUARD_R)) g.y = tryY;
+    // Face the grenade so the visual reads as "tracking the threat"
+    g.dir = Math.atan2(-dgy, -dgx);
+    return;
+  }
+
   const canSee = guardCanSeePlayer(g);
 
   if (g.phase === 'patrol') {
@@ -2274,17 +2316,19 @@ function update() {
   }
   rs.bullets = rs.bullets.filter(b => !b.dead);
 
-  // ── Grenades (11.2 base, 11.5 cook) ───────────────────────────
-  // In-flight: travel until they hit a wall or run out of fuse,
-  // then detonate. Fuse is the skill mechanic — time the throw so
-  // the grenade lands near the target as it explodes. Deliberately
-  // NOT contact-detonating on guards (real grenades are timer-fused;
-  // the timing IS the gameplay).
+  // ── Grenades (11.2 base, 11.5 cook, 11.7 lob over walls) ──────
+  // In-flight: travel until the fuse runs out, then detonate. Fuse
+  // is the skill mechanic — time the throw so the grenade lands
+  // near the target as it explodes. Walls do NOT stop a grenade
+  // (it's lobbed up and over them); if the fuse hits zero while
+  // the grenade is over a wall tile, it just airbursts there.
+  // Deliberately NOT contact-detonating on guards either — real
+  // grenades are timer-fused, the timing IS the gameplay.
   for (const gn of rs.grenades) {
     gn.x += gn.vx;
     gn.y += gn.vy;
     gn.fuse--;
-    if (isWallAt(gn.x, gn.y) || gn.fuse <= 0) {
+    if (gn.fuse <= 0) {
       gn.dead = true;
       detonateGrenadeAt(gn.x, gn.y);
     }
@@ -2705,24 +2749,37 @@ function drawBullets() {
   }
 }
 
-// 11.6: where would the grenade explode if thrown right now?
-// Walks the projected path looking for the first wall hit, capped
-// at the distance the remaining fuse + flight speed allow. Used by
-// drawGrenadeAim to render a landing reticle.
+// 11.7: find the first guard sitting on the aim ray (within max
+// grenade range). Used to pop a "COOK Xs" hint over them so the
+// player knows the exact hold time to put a grenade on their head.
+// Walls don't filter — grenades lob over them, so the hint should
+// work through walls too.
+function findGuardOnAimLine(p) {
+  const rs = currentRoomState();
+  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  const maxDist = GRENADE_FUSE * GRENADE_SPEED;
+  let best = null;
+  let bestAlong = Infinity;
+  for (const g of rs.guards) {
+    const gdx = g.x - p.x, gdy = g.y - p.y;
+    const along = gdx * dx + gdy * dy;          // distance along aim ray
+    if (along < PLAYER_R + 4 || along > maxDist) continue;
+    const perp = Math.abs(-gdx * dy + gdy * dx); // perpendicular distance
+    if (perp > GUARD_R + 6) continue;
+    if (along < bestAlong) { best = g; bestAlong = along; }
+  }
+  return best;
+}
+
+// 11.6/11.7: where would the grenade explode if thrown right now?
+// Just remaining-fuse * speed in the aim direction. Walls don't
+// stop the projection because the grenade lobs over them.
 function projectGrenadeImpact(p) {
   const fuseRemaining = p.cooking ? Math.max(1, GRENADE_FUSE - p.cookT) : GRENADE_FUSE;
   const distance = fuseRemaining * GRENADE_SPEED;
   const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
   const startX = p.x + dx * (PLAYER_R + 4);
   const startY = p.y + dy * (PLAYER_R + 4);
-  const step = TILE / 4;
-  // Walk forward, sampling the wall map. First hit wins; otherwise
-  // the grenade flies the full distance and fuse-detonates there.
-  for (let d = step; d <= distance; d += step) {
-    const sx = startX + dx * d;
-    const sy = startY + dy * d;
-    if (isWallAt(sx, sy)) return { x: sx, y: sy };
-  }
   return { x: startX + dx * distance, y: startY + dy * distance };
 }
 
@@ -2773,6 +2830,39 @@ function drawGrenadeAim() {
   ctx.arc(impact.x, impact.y, 3, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
   ctx.fill();
+
+  // 11.7: if there's a guard on the aim ray, pop a "COOK Xs" badge
+  // over them so the player knows the exact cook time for an on-
+  // target detonation. Compares to current cookT so the badge
+  // says "0.0s" the moment you've cooked enough to land it on them.
+  const target = findGuardOnAimLine(p);
+  if (target) {
+    const distToTarget = Math.hypot(target.x - p.x, target.y - p.y);
+    const fuseToHit    = Math.ceil(distToTarget / GRENADE_SPEED);
+    const cookFramesNeeded = Math.max(0, GRENADE_FUSE - fuseToHit - p.cookT);
+    const secondsNeeded    = (cookFramesNeeded / 60).toFixed(1);
+
+    // Yellow ring around the target so it's obvious which guard
+    // the badge refers to
+    ctx.strokeStyle = 'rgba(253, 224, 71, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, GUARD_R + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Badge text above the target. Background plate for legibility.
+    const label    = cookFramesNeeded === 0 ? 'THROW NOW' : `COOK ${secondsNeeded}s`;
+    const badgeY   = target.y - GUARD_R - 14;
+    ctx.font       = "bold 11px 'Courier New', monospace";
+    ctx.textAlign  = 'center';
+    const labelW   = ctx.measureText(label).width + 10;
+    ctx.fillStyle  = 'rgba(0, 0, 0, 0.78)';
+    ctx.fillRect(target.x - labelW / 2, badgeY - 10, labelW, 14);
+    ctx.fillStyle  = cookFramesNeeded === 0 ? '#34d399' : '#fde047';
+    ctx.fillText(label, target.x, badgeY);
+  }
   ctx.restore();
 }
 
