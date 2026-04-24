@@ -239,8 +239,18 @@ What to actually hold the line on:
 ## Specific things he's asked for that aren't built yet
 
 - Door sprite (Phase 6+ has a door but visual treatment TBD)
-- "NEED N KEYS" text feedback when locked (Phase 6)
-- Celebratory win overlay (Phase 6 — green/gold, more than the
-  sober gameover fade)
 - Adaptive difficulty (Phase 12)
 - "Trifecta-style" hidden bonuses (consider once core is fun)
+- **Destructible secret walls with caches** (11.8+): blowable
+  wall tiles that reveal hidden loot (ammo / bandage / grenade
+  pickups) when a grenade detonates adjacent. Needs a new tile
+  kind (e.g. `2` = breakable wall) and a cache spawn table per
+  level
+- Aim assist for grenades (Halo-style magnetism) — floated but
+  never built; Mike suggested it'd help him specifically
+- Touch-mode grenade button + cook support for the tablet
+  (currently gamepad/keyboard only)
+- **Tanks** — new game, Atari Combat clone. Top-down, 2 tanks,
+  walls. Fits the codebase pattern
+- Delta-time movement refactor (pixels/sec instead of px/frame)
+  once the FPS counter confirms tablets run below 60
