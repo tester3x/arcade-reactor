@@ -237,7 +237,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.5';
+const BUILD_LABEL = '11.6';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2705,6 +2705,77 @@ function drawBullets() {
   }
 }
 
+// 11.6: where would the grenade explode if thrown right now?
+// Walks the projected path looking for the first wall hit, capped
+// at the distance the remaining fuse + flight speed allow. Used by
+// drawGrenadeAim to render a landing reticle.
+function projectGrenadeImpact(p) {
+  const fuseRemaining = p.cooking ? Math.max(1, GRENADE_FUSE - p.cookT) : GRENADE_FUSE;
+  const distance = fuseRemaining * GRENADE_SPEED;
+  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  const startX = p.x + dx * (PLAYER_R + 4);
+  const startY = p.y + dy * (PLAYER_R + 4);
+  const step = TILE / 4;
+  // Walk forward, sampling the wall map. First hit wins; otherwise
+  // the grenade flies the full distance and fuse-detonates there.
+  for (let d = step; d <= distance; d += step) {
+    const sx = startX + dx * d;
+    const sy = startY + dy * d;
+    if (isWallAt(sx, sy)) return { x: sx, y: sy };
+  }
+  return { x: startX + dx * distance, y: startY + dy * distance };
+}
+
+function drawGrenadeAim() {
+  // Visible only in grenade mode. Dotted line from player to the
+  // projected impact point + blast-radius preview + crosshair so
+  // long throws aren't blind. The impact point pulls back toward
+  // the player as cook time eats into the fuse — gives the cook
+  // visceral spatial feedback.
+  const p = state.player;
+  if (p.weaponMode !== 'grenade') return;
+  const impact = projectGrenadeImpact(p);
+  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+
+  ctx.save();
+  // Dotted aim line
+  ctx.strokeStyle = 'rgba(132, 204, 22, 0.6)';
+  ctx.setLineDash([4, 6]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(p.x + dx * (PLAYER_R + 4), p.y + dy * (PLAYER_R + 4));
+  ctx.lineTo(impact.x, impact.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Blast-radius preview — faint red ring + tinted fill
+  ctx.fillStyle   = 'rgba(239, 68, 68, 0.10)';
+  ctx.beginPath();
+  ctx.arc(impact.x, impact.y, EXPLOSION_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 4]);
+  ctx.beginPath();
+  ctx.arc(impact.x, impact.y, EXPLOSION_RADIUS, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Crosshair at the landing point
+  const cs = 9;
+  ctx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(impact.x - cs, impact.y);  ctx.lineTo(impact.x + cs, impact.y);
+  ctx.moveTo(impact.x, impact.y - cs);  ctx.lineTo(impact.x, impact.y + cs);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(impact.x, impact.y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawCookTimer() {
   // Above-head fuse readout while cooking. Seconds-remaining as
   // text plus a pulsing red ring in the last quarter of the fuse so
@@ -3253,6 +3324,7 @@ function draw() {
   drawGuards();
   drawBullets();
   drawGrenades();
+  drawGrenadeAim();   // 11.6: landing reticle while in grenade mode
   drawPlayer();
   drawCookTimer();    // 11.5: fuse digits over the player while cooking
   drawExplosions();   // on top of player so the flash visually wins
