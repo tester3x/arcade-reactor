@@ -2389,7 +2389,9 @@ function loadImg(key, path) {
   IMG[key] = im;
 }
 const _TD = '../assets/TD%20Shooter/PNG';
-loadImg('floor',  `${_TD}/Tiles/tile_40.png`);
+// No floor sprite — Kenney's pack has no solid dark-gray floor
+// (the gray tiles are wall-interior with borders), so we keep the
+// procedural dark floor and only sprite the walls.
 loadImg('wall',   `${_TD}/Tiles/tile_70.png`);
 loadImg('player', `${_TD}/Survivor%201/survivor1_gun.png`);
 loadImg('patrol', `${_TD}/Hitman%201/hitman1_gun.png`);
@@ -2402,13 +2404,13 @@ function imgReady(key) {
   return im && im.complete && im.naturalWidth > 0;
 }
 
-// Kenney characters face UP in source art. Game `dir` uses 0 = east
-// (standard canvas math), so we rotate by dir + π/2 to align them.
+// Kenney topdown shooter sprites face RIGHT (east) in source art,
+// same as game `dir` (0 = east), so no rotation offset needed.
 function drawChar(key, x, y, dir, size) {
   const im = IMG[key];
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(dir + Math.PI / 2);
+  ctx.rotate(dir);
   ctx.drawImage(im, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
