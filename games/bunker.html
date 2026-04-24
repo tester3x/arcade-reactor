@@ -262,7 +262,7 @@ const keys = {};
 const keysPrev = {};
 // touch{} holds the thumbstick's raw x/y in [-1,+1] (continuous, not flags)
 const touch = { x: 0, y: 0, active: false, fire: false };
-const pad   = { x: 0, y: 0, connected: false, fire: false, firePrev: false };
+const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false, fire: false, firePrev: false };
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -446,7 +446,7 @@ function pollGamepad() {
     console.log('[gamepad] connected:', gp.id, '·', gp.buttons.length, 'buttons,', gp.axes.length, 'axes, mapping:', gp.mapping);
   }
 
-  // Left stick with dead-zone remap to 0..1 magnitude
+  // Left stick with dead-zone remap to 0..1 magnitude (movement)
   const ax = gp.axes[0] || 0;
   const ay = gp.axes[1] || 0;
   const mag = Math.hypot(ax, ay);
@@ -457,6 +457,22 @@ function pollGamepad() {
     const norm = (usable - PAD_AXIS_DEAD) / (1 - PAD_AXIS_DEAD);
     pad.x = (ax / mag) * norm;
     pad.y = (ay / mag) * norm;
+  }
+
+  // Right stick = aim (twin-stick style). When active, overrides
+  // the "face = move direction" rule so you can walk one way and
+  // shoot another. Same deadzone scheme as the left stick.
+  const rx = gp.axes[2] || 0;
+  const ry = gp.axes[3] || 0;
+  const rmag = Math.hypot(rx, ry);
+  if (rmag < PAD_AXIS_DEAD) {
+    pad.aimX = 0; pad.aimY = 0; pad.aimActive = false;
+  } else {
+    const usable = Math.min(rmag, 1.0);
+    const norm = (usable - PAD_AXIS_DEAD) / (1 - PAD_AXIS_DEAD);
+    pad.aimX = (rx / rmag) * norm;
+    pad.aimY = (ry / rmag) * norm;
+    pad.aimActive = true;
   }
 
   // D-pad overrides stick if pressed (digital controllers still work)
@@ -472,9 +488,14 @@ function pollGamepad() {
     pad.y = dy / m;
   }
 
-  // Face buttons: A = fire. Start = restart on gameover.
+  // Fire buttons: A (0) or RT (7). RT is the natural shooter mapping;
+  // A kept for backwards-compat and for controllers missing triggers.
+  // Start (9) = restart on gameover.
   pad.firePrev = pad.fire;
-  pad.fire = !!(gp.buttons[0] && gp.buttons[0].pressed);
+  pad.fire = !!(
+    (gp.buttons[0] && gp.buttons[0].pressed) ||
+    (gp.buttons[7] && gp.buttons[7].pressed)
+  );
   const startPressed = gp.buttons[9] && gp.buttons[9].pressed;
   if (startPressed && !padLastButtons[9] && (state.gameover || state.won || state.timesUp)) {
     restartGame();
@@ -1883,8 +1904,13 @@ function update() {
     if (circleHitsWall(p.x, p.y, PLAYER_R)) p.y -= dy;
   }
 
-  // Update facing direction only when actually moving (so idle holds the last angle)
-  if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
+  // Facing priority (twin-stick style): right stick (aim) > movement
+  // > last angle. When the gamepad's right stick is active, the
+  // player faces that direction regardless of where they're walking.
+  // Keyboard/touch users fall through to the movement-based facing.
+  if (pad.aimActive) {
+    p.dir = Math.atan2(pad.aimY, pad.aimX);
+  } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
   }
 
@@ -2870,13 +2896,54 @@ function draw() {
 }
 
 // ================================================================
+// FPS counter — diagnostic overlay (Phase 11)
+// ----------------------------------------------------------------
+// Rolling average of the last ~60 frame deltas, drawn top-left so
+// we can see whether the game is actually hitting 60fps on tablets
+// vs desktop. Green ≥55, yellow 40-54, red <40. Remove once we've
+// picked a movement-rate strategy.
+// ================================================================
+let fpsLastT = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+const fpsSamples = [];
+const FPS_SAMPLE_MAX = 60;
+function sampleFps() {
+  const now = performance.now();
+  const dt  = now - fpsLastT;
+  fpsLastT  = now;
+  fpsSamples.push(dt);
+  if (fpsSamples.length > FPS_SAMPLE_MAX) fpsSamples.shift();
+}
+function currentFps() {
+  if (fpsSamples.length === 0) return 60;
+  let sum = 0;
+  for (const d of fpsSamples) sum += d;
+  const avg = sum / fpsSamples.length;
+  return avg > 0 ? Math.round(1000 / avg) : 60;
+}
+function drawFps() {
+  const fps = currentFps();
+  const col = fps >= 55 ? '#34d399' : fps >= 40 ? '#fbbf24' : '#ef4444';
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(4, 4, 62, 18);
+  ctx.font         = "bold 11px 'Courier New', monospace";
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle    = col;
+  ctx.fillText(`FPS ${fps}`, 10, 7);
+  ctx.restore();
+}
+
+// ================================================================
 // LOOP
 // ================================================================
 
 function loop() {
+  sampleFps();
   pollGamepad();
   update();
   draw();
+  drawFps();
   requestAnimationFrame(loop);
 }
 loop();
