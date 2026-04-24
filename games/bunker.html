@@ -191,7 +191,7 @@
   </a>
   <div class="ar-title">Bunker</div>
   <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">10</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    PHASE <span class="ar-score-value" id="ar-score-value">11</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
   </div>
 </div>
 
@@ -511,6 +511,11 @@ const GUARD_DISENGAGE_R = 32;    // must leave this range before the same guard 
 const KEY_R               = 14;    // pickup radius (px) — generous so you don't have to be pixel-perfect
 const NEED_KEYS_DURATION  = 120;   // frames the "NEED N KEYS" prompt stays up (~2s)
 
+// ── Multi-level — Phase 11 ───────────────────────────────────────
+// Duration of the between-level "LEVEL N CLEAR → LEVEL N+1" card.
+// Long enough to land as a beat, short enough not to break flow.
+const LEVEL_COMPLETE_FRAMES = 120;   // 2s total (fade in + hold + advance)
+
 // ── Guard types — Phase 10 ───────────────────────────────────────
 // Four guard types. Default is 'patrol' (the current behavior).
 //   sentry : stationary, wider cone, sweeps ±SENTRY_SWEEP_RANGE
@@ -548,7 +553,10 @@ const ALERTNESS_INVEST_MIN_AT_MAX   = 240;   // frames (4s) — was 600 base
 const ALERTNESS_INVEST_MAX_AT_MAX   = 480;   // frames (8s) — was 1500 base
 
 // ── Countdown timer — Phase 8 ────────────────────────────────────
-const TIMER_DURATION_FRAMES = 180 * 60;   // 3 minutes at 60fps
+// Per-level duration lives on each level def (Phase 11). Color /
+// flash thresholds stay global — they're seconds-to-zero, not % of
+// remaining, so the red/flash zone always feels the same regardless
+// of the starting clock.
 const TIMER_YELLOW_FRAMES   = 60  * 60;   // turn yellow under 60s
 const TIMER_RED_FRAMES      = 30  * 60;   // turn red under 30s
 const TIMER_FLASH_FRAMES    = 10  * 60;   // flash under 10s
@@ -563,28 +571,37 @@ const SPEED_BOOST_DURATION = 300;  // frames the boost lasts (~5s)
 const PICKUP_R            = 14;    // pickup radius, same feel as keys
 
 // ================================================================
-// LEVEL 1 — Phase 5
+// LEVELS — Phase 5 (rooms) + Phase 11 (multi-level)
 // ----------------------------------------------------------------
 // Screen-based room architecture. Each room has its own tile map
 // (18 cols × 13 rows), its own doorways, guard spawns, and—for the
 // start room—a player spawn. Walking onto a doorway tile triggers a
 // fade transition to the target room at the target tile position.
 //
+// Phase 11: LEVELS is an array of level defs. state.levelIndex
+// selects the active one. Each level defines its own room graph,
+// timer duration, and display name. Beating a non-final level
+// advances the index; beating the final level triggers terminal
+// WIN.
+//
+// Escalation plan (staggered):
+//   L1 "Bunker"       — 3 rooms, 3:00 timer, intro mix
+//   L2 "North Wing"   — 4 rooms, 2:30 timer, denser + more alarm
+//   L3 "Core Reactor" — 5 rooms, 2:00 timer, dense alarm climax
+//
 // Legend in maps:  0 = floor    1 = wall
 // Doorway tiles are 0's (walkable floor) on the outer edge; the
-// LEVEL_1.rooms[id].doorways array tells us which tiles trigger
-// transitions and where they lead.
-//
-// LAYOUT (Phase 5 stub):  [A] ⇄ [B] ⇄ [C]
-// Room A is the spawn room. Room C is a stub end-room (its east
-// wall will host the locked exit once Phase 6 lands).
+// room.doorways array tells us which tiles trigger transitions and
+// where they lead.
 // ================================================================
 const TILE = 50;
 const MAP_COLS = 18;
 const MAP_ROWS = 13;
 
 const LEVEL_1 = {
+  name: 'BUNKER',
   startRoomId: 'A',
+  timerFrames: 180 * 60,   // 3:00
   rooms: {
     A: {
       name: 'West Block',
@@ -698,11 +715,376 @@ const LEVEL_1 = {
   },
 };
 
-// Current room helpers — single source of truth. All collision
-// sampling and guard updates read through these, so switching
-// rooms is a one-line change (state.currentRoomId = 'B').
+// ----------------------------------------------------------------
+// LEVEL 2 — "North Wing"
+// 4 rooms (A↔B↔C↔D), 2:30 timer, 3 keys.
+// Tightens L1: every room has a noise-risk guard (hunter or alarm),
+// interior layouts have more cover (harder to see the whole room
+// from any one spot), exit room is a gauntlet.
+// ----------------------------------------------------------------
+const LEVEL_2 = {
+  name: 'NORTH WING',
+  startRoomId: 'A',
+  timerFrames: 150 * 60,   // 2:30
+  rooms: {
+    A: {
+      name: 'Forward Post',
+      // Open-ish with two pillars. Sentry pans the center; hunter
+      // prowls the south corridor.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      playerSpawn:  { x: 2, y: 6 },
+      respawnPoint: { x: 2, y: 6 },
+      doorways: [
+        { x: 17, y: 5, toRoom: 'B', toX: 1, toY: 5 },
+        { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
+      ],
+      guardSpawns: [
+        // Sentry up top, wide slow pan south — makes the middle
+        // aisle risky.
+        { x: 9, y: 2, type: 'sentry', facingDir: Math.PI / 2 },
+        // Hunter in the south corridor — fast, aggressive.
+        { x: 12, y: 11, type: 'hunter' },
+      ],
+      keySpawns:    [{ x: 15, y: 2 }],   // top-right, under the sentry cone
+      pickupSpawns: [
+        { x: 2,  y: 11, type: 'health' },   // bandage near spawn
+      ],
+    },
+    B: {
+      name: 'Corridor',
+      // Mirrored vertical wall segments narrow the room to two
+      // lanes. Alarm guard patrols the north lane.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [1,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0,  y: 5, toRoom: 'A', toX: 16, toY: 5 },
+        { x: 0,  y: 6, toRoom: 'A', toX: 16, toY: 6 },
+        { x: 17, y: 5, toRoom: 'C', toX: 1,  toY: 5 },
+        { x: 17, y: 6, toRoom: 'C', toX: 1,  toY: 6 },
+      ],
+      guardSpawns: [
+        // Alarm-raiser in the north lane — spotting you here feeds
+        // alertness into rooms C and D.
+        { x: 8, y: 2, type: 'alarm' },
+        // Standard patrol in the south lane.
+        { x: 9, y: 11 },
+      ],
+      keySpawns:    [{ x: 8, y: 6 }],   // right on the doorway lane — unavoidable pass
+      pickupSpawns: [
+        { x: 2,  y: 11, type: 'ammo' },
+        { x: 15, y: 11, type: 'health' },
+      ],
+    },
+    C: {
+      name: 'Control Room',
+      // Central island (walls) forces you around it. Hunter circles
+      // it, patrol takes the perimeter.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,1],
+        [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0],
+        [1,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0,  y: 5, toRoom: 'B', toX: 16, toY: 5 },
+        { x: 0,  y: 6, toRoom: 'B', toX: 16, toY: 6 },
+        { x: 17, y: 5, toRoom: 'D', toX: 1,  toY: 5 },
+        { x: 17, y: 6, toRoom: 'D', toX: 1,  toY: 6 },
+      ],
+      guardSpawns: [
+        // Hunter above the island, sentry below it facing north.
+        { x: 3,  y: 2,  type: 'hunter' },
+        { x: 14, y: 10, type: 'sentry', facingDir: -Math.PI / 2 },
+      ],
+      keySpawns:    [{ x: 8, y: 10 }],   // south of the island
+      pickupSpawns: [
+        { x: 9, y: 1, type: 'ammo' },
+      ],
+    },
+    D: {
+      name: 'East Exit',
+      // Exit gauntlet. Two guards stand between you and the door.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0, y: 5, toRoom: 'C', toX: 16, toY: 5 },
+        { x: 0, y: 6, toRoom: 'C', toX: 16, toY: 6 },
+      ],
+      exit: { x: 17, y: 6 },
+      guardSpawns: [
+        // Alarm right in front of the exit.
+        { x: 15, y: 6,  type: 'alarm' },
+        // Sentry to the north, watching the approach.
+        { x: 9,  y: 2, type: 'sentry', facingDir: Math.PI / 2 },
+      ],
+      keySpawns:    [{ x: 8, y: 10 }],
+      pickupSpawns: [
+        { x: 2, y: 10, type: 'speed' },   // cloak for the final push
+        { x: 8, y: 5,  type: 'health' },
+      ],
+    },
+  },
+};
+
+// ----------------------------------------------------------------
+// LEVEL 3 — "Core Reactor"
+// 5 rooms (A↔B↔C↔D↔E), 2:00 timer, 3 keys.
+// Climax level. Dense alarm coverage, more guards per room, tight
+// clock. Exit is behind three alarm guards — pure stealth is hard,
+// pure combat burns ammo. Speed-pickup cloak timing matters.
+// ----------------------------------------------------------------
+const LEVEL_3 = {
+  name: 'CORE REACTOR',
+  startRoomId: 'A',
+  timerFrames: 120 * 60,   // 2:00
+  rooms: {
+    A: {
+      name: 'Deep West',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      playerSpawn:  { x: 2, y: 6 },
+      respawnPoint: { x: 2, y: 6 },
+      doorways: [
+        { x: 17, y: 5, toRoom: 'B', toX: 1, toY: 5 },
+        { x: 17, y: 6, toRoom: 'B', toX: 1, toY: 6 },
+      ],
+      guardSpawns: [
+        // Sentry and hunter from the start — no easy warm-up.
+        { x: 9,  y: 2,  type: 'sentry', facingDir: Math.PI / 2 },
+        { x: 12, y: 10, type: 'hunter' },
+      ],
+      keySpawns:    [],
+      pickupSpawns: [
+        { x: 2, y: 11, type: 'ammo' },
+      ],
+    },
+    B: {
+      name: 'West Corridor',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0,  y: 5, toRoom: 'A', toX: 16, toY: 5 },
+        { x: 0,  y: 6, toRoom: 'A', toX: 16, toY: 6 },
+        { x: 17, y: 5, toRoom: 'C', toX: 1,  toY: 5 },
+        { x: 17, y: 6, toRoom: 'C', toX: 1,  toY: 6 },
+      ],
+      guardSpawns: [
+        // Two standard patrols squeezing the middle corridor.
+        { x: 8, y: 2  },
+        { x: 8, y: 10 },
+      ],
+      keySpawns:    [{ x: 2, y: 2 }],   // tucked in the north alcove
+      pickupSpawns: [
+        { x: 15, y: 10, type: 'health' },
+      ],
+    },
+    C: {
+      name: 'Reactor Hub',
+      // Central chamber (cols 7-10, rows 3-8) holds a key and the
+      // alarm guard. Single opening on the west side (row 5 col 7)
+      // forces a narrow approach past the alarm to grab the key.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0,  y: 5, toRoom: 'B', toX: 16, toY: 5 },
+        { x: 0,  y: 6, toRoom: 'B', toX: 16, toY: 6 },
+        { x: 17, y: 5, toRoom: 'D', toX: 1,  toY: 5 },
+        { x: 17, y: 6, toRoom: 'D', toX: 1,  toY: 6 },
+      ],
+      guardSpawns: [
+        // Alarm inside the chamber — pops if you peek inside.
+        { x: 8,  y: 5,  type: 'alarm' },
+        // Patrol and sentry flanking the approach.
+        { x: 3,  y: 10 },
+        { x: 14, y: 2,  type: 'sentry', facingDir: Math.PI / 2 },
+      ],
+      keySpawns:    [{ x: 9, y: 6 }],   // inside the locked chamber
+      pickupSpawns: [
+        { x: 2,  y: 10, type: 'ammo' },
+      ],
+    },
+    D: {
+      name: 'East Corridor',
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0,  y: 5, toRoom: 'C', toX: 16, toY: 5 },
+        { x: 0,  y: 6, toRoom: 'C', toX: 16, toY: 6 },
+        { x: 17, y: 5, toRoom: 'E', toX: 1,  toY: 5 },
+        { x: 17, y: 6, toRoom: 'E', toX: 1,  toY: 6 },
+      ],
+      guardSpawns: [
+        // Alarm + hunter combo — getting spotted here raises alert
+        // AND chases you down.
+        { x: 9,  y: 2,  type: 'alarm' },
+        { x: 10, y: 10, type: 'hunter' },
+      ],
+      keySpawns:    [{ x: 15, y: 2 }],
+      pickupSpawns: [
+        { x: 2, y: 10, type: 'health' },
+      ],
+    },
+    E: {
+      name: 'Reactor Exit',
+      // Final gauntlet. Two alarms + a sentry between you and the
+      // door. Cloak if you've got it.
+      map: [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      ],
+      respawnPoint: { x: 1, y: 5 },
+      doorways: [
+        { x: 0, y: 5, toRoom: 'D', toX: 16, toY: 5 },
+        { x: 0, y: 6, toRoom: 'D', toX: 16, toY: 6 },
+      ],
+      exit: { x: 17, y: 6 },
+      guardSpawns: [
+        // Alarm pair flanking the exit approach.
+        { x: 15, y: 5,  type: 'alarm' },
+        { x: 15, y: 9,  type: 'alarm' },
+        // Sentry pans across the middle aisle.
+        { x: 9,  y: 2,  type: 'sentry', facingDir: Math.PI / 2 },
+      ],
+      keySpawns:    [{ x: 8, y: 10 }],
+      pickupSpawns: [
+        { x: 2, y: 2,  type: 'speed' },   // cloak for the push
+        { x: 2, y: 10, type: 'ammo' },
+      ],
+    },
+  },
+};
+
+// Phase 11: all levels, played in order.
+const LEVELS = [LEVEL_1, LEVEL_2, LEVEL_3];
+
+// Current level / room helpers — single source of truth. All
+// collision sampling, guard updates, and minimap reads go through
+// these, so swapping level is a one-line change
+// (state.levelIndex = 1) and swapping room within a level is
+// (state.currentRoomId = 'B').
+function currentLevel() {
+  return LEVELS[state.levelIndex];
+}
 function currentRoom() {
-  return LEVEL_1.rooms[state.currentRoomId];
+  return currentLevel().rooms[state.currentRoomId];
 }
 function currentRoomState() {
   return state.rooms[state.currentRoomId];
@@ -1162,10 +1544,13 @@ function makeGuardsForRoom(roomDef) {
 // pickups per room) so rooms remember their own state when the
 // player leaves and returns. Bullets stay with the room they were
 // fired in; collected keys/pickups disappear and stay gone.
-function makeRoomsState() {
+//
+// Phase 11: takes a level def so we can build room state for any
+// level, not just the current one (needed when we advance).
+function makeRoomsState(levelDef) {
   const rooms = {};
-  for (const id in LEVEL_1.rooms) {
-    const def = LEVEL_1.rooms[id];
+  for (const id in levelDef.rooms) {
+    const def = levelDef.rooms[id];
     rooms[id] = {
       guards:  makeGuardsForRoom(def),
       bullets: [],
@@ -1178,58 +1563,72 @@ function makeRoomsState() {
   return rooms;
 }
 
-// Count keys defined across the whole level (used for HUD + win check).
-function totalKeysInLevel() {
+// Count keys defined across a specific level.
+function totalKeysInLevel(levelDef) {
   let n = 0;
-  for (const id in LEVEL_1.rooms) n += (LEVEL_1.rooms[id].keySpawns || []).length;
+  for (const id in levelDef.rooms) n += (levelDef.rooms[id].keySpawns || []).length;
   return n;
 }
 
-function buildState() {
-  const startRoom = LEVEL_1.rooms[LEVEL_1.startRoomId];
-  const sp = tileToPx(startRoom.playerSpawn.x, startRoom.playerSpawn.y);
+// Build state for a specific level. If carryPlayer is provided,
+// HP and ammo persist from the prior level; otherwise the player
+// starts fresh. Cloak always resets between levels (it's a temp
+// buff, not an inventory item). Alertness, timer, keys, and room
+// state all reset — a new level is a clean situation.
+function buildStateFor(levelIndex, carryPlayer) {
+  const levelDef  = LEVELS[levelIndex];
+  const startRoom = levelDef.rooms[levelDef.startRoomId];
+  const sp        = tileToPx(startRoom.playerSpawn.x, startRoom.playerSpawn.y);
   return {
     player: {
       x: sp.x,
       y: sp.y,
       dir: -Math.PI / 2,
-      hp: PLAYER_HP_MAX,
-      iframes: 0,
+      hp:       carryPlayer ? carryPlayer.hp   : PLAYER_HP_MAX,
+      iframes:  0,
       shootCooldown: 0,
-      ammo: PLAYER_AMMO_START,
-      speedBoostT: 0   // frames remaining on the speed boost pickup
+      ammo:     carryPlayer ? carryPlayer.ammo : PLAYER_AMMO_START,
+      speedBoostT: 0
     },
-    currentRoomId: LEVEL_1.startRoomId,
-    rooms:      makeRoomsState(),
-    // transition: null when not transitioning, else
-    // { t, phase: 'out'|'in', toRoom, toX, toY } while fading.
-    transition: null,
-    // Phase 6: progression state
+    levelIndex:    levelIndex,
+    currentRoomId: levelDef.startRoomId,
+    rooms:         makeRoomsState(levelDef),
+    transition:    null,
     keysCollected: 0,
-    totalKeys:     totalKeysInLevel(),
-    needKeysT:     0,    // frames remaining of "NEED N KEYS" prompt
+    totalKeys:     totalKeysInLevel(levelDef),
+    needKeysT:     0,
+    // Terminal WIN (final-level escape). Intermediate "LEVEL N
+    // CLEAR" uses levelComplete* instead.
     won:           false,
-    wonT:          0,    // frames since win (for fade-in)
-    visitedRooms:  { [LEVEL_1.startRoomId]: true },
-    // Phase 8: countdown timer. Doesn't start ticking until the
-    // player first moves — gives a beat to orient on spawn.
-    timerFrames:   TIMER_DURATION_FRAMES,
+    wonT:          0,
+    // Phase 11: between-level card. Non-terminal; after levelCompleteT
+    // hits LEVEL_COMPLETE_FRAMES the update loop calls advanceLevel().
+    levelComplete:  false,
+    levelCompleteT: 0,
+    visitedRooms:  { [levelDef.startRoomId]: true },
+    timerFrames:   levelDef.timerFrames,
     timerStarted:  false,
     timesUp:       false,
-    timesUpT:      0,    // frames since TIME'S UP (for fade-in)
-    // Phase 9: global alertness (0..ALERTNESS_MAX). Rises on noise
-    // events, decays over time. Drives cone width, patrol speed,
-    // investigate cadence for all guards.
+    timesUpT:      0,
     alertness:     0,
-    gameover: false,
-    gameoverT: 0
+    gameover:      false,
+    gameoverT:     0
   };
 }
+function buildState() { return buildStateFor(0, null); }
 
 var state = buildState();
 
 function restartGame() {
   state = buildState();
+}
+
+// Phase 11: between-level advance. Called from update() once the
+// levelComplete card has been shown long enough. Preserves HP+ammo
+// so choices in the prior level matter.
+function advanceLevel() {
+  const carry = { hp: state.player.hp, ammo: state.player.ammo };
+  state = buildStateFor(state.levelIndex + 1, carry);
 }
 
 // ================================================================
@@ -1400,6 +1799,18 @@ function update() {
   if (state.won)      { state.wonT++;      return; }
   if (state.timesUp)  { state.timesUpT++;  return; }
 
+  // Phase 11: between-level "LEVEL N CLEAR" card. Non-terminal.
+  // When the counter hits LEVEL_COMPLETE_FRAMES we swap state to
+  // the next level (player HP/ammo carry over). The card overlay
+  // tracks levelCompleteT for its fade.
+  if (state.levelComplete) {
+    state.levelCompleteT++;
+    if (state.levelCompleteT >= LEVEL_COMPLETE_FRAMES) {
+      advanceLevel();
+    }
+    return;
+  }
+
   // Alertness decay — continuous, only while gameplay is active.
   // Rising triggers are hooked in the firing/kill/spot sites.
   if (state.alertness > 0) {
@@ -1530,6 +1941,10 @@ function update() {
   // Stepping onto the exit tile of the current room either wins
   // (all keys collected) or shows the "NEED N KEYS" feedback.
   // Checked BEFORE doorways so the exit can't double as a transition.
+  //
+  // Phase 11: on a successful exit, if there's a next level, trigger
+  // the between-level card (levelComplete). If we're on the final
+  // level, the terminal WIN fires as before.
   {
     const room = currentRoom();
     if (room.exit) {
@@ -1537,8 +1952,13 @@ function update() {
       const row = Math.floor(p.y / TILE);
       if (col === room.exit.x && row === room.exit.y) {
         if (state.keysCollected >= state.totalKeys) {
-          state.won = true;
-          state.wonT = 0;
+          if (state.levelIndex < LEVELS.length - 1) {
+            state.levelComplete  = true;
+            state.levelCompleteT = 0;
+          } else {
+            state.won  = true;
+            state.wonT = 0;
+          }
           return;
         } else {
           state.needKeysT = NEED_KEYS_DURATION;
@@ -2228,17 +2648,22 @@ function drawTimesUp() {
 }
 
 function drawMinimap() {
-  // Top-right corner, inside its own dark panel. Renders the LEVEL_1
-  // rooms as a chain of small squares. Visited rooms filled,
+  // Top-right corner, inside its own dark panel. Renders the current
+  // level's rooms as a chain of small squares. Visited rooms filled,
   // unvisited outlined, current room gets a bright cyan border.
-  // Phase 6 layout: rooms in a line. Multi-level will replace this
-  // with a real layout descriptor on LEVEL_1.
-  const ids = Object.keys(LEVEL_1.rooms);
+  // All levels so far use a linear A→B→C… chain, so drawing rooms in
+  // definition order with adjacent connection lines is correct.
+  const ids = Object.keys(currentLevel().rooms);
   const cellW = 28, cellH = 22, gap = 8;
   const roomsW = ids.length * cellW + (ids.length - 1) * gap;
   const padX   = 12, padY = 8;
   const titleH = 14;
-  const panelW = roomsW + padX * 2;
+  // Phase 11: title row now carries "LEVEL N/M" on the left plus the
+  // keys count on the right. Enforce a minimum width so the two don't
+  // overlap on a 3-room level where the cells alone don't make the
+  // panel wide enough.
+  const MIN_TITLE_PANEL_W = 160;
+  const panelW = Math.max(roomsW + padX * 2, MIN_TITLE_PANEL_W);
   const panelH = titleH + cellH + padY * 2;
   const panelX = GW - panelW - 12;
   const panelY = 10;
@@ -2254,7 +2679,8 @@ function drawMinimap() {
   ctx.font      = "bold 9px 'Courier New', monospace";
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(34, 211, 238, 0.85)';
-  ctx.fillText('MAP', panelX + padX, panelY + padY + 9);
+  ctx.fillText(`LEVEL ${state.levelIndex + 1}/${LEVELS.length}`,
+               panelX + padX, panelY + padY + 9);
 
   // Key progress — small digit count on the right of the title row
   ctx.textAlign = 'right';
@@ -2303,6 +2729,43 @@ function drawMinimap() {
     ctx.lineTo(x2, y);
     ctx.stroke();
   }
+}
+
+function drawLevelComplete() {
+  // Between-level card: dark cyan wash + "LEVEL N CLEAR" title and
+  // the next level's name below. Fades in over the first 20 frames,
+  // holds, fades out over the last 20. advanceLevel() fires at
+  // LEVEL_COMPLETE_FRAMES so this overlay dismisses itself naturally
+  // when state resets to the next level.
+  const t    = state.levelCompleteT;
+  const T    = LEVEL_COMPLETE_FRAMES;
+  const fadeIn  = Math.min(1, t / 20);
+  const fadeOut = Math.min(1, (T - t) / 20);
+  const fade = Math.min(fadeIn, fadeOut);
+
+  ctx.fillStyle = `rgba(8, 47, 73, ${0.78 * fade})`;
+  ctx.fillRect(0, 0, GW, GH);
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+
+  // Main title
+  ctx.font      = "bold 44px 'Courier New', monospace";
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(34, 211, 238, 0.25)';   // soft cyan halo
+  ctx.fillText(`LEVEL ${state.levelIndex + 1} CLEAR`, GW / 2 + 2, GH / 2 - 18);
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText(`LEVEL ${state.levelIndex + 1} CLEAR`, GW / 2, GH / 2 - 20);
+
+  // Sub line: the next level's name so the player knows what's coming
+  const nextDef = LEVELS[state.levelIndex + 1];
+  if (nextDef) {
+    ctx.font      = "bold 16px 'Courier New', monospace";
+    ctx.fillStyle = 'rgba(230,237,243,0.85)';
+    ctx.fillText(`NEXT:  ${nextDef.name}`, GW / 2, GH / 2 + 14);
+  }
+
+  ctx.restore();
 }
 
 function drawWin() {
@@ -2399,10 +2862,11 @@ function draw() {
   drawTimer();
   drawAlertness();
   drawMinimap();
-  if (state.gameover)   drawGameOver();
-  if (state.won)        drawWin();
-  if (state.timesUp)    drawTimesUp();
-  if (state.transition) drawTransition();
+  if (state.gameover)      drawGameOver();
+  if (state.won)           drawWin();
+  if (state.timesUp)       drawTimesUp();
+  if (state.levelComplete) drawLevelComplete();
+  if (state.transition)    drawTransition();
 }
 
 // ================================================================
