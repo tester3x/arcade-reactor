@@ -252,7 +252,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.0';
+const BUILD_LABEL = '12.1';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -280,7 +280,23 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
+
+// Input mode is "most recent input wins". A user can pair a gamepad,
+// set it down, and tap the screen to bring the touch UI back; later
+// pressing any controller input swaps back to gamepad mode and grows
+// the canvas. Both 'touchMode' and the gamepad-active CSS class
+// reflect this single state — touchMode = true overrides everything.
+function setTouchMode(on) {
+  if (touchMode === on) return;
+  touchMode = on;
+  if (on) {
+    document.body.classList.remove('gamepad-active');
+  } else if (pad.connected) {
+    document.body.classList.add('gamepad-active');
+  }
+  resize();
+}
+function activateTouch() { setTouchMode(true); }
 
 // ── Input state ──────────────────────────────────────────────────
 const keys = {};
@@ -483,7 +499,11 @@ function pollGamepad() {
 
   if (!pad.connected) {
     pad.connected = true;
-    document.body.classList.add('gamepad-active');
+    // Don't auto-flip into gamepad mode just because something paired
+    // (a tablet may auto-pair without the user picking it up). Wait
+    // until there's actual input below — see the touchMode flip after
+    // the stick + button reads.
+    if (!touchMode) document.body.classList.add('gamepad-active');
     console.log('[gamepad] connected:', gp.id, '·', gp.buttons.length, 'buttons,', gp.axes.length, 'axes, mapping:', gp.mapping);
   }
 
@@ -553,6 +573,22 @@ function pollGamepad() {
     } else if (canTogglePause()) {
       state.paused = !state.paused;
     }
+  }
+
+  // Most-recent-input-wins. If the gamepad is doing anything real
+  // (stick past the deadzone or any button pressed) and we're
+  // currently showing the touch UI, swap to gamepad mode. The reverse
+  // direction (touch → gamepad-off) is handled by activateTouch().
+  if (touchMode) {
+    let padActive = pad.x !== 0 || pad.y !== 0 ||
+                    pad.aimX !== 0 || pad.aimY !== 0 ||
+                    pad.fire;
+    if (!padActive) {
+      for (let i = 0; i < gp.buttons.length; i++) {
+        if (gp.buttons[i] && gp.buttons[i].pressed) { padActive = true; break; }
+      }
+    }
+    if (padActive) setTouchMode(false);
   }
 
   // Snapshot button state for next frame's edge detection (Phase 4+ will use this)
