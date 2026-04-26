@@ -184,6 +184,28 @@
     letter-spacing: 0.12em; min-width: 90px; text-align: right;
   }
   .ar-score-value { color: #22d3ee; font-weight: 700; }
+  .ar-right {
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  /* On-screen pause button — sits in the topbar, visible always.
+     Mirrors Esc/P/Start: tap to toggle pause when canTogglePause(). */
+  .ar-pause {
+    appearance: none;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid #1f2937;
+    color: #8b98a8;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 14px; line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .ar-pause:hover { color: #22d3ee; border-color: #22d3ee; }
+  .ar-pause.active {
+    color: #22d3ee; border-color: #22d3ee;
+    background: rgba(34,211,238,0.12);
+  }
   .ar-gamepad {
     display: none;
     margin-left: 8px;
@@ -207,8 +229,11 @@
     <span>Arcade Reactor</span>
   </a>
   <div class="ar-title">Bunker</div>
-  <div class="ar-score">
-    PHASE <span class="ar-score-value" id="ar-score-value">--</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+  <div class="ar-right">
+    <button class="ar-pause" id="ar-pause" type="button" aria-label="Pause">⏸</button>
+    <div class="ar-score">
+      PHASE <span class="ar-score-value" id="ar-score-value">--</span><span class="ar-gamepad" title="Gamepad connected">🎮</span>
+    </div>
   </div>
 </div>
 
@@ -260,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.4';
+const BUILD_LABEL = '12.5';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -352,18 +377,29 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 
 // ── Virtual thumbstick (360° analog) ─────────────────────────────
-// Finger-anchor: base jumps to touchdown point. Stick outputs
-// normalized x/y in [-1,+1] based on distance from origin, clamped
-// to MAX_RADIUS, with a small dead zone around origin. The target
-// arg lets multiple sticks share the same wiring (move + aim).
-function wireStick(zoneId, baseId, knobId, target) {
+// Stick outputs normalized x/y in [-1,+1] based on distance from
+// origin, clamped to MAX_RADIUS, with a small dead zone around
+// origin. The target arg lets multiple sticks share the same wiring
+// (move + aim).
+//
+// opts.anchorOnTouch (default false):
+//   false → origin = base center. Touching off-center registers as
+//           an immediate deflection (and on the aim stick at ≥0.7
+//           mag, immediately fires). The visible base never moves.
+//   true  → origin = the touchdown point. First touch reads (0,0)
+//           regardless of where the finger lands; deflection only
+//           grows as the finger moves from that anchor. Used on the
+//           aim stick so picking the stick up doesn't accidentally
+//           snap-fire in whatever direction the thumb landed.
+function wireStick(zoneId, baseId, knobId, target, opts) {
   const zone = document.getElementById(zoneId);
   const base = document.getElementById(baseId);
   const knob = document.getElementById(knobId);
   if (!zone || !base || !knob) return;
 
-  const DEAD_ZONE  = 8;
-  const MAX_RADIUS = 42;
+  const DEAD_ZONE     = 8;
+  const MAX_RADIUS    = 42;
+  const anchorOnTouch = !!(opts && opts.anchorOnTouch);
 
   let trackingId = null;
   let originCX = 0, originCY = 0;
@@ -422,17 +458,20 @@ function wireStick(zoneId, baseId, knobId, target) {
       trackingId = 'mouse';
       cx = e.clientX; cy = e.clientY;
     }
-    // 12.3: origin is the base's geometric center (not the touch
-    // point). The previous "finger-anchor" pulled the base to the
-    // touchdown coordinate, which made the stick visibly jump on
-    // first touch — the OS reports the contact centroid slightly
-    // below where the thumb-tip looks like it lands. Now the base
-    // stays put and the initial dx/dy is just the offset from the
-    // touch to the base center, so a touch outside the base reads
-    // as a strong push that direction. Common arcade-stick layout.
-    const baseRect = base.getBoundingClientRect();
-    originCX = baseRect.left + baseRect.width  / 2;
-    originCY = baseRect.top  + baseRect.height / 2;
+    // 12.3: base never moves visually. Two origin modes:
+    //  - default: origin = base center, so an off-center touch is
+    //    immediately a deflection in that direction.
+    //  - anchorOnTouch: origin = touchdown point, so first touch
+    //    reads (0,0) and only finger movement registers. Used on
+    //    the aim stick (12.5) to stop accidental snap-fire.
+    if (anchorOnTouch) {
+      originCX = cx;
+      originCY = cy;
+    } else {
+      const baseRect = base.getBoundingClientRect();
+      originCX = baseRect.left + baseRect.width  / 2;
+      originCY = baseRect.top  + baseRect.height / 2;
+    }
     const dx = cx - originCX;
     const dy = cy - originCY;
     moveKnob(dx, dy);
@@ -470,7 +509,7 @@ function wireStick(zoneId, baseId, knobId, target) {
   window.addEventListener('mouseup',   onUp);
 }
 wireStick('move-zone', 'move-base', 'move-knob', touch);
-wireStick('aim-zone',  'aim-base',  'aim-knob',  touchAim);
+wireStick('aim-zone',  'aim-base',  'aim-knob',  touchAim, { anchorOnTouch: true });
 
 function wireBtn(id, prop) {
   const el = document.getElementById(id);
@@ -487,6 +526,32 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseleave',  release);
 }
 wireBtn('btn-nade', 'nade');
+
+// On-screen pause button (topbar). Mirrors Esc/P/Start. Same gating
+// as those — no-op during gameover/won/timesUp/transition. We don't
+// activateTouch() here because the button is a topbar control on
+// every device, not part of the touch UI proper.
+(function wirePauseBtn() {
+  const el = document.getElementById('ar-pause');
+  if (!el) return;
+  // touchstart handles the toggle so mobile gets instant feedback
+  // without the 300ms click delay; preventDefault stops the
+  // synthesized click that would otherwise fire and re-toggle. On
+  // desktop the click handler does the work. syncTouchUi() updates
+  // the visual state each frame from state.paused, so we don't have
+  // to mirror it here.
+  let touched = false;
+  function toggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!state || !canTogglePause()) return;
+    state.paused = !state.paused;
+    el.blur();
+  }
+  el.addEventListener('touchstart', e => { touched = true; toggle(e); }, { passive: false });
+  el.addEventListener('click', e => { if (touched) { touched = false; return; } toggle(e); });
+})();
+
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 document.addEventListener('touchstart', e => {
   if (state && (
@@ -3890,13 +3955,25 @@ function drawFps() {
 
 // Sync touch button visual state to game state (e.g. NADE greyed when
 // out of grenades). Called every frame; cheap class toggle.
-const nadeBtnEl = document.getElementById('btn-nade');
+const nadeBtnEl  = document.getElementById('btn-nade');
+const pauseBtnEl = document.getElementById('ar-pause');
 function syncTouchUi() {
-  if (!nadeBtnEl || !state) return;
-  const empty = state.player.grenades <= 0;
-  const armed = state.player.weaponMode === 'grenade';
-  nadeBtnEl.classList.toggle('empty', empty);
-  nadeBtnEl.classList.toggle('armed', armed);
+  if (!state) return;
+  if (nadeBtnEl) {
+    const empty = state.player.grenades <= 0;
+    const armed = state.player.weaponMode === 'grenade';
+    nadeBtnEl.classList.toggle('empty', empty);
+    nadeBtnEl.classList.toggle('armed', armed);
+  }
+  if (pauseBtnEl) {
+    // Keep the topbar button visual in sync with state.paused — it
+    // can flip from keyboard (Esc/P), gamepad Start, or the button
+    // itself, so polling each frame is the simplest single-source.
+    const paused = !!state.paused;
+    pauseBtnEl.classList.toggle('active', paused);
+    pauseBtnEl.textContent = paused ? '▶' : '⏸';
+    pauseBtnEl.setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+  }
 }
 
 function loop() {
