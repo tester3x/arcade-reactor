@@ -49,12 +49,16 @@ conflict on the way back.
 
 - 48px fixed top bar with back link, title, score area
 - 900×650 logical canvas, scaled to viewport
-- Input merge: keyboard + virtual thumbstick + Gamepad API every
+- Input merge: keyboard + virtual thumbstick(s) + Gamepad API every
   frame into one input vector
-- Standard gamepad mapping. Axes[0]=LX, Axes[1]=LY. Btn 0=A/fire,
-  Btn 9=Start. `body.gamepad-active` class hides touch controls
-  when controller is connected
+- Standard gamepad mapping. Axes[0]=LX, Axes[1]=LY, Axes[2]=RX,
+  Axes[3]=RY. Btn 0=A/fire, Btn 1=B, Btn 7=RT, Btn 9=Start.
+  Touch UI auto-hides when the gamepad has recent input and re-shows
+  the moment the screen is tapped (most-recent-input wins, 12.1).
 - Pause: Esc/P/gamepad Start
+- Bunker has a second stick (aim) and a NADE button positioned
+  inside the aim-zone — see "bunker.html architecture" below. Other
+  games (space-rocks, web-reactor) still use the single-stick layout.
 
 # Bunker → Escape
 
@@ -132,11 +136,41 @@ Built ✓:
   guard rendering for Kenney CC0 Topdown Shooter sprites. Floor stays
   procedural — Kenney has no solid dark-gray floor tile. See
   "Sprites / TD Shooter assets" below.
+- **Phase 11.8:** Twin-stick touch — added right-side aim stick, NADE
+  button. Aim stick overrides facing same as gamepad right stick.
+- **Phase 12.0:** Adaptive director. Per-completion score (time vs 90s
+  target / hits taken / spotted count), rolling 3-level average,
+  drives guardFraction, visionMult, speedMult, investigateMult, and
+  minimap detail tier. Persists to `localStorage['bunker.skill.v1']`.
+  Reset: `localStorage.removeItem('bunker.skill.v1'); location.reload()`.
+- **Phase 12.1:** Input mode auto-switch — most-recent-input wins.
+  Tap screen → touch UI back; press any controller input → touch UI
+  hides. `setTouchMode(on)` is the single toggle for canvas resize +
+  `body.gamepad-active` class.
+- **Phase 12.2:** Post-hit recovery (iframes 60→120, knockback
+  150→220, +25% speed during iframes) + touch ergonomics (FIRE
+  button autofire-on-hold + aim direction persists 60 frames after
+  release).
+- **Phase 12.3:** Stick-base finger-anchor dropped. The OS-reported
+  contact centroid sits below the visual thumb tip, so the base used
+  to "jump down" on first touch. Now base stays put and the initial
+  touch dx/dy is its offset from the base center.
+- **Phase 12.4:** Touch redesign around aim-stick-as-trigger. Soft
+  push (<0.7 mag) = silent peek; hard push (≥0.7) = autofire (gun)
+  or cook (grenade). Drop below threshold or release = throw in
+  grenade mode. NADE button is now a tap-toggle for weapon mode (not
+  hold-to-cook), positioned inside the aim-zone right next to the
+  aim stick. FIRE button removed on touch entirely. 15ms haptic at
+  the threshold cross + colored dot at the player's gun barrel
+  (amber → red, or green in grenade mode). **Status: getting closer
+  but not done.** See "Specific things he's asked for" below.
 
 Up next:
 
-- **Phase 12:** Adaptive director. Reads player skill, tunes
-  difficulty knobs + adaptive minimap detail.
+- **Phase 12 polish:** Touch UX iteration. Mike's last word on 12.4
+  was "getting closer" and "lets call it." `navigator.vibrate(15)`
+  did NOT fire on his Android tablet — debug first thing next
+  session (see Open issues). Probably more aim-stick tuning to come.
 - **Phase 13:** Speed-run bonus rounds every N levels.
 - **Phase 14:** Rename. Either rename `bunker.html` →
   `escape.html` (and update home page card) or keep filename and
@@ -145,15 +179,27 @@ Up next:
   prep. Mobile build may opt into a richer sprite set (more tiles,
   character poses) — decision for later.
 
-## bunker.html architecture (current — Phase 11.7 + art pass)
+## bunker.html architecture (current — Phase 12.4)
 
-Single file, ~3550 lines. `grep -n "function draw\|// =====" games/bunker.html`
+Single file, ~3700 lines. `grep -n "function draw\|// =====" games/bunker.html`
 is the fastest way to navigate. Key sections by header comment:
 
-- **HTML/CSS** (lines 1–216): topbar, canvas, virtual thumbstick,
-  styles. Topbar shows `PHASE N` indicator (currently 11).
-- **Input merge:** keyboard, touch thumbstick, Gamepad API → unified
-  `keys{}`, `touch{}`, `pad{}`. `getMoveVector()` produces normalized (vx, vy).
+- **HTML/CSS** (lines 1–230): topbar, canvas, two virtual thumbsticks
+  (move + aim), NADE button overlay inside aim-zone. Topbar shows
+  `PHASE N.M` indicator from `BUILD_LABEL` constant — single source.
+- **Input merge:** keyboard, two touch thumbsticks (`touch` + `touchAim`),
+  Gamepad API → unified vector. `getMoveVector()` produces normalized (vx, vy).
+  `setTouchMode(on)` (12.1) is the single toggle for canvas resize +
+  `body.gamepad-active`. Most-recent-input wins.
+- **Adaptive Director (12.0):** Module-level `directorState` recomputed
+  in `buildStateFor()` from `currentSkillScore()` (avg of last
+  `SKILL_HISTORY_N` completed-level scores from `localStorage`).
+  Knobs: `guardFraction` (drops spawns at low skill), `visionMult`,
+  `speedMult`, `investigateMult`, `minimapTier`. Reads in
+  `makeGuardsForRoom()`, `guardVisionHalfNow()`, `guardPatrolSpeedNow()`,
+  `guardInvestigateIntervalNow()`, `drawMinimap()`. `runStats` (transient,
+  reset per level) tracks framesElapsed / hits / spotted, used at
+  `recordLevelComplete()` to score the run.
 - **Level data (`LEVEL_1`, `LEVEL_2`, `LEVEL_3`):** each level has
   `.rooms.{id}` with `map` (18×13 0/1 array), `doorways`, `guardSpawns`
   (with `type`), `keySpawns`, `pickupSpawns`, `exit`, and (start room)
@@ -164,14 +210,17 @@ is the fastest way to navigate. Key sections by header comment:
 - **Guard AI:** wander patrol (forward-progress watchdog) → alert → chase
   → search → investigate. Grenade dodge behavior added in 11.7.
   Room-bound (no cross-room logic needed).
-- **State:** `state.player`, `state.currentLevelId`, `state.currentRoomId`,
-  `state.rooms[id].{guards,bullets,grenades,keys,pickups}`, alertness,
-  timer, transition, gameover.
+- **State:** `state.player`, `state.levelIndex`, `state.currentRoomId`,
+  `state.rooms[id].{guards,bullets,grenades,keys,pickups,explosions}`,
+  alertness, timer, transition, gameover.
 - **`update()`**: freezes during gameover/transition. Handles movement,
   firing (bullets or grenade cook/throw), bullet/grenade physics, guards,
-  pickups, damage, doorway transitions.
+  pickups, damage, doorway transitions. Touch firing (12.4): `touchAimMag`
+  >= `AIM_FIRE_THRESHOLD` (0.7) drives both gun-mode autofire and
+  grenade cook. NADE tap is a mode-toggle.
 - **Draw:** `drawFloor()` (floor + walls + doorway tints + exit door),
-  `drawGuards()` (cones + bodies + state icons), `drawPlayer()`, `drawBullets()`,
+  `drawGuards()` (cones + bodies + state icons), `drawPlayer()`,
+  `drawFireReadyDot()` (12.4: gun-tip color cue for touch), `drawBullets()`,
   `drawGrenades()`, `drawKeys()`, `drawPickups()`, `drawHUD()`, `drawMinimap()`,
   overlays (gameover, level complete, times up, transition).
 
@@ -184,6 +233,9 @@ slow-loading image never blocks gameplay.
 When adding new room-scoped state (new pickup type, etc.), put it in
 `LEVELs[id].rooms[id]` (definition) AND in `state.rooms[id]` (runtime).
 Mirror the guards/bullets/keys/pickups pattern.
+
+**When you ship a build:** bump `BUILD_LABEL` (string) — the topbar +
+HUD pull from it. Use `N.0` for new phase, `N.x` for refinement.
 
 ## Sprites / TD Shooter assets
 
@@ -276,16 +328,38 @@ What to actually hold the line on:
 - Don't redesign architecture mid-phase.
 - Bug fixes in the current build are always fair game.
 
-## Specific things he's asked for that aren't built yet
+## Open issues / specific asks
 
-- Adaptive difficulty / director (Phase 12)
+**Active (next session):**
+
+- **Haptic vibrate didn't fire on Mike's Android tablet (12.4).** Code
+  is `if (touchAimFire && !lastTouchAimFire && navigator.vibrate) navigator.vibrate(15)`.
+  Possible causes to check:
+  - Some Android browsers gate vibrate behind a recent user-gesture
+    activation — should be fine inside touch handlers but test
+  - Samsung tablets sometimes have a system "Vibration feedback" toggle
+    in Sound settings that has to be on for web vibrate to do anything
+  - Chrome may silently no-op `navigator.vibrate` on certain devices
+    when battery saver is on
+  - Console-log inside the threshold-cross block to confirm the call
+    is even reached, then add a diag overlay if it is
+- **Touch UX still iterating.** 12.4 was "getting closer" not "done."
+  Watch what specifically still feels awkward when Mike comes back.
+
+**Backlog (long-running):**
+
 - "Trifecta-style" hidden bonuses (consider once core is fun)
-- Swap the survivor character sprite if the gun-side still reads
-  wrong (try `manBlue_gun` or `soldier1_gun` — Mike will say)
+- Heading-bar inconsistency on sprite-rendered guards (the procedural
+  fallback draws a white direction bar; sprite path doesn't). Mike
+  hasn't said it bothers him. Skip unless asked.
+- Swap the survivor character sprite if the gun-side reads wrong
+  (try `manBlue_gun` or `soldier1_gun` — Mike will say)
 - Branch hygiene: `claude/arcade-reactor-handoff-mwRLq` is still
-  behind main after the art pass landed direct on main. Either
-  merge main into handoff and keep using it, or retire handoff
-  and work on main going forward. Mike's call next session.
+  stuck behind main with an aborted merge ghost in Mike's local
+  (we ran `git merge --abort` mid-session 2026-04-26 to clear it).
+  Either delete it (`git push origin --delete claude/arcade-reactor-handoff-mwRLq`)
+  or fast-forward it to main. Mike's call.
+- Rename `bunker.html` → `escape.html` (Phase 14)
 
 ## Session end log
 
@@ -293,3 +367,23 @@ What to actually hold the line on:
 did a minimal art pass on bunker (walls, player, guards → sprites;
 floor stays procedural). Shipped to main: commits `ced1203`, `273bd69`,
 `d5270b7`. Tablet confirmed working. Parked for the night.
+
+**2026-04-26 (Phases 11.8 → 12.4):** Big session. Branch:
+`claude/phase-11-12-cleanup-FLhSi`. Mike merged each phase to main
+incrementally with `git merge --ff-only`.
+- `7494a9c` — Phase 11 cleanup: dropped dead floor-sprite path +
+  unused `rayDistToWall()` helper
+- `7689c99` — Phase 11.8: twin-stick touch + NADE button
+- `d67032b` — Phase 12.0: adaptive director (skill, knobs, minimap tier)
+- `d5cd5c2` — Phase 12.1: input mode auto-switch (touch ↔ gamepad)
+- `6ce4a4b` — Phase 12.2: post-hit recovery (iframes 60→120,
+  knockback 150→220, +25% iframe speed) + touch fire/aim ergonomics
+- `0de08ee` — Phase 12.3: dropped stick finger-anchor (fixed
+  "jumps down" on first touch)
+- `4fc10c7` — Phase 12.4: aim-stick threshold trigger, NADE inside
+  aim-zone, gun-tip color cue, haptic on threshold cross
+- During session we cleared an old aborted merge in Mike's local
+  (`git merge --abort` on `claude/arcade-reactor-handoff-mwRLq`).
+  That branch is still on its old commit on the remote.
+- Mike's last word: "we are getting closer. there was no vibrate."
+  Vibration debug + further touch tuning is the first task next time.
