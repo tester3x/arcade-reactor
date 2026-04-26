@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.5';
+const BUILD_LABEL = '12.6';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -798,9 +798,13 @@ const TIMER_RED_FRAMES      = 30  * 60;   // turn red under 30s
 const TIMER_FLASH_FRAMES    = 10  * 60;   // flash under 10s
 
 // ── Ammo + pickups — Phase 7 ─────────────────────────────────────
-const PLAYER_AMMO_START   = 25;    // starting rounds — generous so missing shots isn't punishing
-const PLAYER_AMMO_MAX     = 45;    // cap when picking up ammo
-const AMMO_PICKUP_AMOUNT  = 15;    // rounds per ammo pickup
+// 12.6: bumped start 25→45, max 45→80, pickup 15→25. Touch aim is
+// still imprecise enough that the old budget made shootouts
+// unwinnable; also leaves headroom for higher-fire-rate weapons
+// when they land.
+const PLAYER_AMMO_START   = 45;    // starting rounds
+const PLAYER_AMMO_MAX     = 80;    // cap when picking up ammo
+const AMMO_PICKUP_AMOUNT  = 25;    // rounds per ammo pickup
 const HEALTH_PICKUP_HEAL  = 1;     // HP per health pickup (capped at PLAYER_HP_MAX)
 const SPEED_BOOST_MULT    = 1.5;   // movement multiplier while active
 const SPEED_BOOST_DURATION = 300;  // frames the boost lasts (~5s)
