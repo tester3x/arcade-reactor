@@ -252,7 +252,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.2';
+const BUILD_LABEL = '12.3';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -407,14 +407,21 @@ function wireStick(zoneId, baseId, knobId, target) {
       trackingId = 'mouse';
       cx = e.clientX; cy = e.clientY;
     }
-    const rect = zone.getBoundingClientRect();
-    base.style.position = 'absolute';
-    base.style.left = (cx - rect.left) + 'px';
-    base.style.top  = (cy - rect.top)  + 'px';
-    base.style.transform = 'translate(-50%, -50%)';
-    originCX = cx;
-    originCY = cy;
-    resetStick();
+    // 12.3: origin is the base's geometric center (not the touch
+    // point). The previous "finger-anchor" pulled the base to the
+    // touchdown coordinate, which made the stick visibly jump on
+    // first touch — the OS reports the contact centroid slightly
+    // below where the thumb-tip looks like it lands. Now the base
+    // stays put and the initial dx/dy is just the offset from the
+    // touch to the base center, so a touch outside the base reads
+    // as a strong push that direction. Common arcade-stick layout.
+    const baseRect = base.getBoundingClientRect();
+    originCX = baseRect.left + baseRect.width  / 2;
+    originCY = baseRect.top  + baseRect.height / 2;
+    const dx = cx - originCX;
+    const dy = cy - originCY;
+    moveKnob(dx, dy);
+    setStick(dx, dy);
   }
 
   function onMove(e) {
@@ -436,10 +443,6 @@ function wireStick(zoneId, baseId, knobId, target) {
     }
     e.preventDefault();
     trackingId = null;
-    base.style.position = '';
-    base.style.left = '';
-    base.style.top  = '';
-    base.style.transform = '';
     resetStick();
   }
 
