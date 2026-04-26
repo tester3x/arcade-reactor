@@ -89,12 +89,23 @@
   .btn-icon  { font-size: 22px; line-height: 1; }
   .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
 
-  #btn-fire        { border-color: rgba(34,211,238,0.5); }
-  #btn-fire.active { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
-  #btn-nade        { border-color: rgba(163,230,53,0.5); }
+  /* NADE button positioned inside the aim-zone, anchored to its
+     right edge so the thumb can move between the aim stick and the
+     button without traversing the screen. */
+  #btn-nade {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 72px;
+    height: 72px;
+    border-color: rgba(163,230,53,0.55);
+  }
   #btn-nade.active { background: rgba(163,230,53,0.25); border-color: rgba(163,230,53,0.95); }
-  /* Disabled when out of grenades — tappable but visually muted */
+  /* Greyed when out of grenades */
   #btn-nade.empty  { opacity: 0.35; }
+  /* Highlighted as 'armed' when weaponMode === 'grenade' */
+  #btn-nade.armed  { background: rgba(163,230,53,0.18); border-color: rgba(163,230,53,0.85); }
 
   /* ── Virtual thumbstick (full 360° for this game) ────────────── */
   .stick-base {
@@ -214,12 +225,9 @@
         <div class="stick-base" id="aim-base">
           <div class="stick-knob" id="aim-knob"></div>
         </div>
-      </div>
-      <div class="ctrl-right-group">
-        <div class="btn" id="btn-fire">
-          <span class="btn-icon">◉</span>
-          <span class="btn-label">FIRE</span>
-        </div>
+        <!-- NADE overlay — inside aim-zone so it sits right next to the
+             aim stick where the right thumb rests. Tap to toggle weapon
+             mode; throw is driven by the aim-stick threshold. -->
         <div class="btn" id="btn-nade">
           <span class="btn-icon">✦</span>
           <span class="btn-label">NADE</span>
@@ -252,7 +260,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.3';
+const BUILD_LABEL = '12.4';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -303,8 +311,11 @@ const keys = {};
 const keysPrev = {};
 // touch{} holds the move thumbstick's raw x/y in [-1,+1] (continuous, not flags)
 // plus on-screen button state. touchAim{} mirrors the right (aim) thumbstick.
-const touch    = { x: 0, y: 0, active: false, fire: false, nade: false };
+// 12.4: removed touch.fire — there's no FIRE button on screen anymore.
+// The aim stick magnitude itself is the fire trigger (≥ AIM_FIRE_THRESHOLD).
+const touch    = { x: 0, y: 0, active: false, nade: false };
 const touchAim = { x: 0, y: 0, active: false };
+const AIM_FIRE_THRESHOLD = 0.7;   // stick magnitude to commit to fire/cook
 
 // 12.2: aim persistence. After the aim stick is released, the last
 // aim direction sticks for AIM_HOLD_FRAMES so a tap-FIRE right after
@@ -314,6 +325,10 @@ const touchAim = { x: 0, y: 0, active: false };
 const AIM_HOLD_FRAMES = 60;
 let touchAimLastDir = 0;
 let touchAimHoldT   = 0;
+// 12.4: previous-frame fire-zone state, used for haptic feedback at
+// the threshold crossing. Vibrate is Android-only (iOS Safari
+// ignores it); guard the call with a feature check.
+let lastTouchAimFire = false;
 const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false, fire: false, firePrev: false };
 
 document.addEventListener('keydown', e => {
@@ -460,8 +475,10 @@ wireStick('aim-zone',  'aim-base',  'aim-knob',  touchAim);
 function wireBtn(id, prop) {
   const el = document.getElementById(id);
   if (!el) return;
-  function press(e)   { e.preventDefault(); activateTouch(); touch[prop] = true; el.classList.add('active'); }
-  function release(e) { e.preventDefault(); touch[prop] = false; el.classList.remove('active'); }
+  // stopPropagation matters for #btn-nade — it sits inside aim-zone,
+  // so without it a tap would also start tracking the aim stick.
+  function press(e)   { e.stopPropagation(); e.preventDefault(); activateTouch(); touch[prop] = true; el.classList.add('active'); }
+  function release(e) { e.stopPropagation(); e.preventDefault(); touch[prop] = false; el.classList.remove('active'); }
   el.addEventListener('touchstart',  press,   { passive: false });
   el.addEventListener('touchend',    release, { passive: false });
   el.addEventListener('touchcancel', release, { passive: false });
@@ -469,7 +486,6 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseup',     release);
   el.addEventListener('mouseleave',  release);
 }
-wireBtn('btn-fire', 'fire');
 wireBtn('btn-nade', 'nade');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 document.addEventListener('touchstart', e => {
@@ -2434,35 +2450,45 @@ function update() {
     }
   }
 
-  // ── Firing (11.2: burst fire + grenade throw) ─────────────────
-  // Trigger pull is edge-detected (release + re-press required for
-  // each new shot) so a held trigger doesn't auto-spam. Behavior
-  // forks on weaponMode:
+  // ── Firing (12.4: aim-stick threshold on touch) ───────────────
+  // Behavior forks on weaponMode:
   //   gun     : start a 3-bullet burst, then forced cooldown
-  //   grenade : throw a single grenade and revert to gun mode
+  //   grenade : cook on hold, throw on release
   //
-  // Touch NADE button (11.8) is its own grenade trigger: pressing it
-  // auto-flips into grenade mode (if able), and while held it counts
-  // as the trigger so the existing cook/throw path runs unchanged.
-  // Only counted as a fire signal in grenade mode so it can't
-  // accidentally pop bullets in gun mode (e.g. when out of grenades).
+  // Touch model: the aim stick magnitude is the trigger. Below
+  // AIM_FIRE_THRESHOLD (~70%) the stick aims silently — peek mode.
+  // At/above the threshold it commits, same way a gamepad analog
+  // trigger has a soft pull and a hard pull. The NADE button is a
+  // tap-toggle for weaponMode; cook/throw is driven by the stick.
+  //
+  // Keyboard / gamepad keep edge-detected single-press triggers as
+  // before (their inputs are tactile, no need for a magnitude gate).
+  const touchAimMag  = touchAim.active ? Math.hypot(touchAim.x, touchAim.y) : 0;
+  const touchAimFire = touchAimMag >= AIM_FIRE_THRESHOLD;
+
+  // Haptic "trigger break" on threshold cross (false → true). 15ms is
+  // short enough not to feel like a buzz, just a tick. Android only.
+  if (touchAimFire && !lastTouchAimFire && navigator.vibrate) {
+    navigator.vibrate(15);
+  }
+  lastTouchAimFire = touchAimFire;
+
+  // NADE button: tap-toggle for weaponMode. Same gating as the
+  // keyboard G / gamepad B toggles (must have a grenade, not paused,
+  // not mid-cook).
   if (touch.nade && !p.lastNadePressed && p.grenades > 0 &&
-      !state.paused && !p.cooking && p.weaponMode !== 'grenade') {
-    p.weaponMode = 'grenade';
+      !state.paused && !p.cooking) {
+    p.weaponMode = (p.weaponMode === 'grenade') ? 'gun' : 'grenade';
   }
   p.lastNadePressed = touch.nade;
 
-  const firePressed = keys['Space'] || touch.fire || pad.fire ||
-                      (p.weaponMode === 'grenade' && touch.nade);
+  const firePressed = keys['Space'] || pad.fire || touchAimFire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
 
-  // 12.2: touch FIRE autofires while held in gun mode — there's no
-  // good way to "tap-tap-tap" on a tablet while keeping a thumb on
-  // the aim stick, so a held button starts the next burst as soon as
-  // the cooldown clears. Other inputs stay edge-triggered (controller
-  // and keyboard users have a comfortable trigger).
-  const gunStartFire = (touch.fire && p.weaponMode === 'gun') ? firePressed : fireEdge;
+  // Touch's hard-push is level-triggered (auto-bursts at cooldown
+  // rate) while held. Keyboard and gamepad stay edge-triggered.
+  const gunStartFire = (touchAimFire && p.weaponMode === 'gun') ? firePressed : fireEdge;
 
   if (p.shootCooldown > 0) p.shootCooldown--;
 
@@ -3040,6 +3066,44 @@ function drawPlayer() {
 
     ctx.restore();
   }
+}
+
+// 12.4: small dot at the player's gun barrel showing fire-ready
+// state on touch — eye stays on the player, not the stick. Color
+// scales with aim-stick magnitude:
+//   gun mode: dim amber → amber → red (past threshold = firing)
+//   grenade mode: dim green → bright green (past threshold = cooking)
+// Hidden if magnitude is below 0.3 or on non-touch input (controller
+// users see the existing aim reticle / heading bar; keyboard players
+// don't have a magnitude).
+function drawFireReadyDot() {
+  if (!touchMode) return;
+  const mag = touchAim.active ? Math.hypot(touchAim.x, touchAim.y) : 0;
+  if (mag < 0.3) return;
+  const p = state.player;
+  const off = PLAYER_R + 8;
+  const bx = p.x + Math.cos(p.dir) * off;
+  const by = p.y + Math.sin(p.dir) * off;
+
+  let color;
+  if (p.weaponMode === 'grenade') {
+    color = mag >= AIM_FIRE_THRESHOLD ? '#a3e635' : 'rgba(163,230,53,0.55)';
+  } else if (mag >= AIM_FIRE_THRESHOLD) {
+    color = '#ef4444';
+  } else if (mag >= 0.5) {
+    color = '#fbbf24';
+  } else {
+    color = 'rgba(251,191,36,0.55)';
+  }
+
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = 6;
+  ctx.fillStyle   = color;
+  ctx.beginPath();
+  ctx.arc(bx, by, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawBullets() {
@@ -3763,6 +3827,7 @@ function draw() {
   drawGrenades();
   drawGrenadeAim();   // 11.6: landing reticle while in grenade mode
   drawPlayer();
+  drawFireReadyDot(); // 12.4: gun-tip color cue for touch fire threshold
   drawCookTimer();    // 11.5: fuse digits over the player while cooking
   drawExplosions();   // on top of player so the flash visually wins
   drawNeedKeys();
@@ -3829,7 +3894,9 @@ const nadeBtnEl = document.getElementById('btn-nade');
 function syncTouchUi() {
   if (!nadeBtnEl || !state) return;
   const empty = state.player.grenades <= 0;
+  const armed = state.player.weaponMode === 'grenade';
   nadeBtnEl.classList.toggle('empty', empty);
+  nadeBtnEl.classList.toggle('armed', armed);
 }
 
 function loop() {
