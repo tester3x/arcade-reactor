@@ -252,7 +252,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.1';
+const BUILD_LABEL = '12.2';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -305,6 +305,15 @@ const keysPrev = {};
 // plus on-screen button state. touchAim{} mirrors the right (aim) thumbstick.
 const touch    = { x: 0, y: 0, active: false, fire: false, nade: false };
 const touchAim = { x: 0, y: 0, active: false };
+
+// 12.2: aim persistence. After the aim stick is released, the last
+// aim direction sticks for AIM_HOLD_FRAMES so a tap-FIRE right after
+// release still shoots the way you were aiming, even if the player
+// is moving (without it, movement-direction would immediately
+// override). Refreshes every frame the stick is active.
+const AIM_HOLD_FRAMES = 60;
+let touchAimLastDir = 0;
+let touchAimHoldT   = 0;
 const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false, fire: false, firePrev: false };
 
 document.addEventListener('keydown', e => {
@@ -609,8 +618,9 @@ const PLAYER_R     = 12;    // collision radius
 
 // ── Shooting / damage — Phase 4 ──────────────────────────────────
 const PLAYER_HP_MAX      = 5;      // baseline hit buffer so combat has a "hurt but alive" middle zone
-const PLAYER_IFRAMES     = 60;     // frames of invulnerability after taking a hit
-const KNOCKBACK_DISTANCE = 150;    // ~3 tiles; how far a guard hit pushes you back (replaces teleport-on-hit)
+const PLAYER_IFRAMES     = 120;    // frames of invulnerability after taking a hit (12.2: 60→120 — 1s wasn't enough to escape in tight rooms)
+const KNOCKBACK_DISTANCE = 220;    // ~4.4 tiles; how far a guard hit pushes you back. 12.2: 150→220 so wall-bumped knockbacks still leave a usable gap
+const IFRAME_SPEED_BOOST = 1.25;   // 12.2: escape velocity while iframes active
 const BULLET_SPEED    = 7.5;
 const BULLET_R        = 3;
 const BULLET_RANGE    = 500;   // max travel distance before bullet dies
@@ -2268,8 +2278,13 @@ function update() {
 
 
   // Speed boost: while active, move faster. Decrement each frame.
+  // 12.2: iframes also grant a smaller escape-velocity multiplier so
+  // the player can actually clear the guard before invulnerability
+  // ends. Pickup boost wins if both apply (don't compound).
   if (p.speedBoostT > 0) p.speedBoostT--;
-  const moveSpeed = p.speedBoostT > 0 ? PLAYER_SPEED * SPEED_BOOST_MULT : PLAYER_SPEED;
+  const boostMult  = p.speedBoostT > 0 ? SPEED_BOOST_MULT : 1;
+  const iframeMult = p.iframes     > 0 ? IFRAME_SPEED_BOOST : 1;
+  const moveSpeed  = PLAYER_SPEED * Math.max(boostMult, iframeMult);
   const dx = vx * moveSpeed;
   const dy = vy * moveSpeed;
 
@@ -2284,14 +2299,29 @@ function update() {
     if (circleHitsWall(p.x, p.y, PLAYER_R)) p.y -= dy;
   }
 
+  // 12.2: aim-persistence tracking. While the touch aim stick is
+  // engaged, refresh both the cached direction and the hold timer.
+  // After release, the timer counts down — during that window the
+  // facing logic below still prefers aim-direction over movement.
+  if (touchAim.active) {
+    touchAimLastDir = Math.atan2(touchAim.y, touchAim.x);
+    touchAimHoldT   = AIM_HOLD_FRAMES;
+  } else if (touchAimHoldT > 0) {
+    touchAimHoldT--;
+  }
+
   // Facing priority (twin-stick style): aim stick > movement > last
   // angle. The gamepad's right stick and the touch aim stick both
   // override movement-facing so you can walk one way and shoot
-  // another. Keyboard players fall through to movement-based facing.
+  // another. 12.2: touch aim direction persists briefly after the
+  // stick is released so a quick tap-fire still goes the way you
+  // were aiming. Keyboard players fall through to movement-facing.
   if (pad.aimActive) {
     p.dir = Math.atan2(pad.aimY, pad.aimX);
   } else if (touchAim.active) {
     p.dir = Math.atan2(touchAim.y, touchAim.x);
+  } else if (touchAimHoldT > 0) {
+    p.dir = touchAimLastDir;
   } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
   }
@@ -2424,11 +2454,18 @@ function update() {
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
 
+  // 12.2: touch FIRE autofires while held in gun mode — there's no
+  // good way to "tap-tap-tap" on a tablet while keeping a thumb on
+  // the aim stick, so a held button starts the next burst as soon as
+  // the cooldown clears. Other inputs stay edge-triggered (controller
+  // and keyboard users have a comfortable trigger).
+  const gunStartFire = (touch.fire && p.weaponMode === 'gun') ? firePressed : fireEdge;
+
   if (p.shootCooldown > 0) p.shootCooldown--;
 
   if (p.weaponMode === 'gun') {
-    // Start a new burst on trigger edge — gated by cooldown + ammo.
-    if (fireEdge && p.shootCooldown === 0 && p.burstRemaining === 0 && p.ammo > 0) {
+    // Start a new burst on trigger edge (or hold-touch) — gated by cooldown + ammo.
+    if (gunStartFire && p.shootCooldown === 0 && p.burstRemaining === 0 && p.ammo > 0) {
       p.burstRemaining = Math.min(BURST_SIZE, p.ammo);
       p.burstStep      = 0;
     }
