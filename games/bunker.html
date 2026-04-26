@@ -1358,18 +1358,6 @@ function pickInvestigateSpot(g) {
   return null;
 }
 
-// Cast a ray from (x,y) in direction 'angle'. Returns distance to
-// nearest wall (up to 10 tiles). Used by wander to prefer open space.
-function rayDistToWall(x, y, angle, offset) {
-  const nx = Math.cos(angle), ny = Math.sin(angle);
-  const maxDist = TILE * 10;
-  const step = TILE / 4;
-  for (let d = offset; d < maxDist; d += step) {
-    if (isWallAt(x + nx * d, y + ny * d)) return d;
-  }
-  return maxDist;
-}
-
 // Move a guard toward (tx, ty) at speed, using the same per-axis
 // collision pattern as the player. Returns true if arrived (within
 // GUARD_WAYPOINT_TOL).
@@ -2423,32 +2411,25 @@ function drawFloor() {
   ctx.fillStyle = '#060809';
   ctx.fillRect(0, 0, GW, GH);
 
-  const floorReady = imgReady('floor');
-  const wallReady  = imgReady('wall');
+  const wallReady = imgReady('wall');
 
-  // Pass 1: floor tiles
+  // Pass 1: floor tiles (procedural — Kenney's pack has no solid floor tile)
+  ctx.fillStyle = '#0e1115';
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
       if (map[row][col] === 0) {
-        if (floorReady) {
-          ctx.drawImage(IMG.floor, col * TILE, row * TILE, TILE, TILE);
-        } else {
-          ctx.fillStyle = '#0e1115';
-          ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
-        }
+        ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
       }
     }
   }
 
-  // Pass 2: grout grid — only for procedural floor; Kenney tile has its own edges
-  if (!floorReady) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    for (let row = 0; row < MAP_ROWS; row++) {
-      for (let col = 0; col < MAP_COLS; col++) {
-        if (map[row][col] === 0) {
-          ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
-        }
+  // Pass 2: grout grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      if (map[row][col] === 0) {
+        ctx.strokeRect(col * TILE + 0.5, row * TILE + 0.5, TILE - 1, TILE - 1);
       }
     }
   }
