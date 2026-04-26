@@ -62,8 +62,10 @@
   .ctrl-right-group {
     flex: 0 0 auto;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     padding-right: 8px;
   }
 
@@ -74,21 +76,25 @@
     color: #fff;
     font-family: 'Courier New', monospace;
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 3px;
+    align-items: center; justify-content: center; gap: 2px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.05s, border-color 0.05s;
-    width: 84px; height: 84px;
+    width: 80px; height: 60px;
   }
   .btn.active {
     background: rgba(255,255,255,0.18);
     border-color: rgba(255,255,255,0.7);
   }
-  .btn-icon  { font-size: 24px; line-height: 1; }
+  .btn-icon  { font-size: 22px; line-height: 1; }
   .btn-label { font-size: 9px; opacity: 0.55; letter-spacing: 0.08em; }
 
   #btn-fire        { border-color: rgba(34,211,238,0.5); }
   #btn-fire.active { background: rgba(34,211,238,0.22); border-color: rgba(34,211,238,0.9); }
+  #btn-nade        { border-color: rgba(163,230,53,0.5); }
+  #btn-nade.active { background: rgba(163,230,53,0.25); border-color: rgba(163,230,53,0.95); }
+  /* Disabled when out of grenades — tappable but visually muted */
+  #btn-nade.empty  { opacity: 0.35; }
 
   /* ── Virtual thumbstick (full 360° for this game) ────────────── */
   .stick-base {
@@ -199,15 +205,24 @@
   <canvas id="c"></canvas>
   <div id="controls">
     <div class="ctrl-row">
-      <div class="ctrl-stick-zone" id="stick-zone">
-        <div class="stick-base" id="stick-base">
-          <div class="stick-knob" id="stick-knob"></div>
+      <div class="ctrl-stick-zone" id="move-zone">
+        <div class="stick-base" id="move-base">
+          <div class="stick-knob" id="move-knob"></div>
+        </div>
+      </div>
+      <div class="ctrl-stick-zone" id="aim-zone">
+        <div class="stick-base" id="aim-base">
+          <div class="stick-knob" id="aim-knob"></div>
         </div>
       </div>
       <div class="ctrl-right-group">
         <div class="btn" id="btn-fire">
           <span class="btn-icon">◉</span>
           <span class="btn-label">FIRE</span>
+        </div>
+        <div class="btn" id="btn-nade">
+          <span class="btn-icon">✦</span>
+          <span class="btn-label">NADE</span>
         </div>
       </div>
     </div>
@@ -237,7 +252,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '11.7';
+const BUILD_LABEL = '11.8';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -270,8 +285,10 @@ function activateTouch() { if (!touchMode) { touchMode = true; resize(); } }
 // ── Input state ──────────────────────────────────────────────────
 const keys = {};
 const keysPrev = {};
-// touch{} holds the thumbstick's raw x/y in [-1,+1] (continuous, not flags)
-const touch = { x: 0, y: 0, active: false, fire: false };
+// touch{} holds the move thumbstick's raw x/y in [-1,+1] (continuous, not flags)
+// plus on-screen button state. touchAim{} mirrors the right (aim) thumbstick.
+const touch    = { x: 0, y: 0, active: false, fire: false, nade: false };
+const touchAim = { x: 0, y: 0, active: false };
 const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false, fire: false, firePrev: false };
 
 document.addEventListener('keydown', e => {
@@ -297,8 +314,9 @@ document.addEventListener('keyup', e => { keys[e.code] = false; });
 // ── Virtual thumbstick (360° analog) ─────────────────────────────
 // Finger-anchor: base jumps to touchdown point. Stick outputs
 // normalized x/y in [-1,+1] based on distance from origin, clamped
-// to MAX_RADIUS, with a small dead zone around origin.
-function wireStick(zoneId, baseId, knobId) {
+// to MAX_RADIUS, with a small dead zone around origin. The target
+// arg lets multiple sticks share the same wiring (move + aim).
+function wireStick(zoneId, baseId, knobId, target) {
   const zone = document.getElementById(zoneId);
   const base = document.getElementById(baseId);
   const knob = document.getElementById(knobId);
@@ -313,17 +331,17 @@ function wireStick(zoneId, baseId, knobId) {
   function setStick(dx, dy) {
     const mag = Math.hypot(dx, dy);
     if (mag < DEAD_ZONE) {
-      touch.x = 0; touch.y = 0; touch.active = false;
+      target.x = 0; target.y = 0; target.active = false;
       base.classList.remove('active');
       return;
     }
     base.classList.add('active');
-    touch.active = true;
+    target.active = true;
     // Remap (dx, dy) beyond DEAD_ZONE to normalized [-1, +1], clamped at MAX_RADIUS
     const usable = Math.max(0, Math.min(mag - DEAD_ZONE, MAX_RADIUS - DEAD_ZONE));
     const norm   = usable / (MAX_RADIUS - DEAD_ZONE);   // 0..1
-    touch.x = (dx / mag) * norm;
-    touch.y = (dy / mag) * norm;
+    target.x = (dx / mag) * norm;
+    target.y = (dy / mag) * norm;
   }
 
   function moveKnob(dx, dy) {
@@ -338,7 +356,7 @@ function wireStick(zoneId, baseId, knobId) {
 
   function resetStick() {
     knob.style.transform = 'translate(-50%, -50%)';
-    touch.x = 0; touch.y = 0; touch.active = false;
+    target.x = 0; target.y = 0; target.active = false;
     base.classList.remove('active');
   }
 
@@ -408,7 +426,8 @@ function wireStick(zoneId, baseId, knobId) {
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup',   onUp);
 }
-wireStick('stick-zone', 'stick-base', 'stick-knob');
+wireStick('move-zone', 'move-base', 'move-knob', touch);
+wireStick('aim-zone',  'aim-base',  'aim-knob',  touchAim);
 
 function wireBtn(id, prop) {
   const el = document.getElementById(id);
@@ -423,6 +442,7 @@ function wireBtn(id, prop) {
   el.addEventListener('mouseleave',  release);
 }
 wireBtn('btn-fire', 'fire');
+wireBtn('btn-nade', 'nade');
 document.addEventListener('touchstart', activateTouch, { once: true, passive: true });
 document.addEventListener('touchstart', e => {
   if (state && (
@@ -1715,6 +1735,7 @@ function buildStateFor(levelIndex, carryPlayer) {
       burstRemaining:  0,
       burstStep:       0,
       lastFirePressed: false,
+      lastNadePressed: false,
       ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
       // Grenades (11.2): inventory carries between levels like ammo.
       // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
@@ -2074,12 +2095,14 @@ function update() {
     if (circleHitsWall(p.x, p.y, PLAYER_R)) p.y -= dy;
   }
 
-  // Facing priority (twin-stick style): right stick (aim) > movement
-  // > last angle. When the gamepad's right stick is active, the
-  // player faces that direction regardless of where they're walking.
-  // Keyboard/touch users fall through to the movement-based facing.
+  // Facing priority (twin-stick style): aim stick > movement > last
+  // angle. The gamepad's right stick and the touch aim stick both
+  // override movement-facing so you can walk one way and shoot
+  // another. Keyboard players fall through to movement-based facing.
   if (pad.aimActive) {
     p.dir = Math.atan2(pad.aimY, pad.aimX);
+  } else if (touchAim.active) {
+    p.dir = Math.atan2(touchAim.y, touchAim.x);
   } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
     p.dir = Math.atan2(vy, vx);
   }
@@ -2194,7 +2217,20 @@ function update() {
   // forks on weaponMode:
   //   gun     : start a 3-bullet burst, then forced cooldown
   //   grenade : throw a single grenade and revert to gun mode
-  const firePressed = keys['Space'] || touch.fire || pad.fire;
+  //
+  // Touch NADE button (11.8) is its own grenade trigger: pressing it
+  // auto-flips into grenade mode (if able), and while held it counts
+  // as the trigger so the existing cook/throw path runs unchanged.
+  // Only counted as a fire signal in grenade mode so it can't
+  // accidentally pop bullets in gun mode (e.g. when out of grenades).
+  if (touch.nade && !p.lastNadePressed && p.grenades > 0 &&
+      !state.paused && !p.cooking && p.weaponMode !== 'grenade') {
+    p.weaponMode = 'grenade';
+  }
+  p.lastNadePressed = touch.nade;
+
+  const firePressed = keys['Space'] || touch.fire || pad.fire ||
+                      (p.weaponMode === 'grenade' && touch.nade);
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
 
@@ -3516,12 +3552,22 @@ function drawFps() {
 // LOOP
 // ================================================================
 
+// Sync touch button visual state to game state (e.g. NADE greyed when
+// out of grenades). Called every frame; cheap class toggle.
+const nadeBtnEl = document.getElementById('btn-nade');
+function syncTouchUi() {
+  if (!nadeBtnEl || !state) return;
+  const empty = state.player.grenades <= 0;
+  nadeBtnEl.classList.toggle('empty', empty);
+}
+
 function loop() {
   sampleFps();
   pollGamepad();
   update();
   draw();
   drawFps();
+  syncTouchUi();
   requestAnimationFrame(loop);
 }
 loop();
