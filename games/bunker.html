@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.6';
+const BUILD_LABEL = '12.7';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -358,7 +358,7 @@ const pad   = { x: 0, y: 0, aimX: 0, aimY: 0, aimActive: false, connected: false
 
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','Enter','Escape','KeyP','KeyG'].includes(e.code)) {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyZ','KeyC','Enter','Escape','KeyP','KeyG'].includes(e.code)) {
     e.preventDefault();
   }
   if (e.code === 'Enter' && state && (state.gameover || state.won || state.timesUp)) restartGame();
@@ -2089,11 +2089,17 @@ function getMoveVector() {
   // so diagonals aren't faster than cardinals.
   let vx = 0, vy = 0;
 
-  // Keyboard (digital: each key contributes ±1)
+  // Keyboard (digital: each key contributes ±1).
+  // Q/E/Z/C are single-press diagonals (12.7) so the keyboard can
+  // aim/shoot in 8 directions without needing two-finger WASD combos.
   if (keys['ArrowLeft']  || keys['KeyA']) vx -= 1;
   if (keys['ArrowRight'] || keys['KeyD']) vx += 1;
   if (keys['ArrowUp']    || keys['KeyW']) vy -= 1;
   if (keys['ArrowDown']  || keys['KeyS']) vy += 1;
+  if (keys['KeyQ']) { vx -= 1; vy -= 1; }   // up-left
+  if (keys['KeyE']) { vx += 1; vy -= 1; }   // up-right
+  if (keys['KeyZ']) { vx -= 1; vy += 1; }   // down-left
+  if (keys['KeyC']) { vx += 1; vy += 1; }   // down-right
 
   // Touch (analog: already normalized)
   if (touch.active) {
