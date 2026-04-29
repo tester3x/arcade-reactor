@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.8';
+const BUILD_LABEL = '12.9';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -760,6 +760,13 @@ window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === pa
 
 const PLAYER_SPEED = 3.2;   // pixels per frame at full input
 const PLAYER_R     = 12;    // collision radius
+// 12.9: turn-rate cap when mouse is the aim source. Other inputs
+// (gamepad RS, touch aim stick, movement-direction) are direct so
+// they snap. Mouse cursor sets a *target* direction; the body lerps
+// toward it at this rate so a flicked cursor doesn't snap-rotate
+// the sprite. ~8°/frame ≈ 480°/sec — fast enough to keep up with
+// normal play, slow enough that big flicks read as a turn.
+const PLAYER_TURN_RATE = 0.14;
 
 // ── Shooting / damage — Phase 4 ──────────────────────────────────
 const PLAYER_HP_MAX      = 5;      // baseline hit buffer so combat has a "hurt but alive" middle zone
@@ -2473,16 +2480,36 @@ function update() {
   // were aiming. 12.8: mouse cursor on canvas points the gun in
   // desktop play — gated on !touchMode so a tablet w/ a paired mouse
   // doesn't fight the touch UI.
+  //
+  // 12.9: mouse aim now feeds a *target* direction; the body lerps
+  // toward it at PLAYER_TURN_RATE so a flicked cursor doesn't
+  // snap-rotate the sprite. Other inputs still set p.dir directly —
+  // gamepad/touch aim feel like direct rotation control, slowing
+  // them down would feel laggy. Bullets fire from p.dir (the body's
+  // current facing) so the trajectory matches the visible gun
+  // barrel — body has to catch up before bullets hit a flicked target.
+  let targetDir = p.dir;
+  let smoothBody = false;
   if (pad.aimActive) {
-    p.dir = Math.atan2(pad.aimY, pad.aimX);
+    targetDir = Math.atan2(pad.aimY, pad.aimX);
   } else if (touchAim.active) {
-    p.dir = Math.atan2(touchAim.y, touchAim.x);
+    targetDir = Math.atan2(touchAim.y, touchAim.x);
   } else if (touchAimHoldT > 0) {
-    p.dir = touchAimLastDir;
+    targetDir = touchAimLastDir;
   } else if (mouse.active && !touchMode) {
-    p.dir = Math.atan2(mouse.y - p.y, mouse.x - p.x);
+    targetDir  = Math.atan2(mouse.y - p.y, mouse.x - p.x);
+    smoothBody = true;
   } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
-    p.dir = Math.atan2(vy, vx);
+    targetDir = Math.atan2(vy, vx);
+  }
+  if (smoothBody) {
+    let delta = targetDir - p.dir;
+    while (delta >  Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    if (Math.abs(delta) <= PLAYER_TURN_RATE) p.dir = targetDir;
+    else p.dir += Math.sign(delta) * PLAYER_TURN_RATE;
+  } else {
+    p.dir = targetDir;
   }
 
   // ── Pickup collection ────────────────────────────────────────
