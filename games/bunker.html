@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.9';
+const BUILD_LABEL = '12.10';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -760,13 +760,6 @@ window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === pa
 
 const PLAYER_SPEED = 3.2;   // pixels per frame at full input
 const PLAYER_R     = 12;    // collision radius
-// 12.9: turn-rate cap when mouse is the aim source. Other inputs
-// (gamepad RS, touch aim stick, movement-direction) are direct so
-// they snap. Mouse cursor sets a *target* direction; the body lerps
-// toward it at this rate so a flicked cursor doesn't snap-rotate
-// the sprite. ~8°/frame ≈ 480°/sec — fast enough to keep up with
-// normal play, slow enough that big flicks read as a turn.
-const PLAYER_TURN_RATE = 0.14;
 
 // ── Shooting / damage — Phase 4 ──────────────────────────────────
 const PLAYER_HP_MAX      = 5;      // baseline hit buffer so combat has a "hurt but alive" middle zone
@@ -2068,7 +2061,12 @@ function buildStateFor(levelIndex, carryPlayer) {
     player: {
       x: sp.x,
       y: sp.y,
-      dir: -Math.PI / 2,
+      // 12.10: dir is the *body* facing (driven by movement direction);
+      // aimDir is where bullets/grenades go (driven by mouse/touch
+      // aim/gamepad RS). Decoupled so the body looks like a person
+      // walking while the gun points wherever you're aiming.
+      dir:    -Math.PI / 2,
+      aimDir: -Math.PI / 2,
       hp:       carryPlayer ? carryPlayer.hp   : PLAYER_HP_MAX,
       iframes:  0,
       // Burst-fire (11.2): shootCooldown is the inter-burst gate;
@@ -2472,44 +2470,31 @@ function update() {
     touchAimHoldT--;
   }
 
-  // Facing priority (twin-stick style): aim stick > mouse > movement
-  // > last angle. The gamepad's right stick and the touch aim stick
-  // both override movement-facing so you can walk one way and shoot
-  // another. 12.2: touch aim direction persists briefly after the
-  // stick is released so a quick tap-fire still goes the way you
-  // were aiming. 12.8: mouse cursor on canvas points the gun in
-  // desktop play — gated on !touchMode so a tablet w/ a paired mouse
-  // doesn't fight the touch UI.
-  //
-  // 12.9: mouse aim now feeds a *target* direction; the body lerps
-  // toward it at PLAYER_TURN_RATE so a flicked cursor doesn't
-  // snap-rotate the sprite. Other inputs still set p.dir directly —
-  // gamepad/touch aim feel like direct rotation control, slowing
-  // them down would feel laggy. Bullets fire from p.dir (the body's
-  // current facing) so the trajectory matches the visible gun
-  // barrel — body has to catch up before bullets hit a flicked target.
-  let targetDir = p.dir;
-  let smoothBody = false;
-  if (pad.aimActive) {
-    targetDir = Math.atan2(pad.aimY, pad.aimX);
-  } else if (touchAim.active) {
-    targetDir = Math.atan2(touchAim.y, touchAim.x);
-  } else if (touchAimHoldT > 0) {
-    targetDir = touchAimLastDir;
-  } else if (mouse.active && !touchMode) {
-    targetDir  = Math.atan2(mouse.y - p.y, mouse.x - p.x);
-    smoothBody = true;
-  } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
-    targetDir = Math.atan2(vy, vx);
+  // 12.10: body and aim are now decoupled, twin-stick / Geometry
+  // Wars style.
+  //   p.dir    = body facing — follows movement direction. When the
+  //              player isn't moving, the body keeps its last facing.
+  //   p.aimDir = aim direction — driven by gamepad RS / touch aim
+  //              stick / mouse cursor / movement-direction (in that
+  //              priority). Bullets and grenades use this. The body
+  //              never rotates to track the cursor, so the player
+  //              looks like a person walking while the gun arm
+  //              independently points at the target.
+  if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
+    p.dir = Math.atan2(vy, vx);
   }
-  if (smoothBody) {
-    let delta = targetDir - p.dir;
-    while (delta >  Math.PI) delta -= 2 * Math.PI;
-    while (delta < -Math.PI) delta += 2 * Math.PI;
-    if (Math.abs(delta) <= PLAYER_TURN_RATE) p.dir = targetDir;
-    else p.dir += Math.sign(delta) * PLAYER_TURN_RATE;
-  } else {
-    p.dir = targetDir;
+  if (pad.aimActive) {
+    p.aimDir = Math.atan2(pad.aimY, pad.aimX);
+  } else if (touchAim.active) {
+    p.aimDir = Math.atan2(touchAim.y, touchAim.x);
+  } else if (touchAimHoldT > 0) {
+    p.aimDir = touchAimLastDir;
+  } else if (mouse.active && !touchMode) {
+    p.aimDir = Math.atan2(mouse.y - p.y, mouse.x - p.x);
+  } else if (Math.abs(vx) > 0.01 || Math.abs(vy) > 0.01) {
+    // Keyboard-only with no mouse / no aim stick: aim follows
+    // movement (the old keyboard behavior, preserved).
+    p.aimDir = Math.atan2(vy, vx);
   }
 
   // ── Pickup collection ────────────────────────────────────────
@@ -2674,12 +2659,12 @@ function update() {
       if (p.burstStep > 0) {
         p.burstStep--;
       } else if (p.ammo > 0) {
-        const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
-        const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
+        const bx = p.x + Math.cos(p.aimDir) * (PLAYER_R + 4);
+        const by = p.y + Math.sin(p.aimDir) * (PLAYER_R + 4);
         currentRoomState().bullets.push({
           x: bx, y: by,
-          vx: Math.cos(p.dir) * BULLET_SPEED,
-          vy: Math.sin(p.dir) * BULLET_SPEED,
+          vx: Math.cos(p.aimDir) * BULLET_SPEED,
+          vy: Math.sin(p.aimDir) * BULLET_SPEED,
           traveled: 0
         });
         p.ammo--;
@@ -2726,12 +2711,12 @@ function update() {
       // Released: throw with remaining fuse. Floor at 1 frame so a
       // simultaneous press+release doesn't divide-by-zero anywhere.
       const remainingFuse = Math.max(1, GRENADE_FUSE - p.cookT);
-      const bx = p.x + Math.cos(p.dir) * (PLAYER_R + 4);
-      const by = p.y + Math.sin(p.dir) * (PLAYER_R + 4);
+      const bx = p.x + Math.cos(p.aimDir) * (PLAYER_R + 4);
+      const by = p.y + Math.sin(p.aimDir) * (PLAYER_R + 4);
       currentRoomState().grenades.push({
         x: bx, y: by,
-        vx: Math.cos(p.dir) * GRENADE_SPEED,
-        vy: Math.sin(p.dir) * GRENADE_SPEED,
+        vx: Math.cos(p.aimDir) * GRENADE_SPEED,
+        vy: Math.sin(p.aimDir) * GRENADE_SPEED,
         fuse: remainingFuse
       });
       p.grenades--;
@@ -3245,14 +3230,55 @@ function drawPlayer() {
 // Hidden if magnitude is below 0.3 or on non-touch input (controller
 // users see the existing aim reticle / heading bar; keyboard players
 // don't have a magnitude).
+// 12.10: thin aim line for gun mode. With body decoupled from aim,
+// the player needs a visible cue for where bullets will go. Hidden
+// on touch (the fire-ready dot at the gun tip already does this)
+// and in grenade mode (the impact reticle is more informative). On
+// gamepad we still draw it so the right stick has a visible aim
+// indicator separate from the body.
+function drawAimLine() {
+  if (touchMode) return;
+  const p = state.player;
+  if (p.weaponMode !== 'gun') return;
+  // On a controller, only show when the right stick is actively
+  // pushed (no aim line when idle). On mouse, always show on desktop.
+  const showByPad   = pad.connected && pad.aimActive;
+  const showByMouse = mouse.active;
+  if (!showByPad && !showByMouse) return;
+
+  const startOff = PLAYER_R + 6;
+  const length   = 140;
+  const sx = p.x + Math.cos(p.aimDir) * startOff;
+  const sy = p.y + Math.sin(p.aimDir) * startOff;
+  const ex = p.x + Math.cos(p.aimDir) * (startOff + length);
+  const ey = p.y + Math.sin(p.aimDir) * (startOff + length);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(34, 211, 238, 0.45)';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([3, 6]);
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Small reticle dot at the end so the aim point reads even when
+  // the line crosses dark wall tiles.
+  ctx.fillStyle = 'rgba(34, 211, 238, 0.7)';
+  ctx.beginPath();
+  ctx.arc(ex, ey, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawFireReadyDot() {
   if (!touchMode) return;
   const mag = touchAim.active ? Math.hypot(touchAim.x, touchAim.y) : 0;
   if (mag < 0.3) return;
   const p = state.player;
   const off = PLAYER_R + 8;
-  const bx = p.x + Math.cos(p.dir) * off;
-  const by = p.y + Math.sin(p.dir) * off;
+  const bx = p.x + Math.cos(p.aimDir) * off;
+  const by = p.y + Math.sin(p.aimDir) * off;
 
   let color;
   if (p.weaponMode === 'grenade') {
@@ -3297,7 +3323,7 @@ function drawBullets() {
 // work through walls too.
 function findGuardOnAimLine(p) {
   const rs = currentRoomState();
-  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  const dx = Math.cos(p.aimDir), dy = Math.sin(p.aimDir);
   const maxDist = GRENADE_FUSE * GRENADE_SPEED;
   let best = null;
   let bestAlong = Infinity;
@@ -3318,7 +3344,7 @@ function findGuardOnAimLine(p) {
 function projectGrenadeImpact(p) {
   const fuseRemaining = p.cooking ? Math.max(1, GRENADE_FUSE - p.cookT) : GRENADE_FUSE;
   const distance = fuseRemaining * GRENADE_SPEED;
-  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  const dx = Math.cos(p.aimDir), dy = Math.sin(p.aimDir);
   const startX = p.x + dx * (PLAYER_R + 4);
   const startY = p.y + dy * (PLAYER_R + 4);
   return { x: startX + dx * distance, y: startY + dy * distance };
@@ -3333,7 +3359,7 @@ function drawGrenadeAim() {
   const p = state.player;
   if (p.weaponMode !== 'grenade') return;
   const impact = projectGrenadeImpact(p);
-  const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
+  const dx = Math.cos(p.aimDir), dy = Math.sin(p.aimDir);
 
   ctx.save();
   // Dotted aim line
@@ -3995,6 +4021,7 @@ function draw() {
   drawBullets();
   drawGrenades();
   drawGrenadeAim();   // 11.6: landing reticle while in grenade mode
+  drawAimLine();      // 12.10: where bullets go (body is decoupled from aim)
   drawPlayer();
   drawFireReadyDot(); // 12.4: gun-tip color cue for touch fire threshold
   drawCookTimer();    // 11.5: fuse digits over the player while cooking
