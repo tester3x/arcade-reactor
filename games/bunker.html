@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.11';
+const BUILD_LABEL = '12.12';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -376,7 +376,7 @@ document.addEventListener('keydown', e => {
   // Grenade-mode toggle (G) — keyboard equivalent of B. Same gating
   // as the gamepad version: must have a grenade, can't toggle while
   // paused, and can't switch out mid-cook (pin's already out).
-  if (e.code === 'KeyG' && !e.repeat && state && state.player.grenades > 0 && !state.paused && !state.player.cooking && canTogglePause()) {
+  if ((e.code === 'KeyG' || e.code === 'Digit3') && !e.repeat && state && state.player.grenades > 0 && !state.paused && !state.player.cooking && canTogglePause()) {
     state.player.weaponMode = state.player.weaponMode === 'grenade' ? 'gun' : 'grenade';
   }
 });
@@ -2639,16 +2639,11 @@ function update() {
   }
   p.lastNadePressed = touch.nade;
 
-  // 12.11: Razer Naga thumb buttons send Digit1-9/0/Minus/Equal in
-  // their default profile. Treat them all as fire-key alternates so
-  // 21 years of WoW muscle memory still shoots. Keyboard fire stays
-  // edge-triggered so a held Naga key gives one burst per press,
-  // not a torrent.
-  const fireKeyDown = keys['Space'] ||
-    keys['Digit1'] || keys['Digit2'] || keys['Digit3'] ||
-    keys['Digit4'] || keys['Digit5'] || keys['Digit6'] ||
-    keys['Digit7'] || keys['Digit8'] || keys['Digit9'] ||
-    keys['Digit0'] || keys['Minus']  || keys['Equal'];
+  // 12.12: keyboard fire = Space or Digit1 (Razer Naga thumb btn 1
+  // in default profile). Other Naga digits are free for other
+  // actions: Digit3 = grenade-mode toggle (mirrors G). Edge-trigger
+  // means a held key gives one burst per press, not a torrent.
+  const fireKeyDown = keys['Space'] || keys['Digit1'];
   const firePressed = fireKeyDown || pad.fire || touchAimFire || mouse.fire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
