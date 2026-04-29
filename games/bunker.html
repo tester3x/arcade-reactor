@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.12';
+const BUILD_LABEL = '12.13';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -875,6 +875,16 @@ const HEALTH_PICKUP_HEAL  = 1;     // HP per health pickup (capped at PLAYER_HP_
 const SPEED_BOOST_MULT    = 1.5;   // movement multiplier while active
 const SPEED_BOOST_DURATION = 300;  // frames the boost lasts (~5s)
 const PICKUP_R            = 14;    // pickup radius, same feel as keys
+
+// ── Corpse + loot (Phase 12.13 — Castle Wolfenstein homage) ──────
+// Killed guards leave a body behind. Walk over → press Space to
+// search → ammo and occasional grenades transfer to the player.
+// Bodies stay through the level so you can backtrack and loot
+// later. Cleared on level transition (corpses are room-scoped).
+const SEARCH_R            = PLAYER_R + GUARD_R + 6;  // generous so you don't have to be exactly on top
+const CORPSE_AMMO_MIN     = 4;
+const CORPSE_AMMO_MAX     = 8;
+const CORPSE_GRENADE_PROB = 0.18;   // ~1 in 6 guards drops a grenade
 
 // ================================================================
 // ADAPTIVE DIRECTOR — Phase 12
@@ -2030,6 +2040,10 @@ function makeRoomsState(levelDef) {
       // discards anything mid-air.
       grenades:   [],
       explosions: [],
+      // Corpses (12.13): bodies of killed guards, persistent for
+      // the level. Each carries random loot (ammo + maybe grenade)
+      // until searched.
+      corpses:    [],
       // Keys and pickups are clones of the spawn lists so we can
       // splice them out as collected without mutating definitions.
       keys:    (def.keySpawns    || []).map(k => ({ x: k.x, y: k.y })),
@@ -2082,6 +2096,8 @@ function buildStateFor(levelIndex, carryPlayer) {
       burstStep:       0,
       lastFirePressed: false,
       lastNadePressed: false,
+      // 12.13: edge-detect Space for corpse search (one search per press).
+      lastSpaceDown:   false,
       ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
       // Grenades (11.2): inventory carries between levels like ammo.
       // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
@@ -2639,11 +2655,42 @@ function update() {
   }
   p.lastNadePressed = touch.nade;
 
+  // 12.13: Space-to-search corpses (Castle Wolfenstein). On the rising
+  // edge of Space, if any unlooted corpse is within SEARCH_R, loot
+  // the closest one and *consume* the press so the gun doesn't fire
+  // this frame. Other fire keys (Digit1, mouse, gamepad) still fire
+  // normally even while standing on a corpse.
+  const spaceDown = !!keys['Space'];
+  const spaceRise = spaceDown && !p.lastSpaceDown;
+  p.lastSpaceDown = spaceDown;
+  let spaceConsumedBySearch = false;
+  if (spaceRise && !state.paused) {
+    const rs2 = currentRoomState();
+    let closest = null, closestD2 = SEARCH_R * SEARCH_R;
+    for (const c of rs2.corpses) {
+      if (c.looted) continue;
+      const cdx = p.x - c.x, cdy = p.y - c.y;
+      const d2 = cdx * cdx + cdy * cdy;
+      if (d2 < closestD2) { closest = c; closestD2 = d2; }
+    }
+    if (closest) {
+      if (closest.ammo > 0) {
+        p.ammo = Math.min(PLAYER_AMMO_MAX, p.ammo + closest.ammo);
+      }
+      if (closest.grenade && p.grenades < GRENADE_MAX) {
+        p.grenades = Math.min(GRENADE_MAX, p.grenades + 1);
+      }
+      closest.looted    = true;
+      closest.lootFlash = 30;   // brief visual confirmation
+      spaceConsumedBySearch = true;
+    }
+  }
+
   // 12.12: keyboard fire = Space or Digit1 (Razer Naga thumb btn 1
   // in default profile). Other Naga digits are free for other
   // actions: Digit3 = grenade-mode toggle (mirrors G). Edge-trigger
   // means a held key gives one burst per press, not a torrent.
-  const fireKeyDown = keys['Space'] || keys['Digit1'];
+  const fireKeyDown = (spaceDown && !spaceConsumedBySearch) || keys['Digit1'];
   const firePressed = fireKeyDown || pad.fire || touchAimFire || mouse.fire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
@@ -2783,6 +2830,19 @@ function update() {
   for (const ex of rs.explosions) ex.t++;
   rs.explosions = rs.explosions.filter(ex => ex.t < EXPLOSION_FRAMES);
 
+  // 12.13: dead guards become searchable corpses (Castle Wolfenstein
+  // homage). Roll random loot once at death-time and store it on the
+  // corpse so it doesn't change between visits.
+  for (const g of rs.guards) {
+    if (g.dead) {
+      const ammoDrop    = CORPSE_AMMO_MIN + Math.floor(Math.random() * (CORPSE_AMMO_MAX - CORPSE_AMMO_MIN + 1));
+      const grenadeDrop = Math.random() < CORPSE_GRENADE_PROB;
+      rs.corpses.push({
+        x: g.x, y: g.y, dir: g.dir, type: g.type,
+        ammo: ammoDrop, grenade: grenadeDrop, looted: false
+      });
+    }
+  }
   rs.guards  = rs.guards.filter(g => !g.dead);
 
   updateGuards();
@@ -3177,6 +3237,60 @@ function drawGuards() {
   const guards = currentRoomState().guards;
   for (const g of guards) drawGuardCone(g);
   for (const g of guards) drawGuardBody(g);
+}
+
+// 12.13: draw fallen guards. Render under live elements so live
+// guards / bullets / pickups visually win when stacked. Unlooted
+// bodies pulse a subtle yellow ring; looted ones go quiet.
+function drawCorpses() {
+  const corpses = currentRoomState().corpses;
+  if (!corpses.length) return;
+  const t = (Date.now() % 1200) / 1200;          // shared pulse phase
+  const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+  for (const c of corpses) {
+    if (!c.looted) {
+      // Pulsing search prompt ring
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, GUARD_R + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Body — sprite if loaded, else a flat dim disc.
+    const spriteKey = c.type === 'sentry' ? 'sentry'
+                    : c.type === 'hunter' ? 'hunter'
+                    : c.type === 'alarm'  ? 'alarm'
+                                          : 'patrol';
+    ctx.save();
+    ctx.globalAlpha = c.looted ? 0.4 : 0.6;
+    if (imgReady(spriteKey)) {
+      drawChar(spriteKey, c.x, c.y, c.dir, 40);
+    } else {
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.dir);
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath();
+      ctx.arc(0, 0, GUARD_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // Brief flash on the just-looted moment.
+    if (c.lootFlash > 0) {
+      const a = c.lootFlash / 30;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 12px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('+' + (c.ammo > 0 ? c.ammo + ' AMMO' : '') + (c.grenade ? ' +1 NADE' : ''),
+                   c.x, c.y - GUARD_R - 8);
+      ctx.restore();
+      c.lootFlash--;
+    }
+  }
 }
 
 function drawPlayer() {
@@ -4025,6 +4139,7 @@ function drawTransition() {
 
 function draw() {
   drawFloor();
+  drawCorpses();      // 12.13: under live elements so guards/bullets visually win
   drawKeys();
   drawPickups();
   drawGuards();
