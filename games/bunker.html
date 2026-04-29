@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.13.1';
+const BUILD_LABEL = '12.14';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2098,6 +2098,11 @@ function buildStateFor(levelIndex, carryPlayer) {
       lastNadePressed: false,
       // 12.13: edge-detect Space for corpse search (one search per press).
       lastSpaceDown:   false,
+      // 12.14: latches true when a Space press is consumed by a
+      // search; resets on Space release. Without this, the next
+      // frame's still-held Space re-arms fireEdge and sneaks one
+      // burst out the moment after looting.
+      spaceConsumed:   false,
       ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
       // Grenades (11.2): inventory carries between levels like ammo.
       // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
@@ -2660,10 +2665,13 @@ function update() {
   // the closest one and *consume* the press so the gun doesn't fire
   // this frame. Other fire keys (Digit1, mouse, gamepad) still fire
   // normally even while standing on a corpse.
+  // 12.14: spaceConsumed latches across frames until Space is
+  // released so a held Space after a search doesn't immediately
+  // re-fire (was firing one burst the frame after looting).
   const spaceDown = !!keys['Space'];
   const spaceRise = spaceDown && !p.lastSpaceDown;
+  if (!spaceDown) p.spaceConsumed = false;
   p.lastSpaceDown = spaceDown;
-  let spaceConsumedBySearch = false;
   if (spaceRise && !state.paused) {
     const rs2 = currentRoomState();
     let closest = null, closestD2 = SEARCH_R * SEARCH_R;
@@ -2681,8 +2689,8 @@ function update() {
         p.grenades = Math.min(GRENADE_MAX, p.grenades + 1);
       }
       closest.looted    = true;
-      closest.lootFlash = 30;   // brief visual confirmation
-      spaceConsumedBySearch = true;
+      closest.lootFlash = 120;   // ~2s visual confirmation (12.14: was 30)
+      p.spaceConsumed   = true;
     }
   }
 
@@ -2690,7 +2698,7 @@ function update() {
   // in default profile). Other Naga digits are free for other
   // actions: Digit3 = grenade-mode toggle (mirrors G). Edge-trigger
   // means a held key gives one burst per press, not a torrent.
-  const fireKeyDown = (spaceDown && !spaceConsumedBySearch) || keys['Digit1'];
+  const fireKeyDown = (spaceDown && !p.spaceConsumed) || keys['Digit1'];
   const firePressed = fireKeyDown || pad.fire || touchAimFire || mouse.fire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
@@ -3242,30 +3250,53 @@ function drawGuards() {
 // 12.13: draw fallen guards. Render under live elements so live
 // guards / bullets / pickups visually win when stacked. Unlooted
 // bodies pulse a subtle yellow ring; looted ones go quiet.
+// 12.14: Kenney's TD Shooter pack has no death-pose sprite, so we
+// fake the "fallen body" read with a dark-red blood pool oval +
+// the existing guard sprite at low alpha on top. Reads clearly as
+// "this dude is down" without new art.
 function drawCorpses() {
   const corpses = currentRoomState().corpses;
   if (!corpses.length) return;
   const t = (Date.now() % 1200) / 1200;          // shared pulse phase
   const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
   for (const c of corpses) {
+    // Blood pool — irregular oval offset slightly toward the
+    // guard's facing so it looks like they bled forward when
+    // they fell. Radius gets a tiny per-corpse variation via the
+    // x coord so a row of bodies doesn't read as cloned.
+    const wobble = (Math.sin(c.x * 0.13) + 1) * 0.5;   // 0..1 stable per corpse
+    const poolRX = GUARD_R + 6 + wobble * 4;
+    const poolRY = GUARD_R + 4 + (1 - wobble) * 3;
+    ctx.save();
+    ctx.globalAlpha = c.looted ? 0.45 : 0.6;
+    ctx.translate(c.x + Math.cos(c.dir) * 3, c.y + Math.sin(c.dir) * 3);
+    ctx.rotate(c.dir);
+    ctx.fillStyle = '#5b0f12';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, poolRX, poolRY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     if (!c.looted) {
-      // Pulsing search prompt ring
+      // Pulsing yellow "search me" ring on top of the pool
       ctx.save();
       ctx.globalAlpha = pulse;
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth   = 1.5;
       ctx.beginPath();
-      ctx.arc(c.x, c.y, GUARD_R + 6, 0, Math.PI * 2);
+      ctx.arc(c.x, c.y, GUARD_R + 8, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
-    // Body — sprite if loaded, else a flat dim disc.
+
+    // Body — sprite if loaded, else a flat dim disc. Looted bodies
+    // go even fainter so the eye picks the unlooted ones first.
     const spriteKey = c.type === 'sentry' ? 'sentry'
                     : c.type === 'hunter' ? 'hunter'
                     : c.type === 'alarm'  ? 'alarm'
                                           : 'patrol';
     ctx.save();
-    ctx.globalAlpha = c.looted ? 0.4 : 0.6;
+    ctx.globalAlpha = c.looted ? 0.35 : 0.55;
     if (imgReady(spriteKey)) {
       drawChar(spriteKey, c.x, c.y, c.dir, 40);
     } else {
@@ -3277,16 +3308,25 @@ function drawCorpses() {
       ctx.fill();
     }
     ctx.restore();
-    // Brief flash on the just-looted moment.
+
+    // Loot pickup flash — text + arrow above the body for ~2s.
+    // Fades over the last 30 frames so it doesn't hard-cut.
     if (c.lootFlash > 0) {
-      const a = c.lootFlash / 30;
+      const a = Math.min(1, c.lootFlash / 30);
+      const lift = 14 + (1 - Math.min(1, c.lootFlash / 90)) * 6;   // small drift up
       ctx.save();
       ctx.globalAlpha = a;
       ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 12px "JetBrains Mono", monospace';
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 3;
+      ctx.font = 'bold 13px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('+' + (c.ammo > 0 ? c.ammo + ' AMMO' : '') + (c.grenade ? ' +1 NADE' : ''),
-                   c.x, c.y - GUARD_R - 8);
+      const parts = [];
+      if (c.ammo > 0)  parts.push('+' + c.ammo + ' AMMO');
+      if (c.grenade)   parts.push('+1 NADE');
+      const txt = parts.join('  ');
+      ctx.strokeText(txt, c.x, c.y - GUARD_R - lift);
+      ctx.fillText  (txt, c.x, c.y - GUARD_R - lift);
       ctx.restore();
       c.lootFlash--;
     }
