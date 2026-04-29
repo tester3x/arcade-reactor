@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.10';
+const BUILD_LABEL = '12.11';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -596,8 +596,13 @@ document.addEventListener('touchstart', e => {
     mouse.active = true;
     activateMouse();
   });
+  // 12.11: accept LMB (button 0) and side buttons X1/X2 (3/4) as
+  // fire. RMB (2) and MMB (1) are reserved — Razer Naga users with
+  // side buttons that come through as actual mouse buttons (not
+  // remapped to keyboard) get a native fire trigger.
+  function isFireButton(b) { return b === 0 || b === 3 || b === 4; }
   canvas.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;   // LMB only
+    if (!isFireButton(e.button)) return;
     e.preventDefault();
     // Restart on click during terminal screens — mirrors the
     // document-level touchstart restart.
@@ -617,7 +622,7 @@ document.addEventListener('touchstart', e => {
   });
   // mouseup on window so dragging off the canvas mid-fire still releases.
   window.addEventListener('mouseup', e => {
-    if (e.button !== 0) return;
+    if (!isFireButton(e.button)) return;
     mouse.fire = false;
   });
   canvas.addEventListener('mouseleave', () => { mouse.fire = false; });
@@ -2634,7 +2639,17 @@ function update() {
   }
   p.lastNadePressed = touch.nade;
 
-  const firePressed = keys['Space'] || pad.fire || touchAimFire || mouse.fire;
+  // 12.11: Razer Naga thumb buttons send Digit1-9/0/Minus/Equal in
+  // their default profile. Treat them all as fire-key alternates so
+  // 21 years of WoW muscle memory still shoots. Keyboard fire stays
+  // edge-triggered so a held Naga key gives one burst per press,
+  // not a torrent.
+  const fireKeyDown = keys['Space'] ||
+    keys['Digit1'] || keys['Digit2'] || keys['Digit3'] ||
+    keys['Digit4'] || keys['Digit5'] || keys['Digit6'] ||
+    keys['Digit7'] || keys['Digit8'] || keys['Digit9'] ||
+    keys['Digit0'] || keys['Minus']  || keys['Equal'];
+  const firePressed = fireKeyDown || pad.fire || touchAimFire || mouse.fire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
 
