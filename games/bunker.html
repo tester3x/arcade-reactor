@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.13';
+const BUILD_LABEL = '12.13.1';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -881,7 +881,7 @@ const PICKUP_R            = 14;    // pickup radius, same feel as keys
 // search → ammo and occasional grenades transfer to the player.
 // Bodies stay through the level so you can backtrack and loot
 // later. Cleared on level transition (corpses are room-scoped).
-const SEARCH_R            = PLAYER_R + GUARD_R + 6;  // generous so you don't have to be exactly on top
+const SEARCH_R            = 30;    // PLAYER_R + GUARD_R + 6 — generous so you don't have to be exactly on top
 const CORPSE_AMMO_MIN     = 4;
 const CORPSE_AMMO_MAX     = 8;
 const CORPSE_GRENADE_PROB = 0.18;   // ~1 in 6 guards drops a grenade
