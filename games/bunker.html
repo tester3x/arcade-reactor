@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.18';
+const BUILD_LABEL = '12.18.1';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -3317,14 +3317,16 @@ function drawCorpses() {
   const corpses = currentRoomState().corpses;
   if (!corpses.length) return;
   for (const c of corpses) {
-    // Body sprite on top of the splat. Looted bodies go even
-    // fainter so the eye picks unlooted ones first.
+    // Body sprite on top of the splat. Looted bodies go a bit
+    // fainter so the eye picks unlooted ones first — but unlooted
+    // stays at full alpha so the blood pool below doesn't bleed
+    // through and read as "blood on top of the guard" (12.18.1).
     const spriteKey = c.type === 'sentry' ? 'sentry'
                     : c.type === 'hunter' ? 'hunter'
                     : c.type === 'alarm'  ? 'alarm'
                                           : 'patrol';
     ctx.save();
-    ctx.globalAlpha = c.looted ? 0.45 : 0.7;
+    ctx.globalAlpha = c.looted ? 0.7 : 1.0;
     if (imgReady(spriteKey)) {
       drawChar(spriteKey, c.x, c.y, c.dir, 40);
     } else {
