@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.17';
+const BUILD_LABEL = '12.18';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2961,8 +2961,6 @@ function drawFloor() {
   ctx.fillStyle = '#060809';
   ctx.fillRect(0, 0, GW, GH);
 
-  const wallReady = imgReady('wall');
-
   // Pass 1: floor tiles (procedural — Kenney's pack has no solid floor tile)
   ctx.fillStyle = '#0e1115';
   for (let row = 0; row < MAP_ROWS; row++) {
@@ -2984,28 +2982,8 @@ function drawFloor() {
     }
   }
 
-  // Pass 3: walls
-  for (let row = 0; row < MAP_ROWS; row++) {
-    for (let col = 0; col < MAP_COLS; col++) {
-      if (map[row][col] === 1) {
-        const x = col * TILE, y = row * TILE;
-        if (wallReady) {
-          ctx.drawImage(IMG.wall, x, y, TILE, TILE);
-        } else {
-          ctx.fillStyle = '#242a33';
-          ctx.fillRect(x, y, TILE, TILE);
-          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
-          // Top edge highlight — procedural-only extrusion cue
-          if (row > 0 && map[row - 1][col] === 0) {
-            ctx.fillStyle = 'rgba(34,211,238,0.18)';
-            ctx.fillRect(x, y, TILE, 2);
-          }
-        }
-      }
-    }
-  }
+  // Walls render in drawWalls() — split out so blood pools can sit
+  // between the floor and the walls (12.18: blood under walls).
 
   // Pass 4: doorway tiles — render a subtle cyan glow so the player
   // can see where the exits are. These are floor tiles in the map
@@ -3039,6 +3017,34 @@ function drawFloor() {
     ctx.textAlign = 'center';
     ctx.fillStyle = unlocked ? 'rgba(110, 231, 183, 0.95)' : 'rgba(110, 231, 183, 0.4)';
     ctx.fillText('EXIT', x + TILE / 2, y - 4);
+  }
+}
+
+// Walls draw after blood (12.18) so blood pools sit between the floor
+// and the walls and never look like they've splashed onto a wall.
+function drawWalls() {
+  const map = currentRoom().map;
+  const wallReady = imgReady('wall');
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      if (map[row][col] === 1) {
+        const x = col * TILE, y = row * TILE;
+        if (wallReady) {
+          ctx.drawImage(IMG.wall, x, y, TILE, TILE);
+        } else {
+          ctx.fillStyle = '#242a33';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
+          // Top edge highlight — procedural-only extrusion cue
+          if (row > 0 && map[row - 1][col] === 0) {
+            ctx.fillStyle = 'rgba(34,211,238,0.18)';
+            ctx.fillRect(x, y, TILE, 2);
+          }
+        }
+      }
+    }
   }
 }
 
@@ -3279,11 +3285,12 @@ function drawGuards() {
 // is still legible. The "search me" ring is gone — corpses are
 // just visibly down, and the player learns the Space-to-search
 // flow on the first body.
-function drawCorpses() {
+// 12.18: blood pools render between the floor and the walls, so a
+// splat that overlaps a wall tile reads correctly (wall on top).
+function drawBlood() {
   const corpses = currentRoomState().corpses;
   if (!corpses.length) return;
   for (const c of corpses) {
-    // Blood pool under the body
     ctx.save();
     ctx.globalAlpha = c.looted ? 0.55 : 0.8;
     if (imgReady('corpsePool')) {
@@ -3303,7 +3310,13 @@ function drawCorpses() {
       ctx.fill();
     }
     ctx.restore();
+  }
+}
 
+function drawCorpses() {
+  const corpses = currentRoomState().corpses;
+  if (!corpses.length) return;
+  for (const c of corpses) {
     // Body sprite on top of the splat. Looted bodies go even
     // fainter so the eye picks unlooted ones first.
     const spriteKey = c.type === 'sentry' ? 'sentry'
@@ -4203,8 +4216,10 @@ function drawTransition() {
 }
 
 function draw() {
-  drawFloor();
-  drawCorpses();      // 12.13: under live elements so guards/bullets visually win
+  drawFloor();        // floor tiles + grout + doorway tints + exit door
+  drawBlood();        // 12.18: blood pools between floor and walls
+  drawWalls();        // walls render over blood so splats never sit on a wall
+  drawCorpses();      // 12.13: body sprites + loot flash, under live elements
   drawKeys();
   drawPickups();
   drawGuards();
