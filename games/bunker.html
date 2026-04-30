@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.15';
+const BUILD_LABEL = '12.16';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2847,7 +2847,11 @@ function update() {
       const grenadeDrop = Math.random() < CORPSE_GRENADE_PROB;
       rs.corpses.push({
         x: g.x, y: g.y, dir: g.dir, type: g.type,
-        ammo: ammoDrop, grenade: grenadeDrop, looted: false
+        ammo: ammoDrop, grenade: grenadeDrop, looted: false,
+        // 12.16: random rotation + scale stored at death so the
+        // blood-splat decal doesn't look identical across bodies.
+        bloodRot:   Math.random() * Math.PI * 2,
+        bloodScale: 0.85 + Math.random() * 0.35
       });
     }
   }
@@ -3252,61 +3256,46 @@ function drawGuards() {
 }
 
 // 12.13: draw fallen guards. Render under live elements so live
-// guards / bullets / pickups visually win when stacked. Unlooted
-// bodies pulse a subtle yellow ring; looted ones go quiet.
-// 12.14: Kenney's TD Shooter pack has no death-pose sprite, so we
-// fake the "fallen body" read with a dark-red blood pool oval +
-// the existing guard sprite at low alpha on top. Reads clearly as
-// "this dude is down" without new art.
+// guards / bullets / pickups visually win when stacked.
+// 12.16: blood-splat decal rendered with a per-corpse random
+// rotation + scale so a row of bodies doesn't read as cloned.
+// Body sprite is drawn on top of the splat so the corpse silhouette
+// is still legible. The "search me" ring is gone — corpses are
+// just visibly down, and the player learns the Space-to-search
+// flow on the first body.
 function drawCorpses() {
   const corpses = currentRoomState().corpses;
   if (!corpses.length) return;
-  const t = (Date.now() % 1200) / 1200;          // shared pulse phase
-  const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
   for (const c of corpses) {
-    // Blood pool — 12.15: use bodyblood.png decal if loaded, else
-    // fall back to the procedural oval. The decal rotates with the
-    // corpse direction so a row of bodies doesn't read as cloned.
+    // Blood pool under the body
     ctx.save();
     ctx.globalAlpha = c.looted ? 0.55 : 0.8;
     if (imgReady('corpsePool')) {
-      const size = 50;
+      const size = 50 * (c.bloodScale || 1);
       ctx.translate(c.x, c.y);
-      ctx.rotate(c.dir);
+      ctx.rotate(c.bloodRot || 0);
       ctx.drawImage(IMG.corpsePool, -size / 2, -size / 2, size, size);
     } else {
-      const wobble = (Math.sin(c.x * 0.13) + 1) * 0.5;   // 0..1 stable per corpse
-      const poolRX = GUARD_R + 6 + wobble * 4;
-      const poolRY = GUARD_R + 4 + (1 - wobble) * 3;
-      ctx.translate(c.x + Math.cos(c.dir) * 3, c.y + Math.sin(c.dir) * 3);
-      ctx.rotate(c.dir);
+      // Fallback oval if the decal hasn't loaded — also gets the
+      // random rot/scale for visual variety.
+      const r = (GUARD_R + 8) * (c.bloodScale || 1);
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.bloodRot || 0);
       ctx.fillStyle = '#5b0f12';
       ctx.beginPath();
-      ctx.ellipse(0, 0, poolRX, poolRY, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, r, r * 0.85, 0, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
-    if (!c.looted) {
-      // Pulsing yellow "search me" ring on top of the pool
-      ctx.save();
-      ctx.globalAlpha = pulse;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth   = 1.5;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, GUARD_R + 8, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Body — sprite if loaded, else a flat dim disc. Looted bodies
-    // go even fainter so the eye picks the unlooted ones first.
+    // Body sprite on top of the splat. Looted bodies go even
+    // fainter so the eye picks unlooted ones first.
     const spriteKey = c.type === 'sentry' ? 'sentry'
                     : c.type === 'hunter' ? 'hunter'
                     : c.type === 'alarm'  ? 'alarm'
                                           : 'patrol';
     ctx.save();
-    ctx.globalAlpha = c.looted ? 0.35 : 0.55;
+    ctx.globalAlpha = c.looted ? 0.45 : 0.7;
     if (imgReady(spriteKey)) {
       drawChar(spriteKey, c.x, c.y, c.dir, 40);
     } else {
