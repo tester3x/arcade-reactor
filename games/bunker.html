@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.14';
+const BUILD_LABEL = '12.15';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2912,6 +2912,10 @@ loadImg('patrol', `${_TD}/Hitman%201/hitman1_gun.png`);
 loadImg('sentry', `${_TD}/Soldier%201/soldier1_gun.png`);
 loadImg('hunter', `${_TD}/Robot%201/robot1_gun.png`);
 loadImg('alarm',  `${_TD}/Zombie%201/zoimbie1_gun.png`);
+// 12.15: custom blood-splat decal under corpses, replacing the
+// procedural oval. Falls back to the oval if the asset 404s or is
+// still loading.
+loadImg('corpsePool', '../assets/bodyblood.png');
 
 function imgReady(key) {
   const im = IMG[key];
@@ -3260,21 +3264,27 @@ function drawCorpses() {
   const t = (Date.now() % 1200) / 1200;          // shared pulse phase
   const pulse = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
   for (const c of corpses) {
-    // Blood pool — irregular oval offset slightly toward the
-    // guard's facing so it looks like they bled forward when
-    // they fell. Radius gets a tiny per-corpse variation via the
-    // x coord so a row of bodies doesn't read as cloned.
-    const wobble = (Math.sin(c.x * 0.13) + 1) * 0.5;   // 0..1 stable per corpse
-    const poolRX = GUARD_R + 6 + wobble * 4;
-    const poolRY = GUARD_R + 4 + (1 - wobble) * 3;
+    // Blood pool — 12.15: use bodyblood.png decal if loaded, else
+    // fall back to the procedural oval. The decal rotates with the
+    // corpse direction so a row of bodies doesn't read as cloned.
     ctx.save();
-    ctx.globalAlpha = c.looted ? 0.45 : 0.6;
-    ctx.translate(c.x + Math.cos(c.dir) * 3, c.y + Math.sin(c.dir) * 3);
-    ctx.rotate(c.dir);
-    ctx.fillStyle = '#5b0f12';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, poolRX, poolRY, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = c.looted ? 0.55 : 0.8;
+    if (imgReady('corpsePool')) {
+      const size = 50;
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.dir);
+      ctx.drawImage(IMG.corpsePool, -size / 2, -size / 2, size, size);
+    } else {
+      const wobble = (Math.sin(c.x * 0.13) + 1) * 0.5;   // 0..1 stable per corpse
+      const poolRX = GUARD_R + 6 + wobble * 4;
+      const poolRY = GUARD_R + 4 + (1 - wobble) * 3;
+      ctx.translate(c.x + Math.cos(c.dir) * 3, c.y + Math.sin(c.dir) * 3);
+      ctx.rotate(c.dir);
+      ctx.fillStyle = '#5b0f12';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, poolRX, poolRY, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
 
     if (!c.looted) {
