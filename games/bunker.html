@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.18.1';
+const BUILD_LABEL = '12.18.2';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -3030,6 +3030,13 @@ function drawWalls() {
       if (map[row][col] === 1) {
         const x = col * TILE, y = row * TILE;
         if (wallReady) {
+          // Opaque backing first — the Kenney wall sprite has slightly
+          // soft/transparent edges, and 12.18.2 also moves walls above
+          // all entities. Without this, blood pools and guard sprite
+          // halos that overhang from neighboring floor tiles bleed
+          // through the wall and read as "on top of the wall".
+          ctx.fillStyle = '#1a1f26';
+          ctx.fillRect(x, y, TILE, TILE);
           ctx.drawImage(IMG.wall, x, y, TILE, TILE);
         } else {
           ctx.fillStyle = '#242a33';
@@ -4218,21 +4225,28 @@ function drawTransition() {
 }
 
 function draw() {
+  // 12.18.2: walls are the authoritative top world layer. Every
+  // physical thing in the level (blood, corpses, guards, bullets,
+  // grenades, player, explosions) renders BEFORE walls so any
+  // sprite halo or blood splat that overhangs a wall tile gets
+  // covered. UI cues (aim line, reticles, HUD) draw after walls
+  // so they're never hidden.
   drawFloor();        // floor tiles + grout + doorway tints + exit door
-  drawBlood();        // 12.18: blood pools between floor and walls
-  drawWalls();        // walls render over blood so splats never sit on a wall
-  drawCorpses();      // 12.13: body sprites + loot flash, under live elements
+  drawBlood();        // blood pools — bottom of the entity stack
+  drawCorpses();      // body sprites + loot flash
   drawKeys();
   drawPickups();
   drawGuards();
   drawBullets();
   drawGrenades();
+  drawPlayer();
+  drawExplosions();   // on top of player so the flash visually wins
+  drawWalls();        // walls last — covers any entity that overhangs a wall tile
+  // --- UI / HUD overlays from here on ---
   drawGrenadeAim();   // 11.6: landing reticle while in grenade mode
   drawAimLine();      // 12.10: where bullets go (body is decoupled from aim)
-  drawPlayer();
   drawFireReadyDot(); // 12.4: gun-tip color cue for touch fire threshold
   drawCookTimer();    // 11.5: fuse digits over the player while cooking
-  drawExplosions();   // on top of player so the flash visually wins
   drawNeedKeys();
   drawHUD();
   drawTimer();
