@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.18.2';
+const BUILD_LABEL = '12.19';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -798,7 +798,7 @@ const GRENADE_START          = 1;     // grenades you spawn with
 const GRENADE_MAX            = 3;     // cap on carried grenades
 const GRENADE_PICKUP_AMOUNT  = 1;     // grenades per pickup
 const GRENADE_SPEED          = 4.5;   // px/frame — slower than bullets, lobbed feel
-const GRENADE_FUSE           = 72;    // frames to live before exploding (~1.2s) — cook window + flight time
+const GRENADE_FUSE           = 108;   // frames to live before exploding (~1.8s) — cook window + flight time. 12.19: was 72, cook felt rushed.
 const GRENADE_RADIUS         = 7;     // visual radius
 const EXPLOSION_RADIUS       = 110;   // blast radius (px) — kills any guard inside
 const EXPLOSION_FRAMES       = 24;    // frames the explosion stays on screen
@@ -2539,7 +2539,11 @@ function update() {
       const pk = rs.pickups[i];
       const pp = tileToPx(pk.x, pk.y);
       const ddx = p.x - pp.x, ddy = p.y - pp.y;
-      if (ddx * ddx + ddy * ddy < PICKUP_R * PICKUP_R) {
+      // 12.19: trigger on circle overlap (player edge touches pickup
+      // edge), not center-on-center. Old check ignored PLAYER_R so
+      // you could touch a pickup on all 4 sides without grabbing it.
+      const pr = PLAYER_R + PICKUP_R;
+      if (ddx * ddx + ddy * ddy < pr * pr) {
         let consume = false;
         if (pk.type === 'health') {
           // 12.17: into the backpack. Consumed on H press, not on
@@ -2578,7 +2582,9 @@ function update() {
       const k  = rs.keys[i];
       const kp = tileToPx(k.x, k.y);
       const dx = p.x - kp.x, dy = p.y - kp.y;
-      if (dx * dx + dy * dy < KEY_R * KEY_R) {
+      // 12.19: same fix as pickups — circle overlap, not center-only.
+      const kr = PLAYER_R + KEY_R;
+      if (dx * dx + dy * dy < kr * kr) {
         rs.keys.splice(i, 1);
         state.keysCollected++;
       }
