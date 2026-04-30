@@ -162,15 +162,108 @@ Built ✓:
   hold-to-cook), positioned inside the aim-zone right next to the
   aim stick. FIRE button removed on touch entirely. 15ms haptic at
   the threshold cross + colored dot at the player's gun barrel
-  (amber → red, or green in grenade mode). **Status: getting closer
-  but not done.** See "Specific things he's asked for" below.
+  (amber → red, or green in grenade mode).
+- **Phase 12.5:** On-screen pause button in the topbar (Esc/P/Start
+  also still work — `syncTouchUi()` polls `state.paused` each frame
+  to keep the glyph in sync regardless of input source). Plus
+  aim-stick anchor-on-touch — touchdown point becomes the stick's
+  origin so first contact reads (0,0) and never accidentally
+  snap-fires when the thumb lands off-center. Move stick keeps
+  base-center origin (it's not a fire trigger).
+- **Phase 12.6:** Ammo budget bumped — start 25→45, max 45→80,
+  pickup 15→25. Touch aim was making shootouts unwinnable.
+  Stealth pressure stays intact via alertness on fire.
+- **Phase 12.7:** Single-key diagonals on keyboard — Q=NW, E=NE,
+  Z=SW, C=SE. Combos like W+D still work; magnitude clamped in
+  `getMoveVector()` so combo keys don't double-speed.
+- **Phase 12.8:** Mouse aim + LMB autofire on desktop. Cursor on
+  canvas = gun direction; LMB held = continuous fire (matches
+  touch hold-to-fire). Coordinates converted via
+  `canvas.getBoundingClientRect()` so it stays correct across
+  resizes. RMB context menu disabled on canvas. Cursor set to
+  `crosshair`. (Later partially reverted in 12.17 — see below.)
+- **Phase 12.9:** Slow body turn experiment for mouse aim. Reverted
+  by 12.10 — body still ended at cursor, just delayed. Wrong fix.
+- **Phase 12.10:** **Body fully decoupled from aim.** `p.dir` =
+  body facing (movement-driven, last-faced when idle). `p.aimDir` =
+  aim direction (driven by gamepad RS / touch aim / mouse / movement
+  fallback). Bullets and grenades shoot from `p.aimDir`; sprite
+  renders at `p.dir`. Added `drawAimLine()` — thin dotted cyan line
+  from player toward `p.aimDir` with a small reticle dot at the end,
+  hidden on touch (fire-ready dot already cues there) and in grenade
+  mode (impact reticle is more informative).
+- **Phase 12.11:** (later trimmed in 12.12) Razer Naga side-mouse
+  buttons + Digit1-Equal as fire alternates.
+- **Phase 12.12:** Trimmed 12.11. Now: `Digit1` = fire (alongside
+  Space + LMB at the time), `Digit3` = grenade-mode toggle (mirrors
+  G). Other Naga digits unbound — open for future actions.
+- **Phase 12.13:** Searchable corpses (Castle Wolfenstein homage).
+  New `rs.corpses[]` per room. On guard death, push corpse with
+  pre-rolled loot (4-8 ammo + ~18% chance of a grenade). Walk
+  within `SEARCH_R` and press Space → loot transfers to player,
+  corpse marked looted. Rendered under live elements.
+- **Phase 12.13.1:** Hotfix — `SEARCH_R = PLAYER_R + GUARD_R + 6`
+  threw a TDZ ReferenceError because `GUARD_R` is declared later
+  in the file. Inlined the value (30, then 50 in 12.17). See
+  Lessons Learned.
+- **Phase 12.14:** Corpse polish. (a) Fix Space-fire bug — the
+  consumed flag now latches across frames until Space is released,
+  so a held Space after search doesn't sneak a burst out next
+  frame. (b) Loot flash duration 30→120 frames with a fade. (c)
+  Blood-pool oval offset slightly toward facing direction with
+  per-corpse size wobble.
+- **Phase 12.15:** `assets/bodyblood.png` decal under each corpse
+  (custom art Mike made in Photoshop, 64×64). Wired through the
+  IMG/imgReady pipeline so missing/slow asset falls back to the
+  procedural oval. **Process gotcha**: code commit and asset commit
+  pushed separately diverged on the feature branch — landed as a
+  merge commit instead of fast-forward. Next time, rebase the
+  feature branch on main before pushing code that depends on a
+  separate asset.
+- **Phase 12.16:** Dropped the pulsing yellow "search me" ring on
+  unlooted corpses. Random rotation + scale (0.85-1.2x) per blood
+  splat, stored at death so a row of bodies doesn't read as cloned.
+  Body sprite alpha bumped slightly (no ring competing).
+- **Phase 12.17:** Three things in one ship.
+  - `SEARCH_R` 30→50 — anywhere on the visible blood splat
+    triggers Space-search.
+  - **Single fire input on keyboard/mouse**: only `Digit1`
+    (Razer Naga btn 1). Space and LMB dropped from fire — Space
+    is search-only now (kills the search/fire conflict entirely),
+    mouse is aim-only. Held Digit1 autofires (continuous mode) to
+    match the old held-LMB feel. Gamepad and touch unchanged.
+  - **Health backpack**: vials no longer auto-heal on walk-over.
+    They go into `p.inv.health` (cap `HEALTH_INV_MAX = 5`); press
+    `H` to consume one and +1 HP. Inventory persists across levels
+    via `carryPlayer.inv`. HUD shows `+ N [H]` next to the hearts
+    when carrying any.
 
 Up next:
 
-- **Phase 12 polish:** Touch UX iteration. Mike's last word on 12.4
-  was "getting closer" and "lets call it." `navigator.vibrate(15)`
-  did NOT fire on his Android tablet — debug first thing next
-  session (see Open issues). Probably more aim-stick tuning to come.
+- **Phase 12.18 (settings UI):** Mike asked for it explicitly in
+  the 12.17 session: "i'd also like to be able to change up my
+  forward angle and strife keys" + "did we put in control settings
+  yet". MVP scope: gear icon in topbar → modal listing actions
+  (forward/back/left/right + 4 diagonals, fire, search, grenade
+  toggle, heal, pause) and current bindings. Click an action →
+  capture next keypress → save. Persist to localStorage. Reset to
+  defaults button. Then refactor every hard-coded
+  `keys['KeyW']` / `keys['Digit1']` into a binding lookup.
+  Significant change — touches every input handler.
+- **Phase 12.19+ (more backpack):** Speed-boost pickup is still
+  auto-applied on walk-over (12.17 only converted health). If
+  Mike wants symmetric behavior, move it to inventory + a use key
+  (V?). Mike's exact words were "pick up all items and put them
+  in our back-pack" — health was the main complaint, but he might
+  want speed too once he sees how health feels.
+- **Touch UX iteration:** Mike's last word on 12.4 was "getting
+  closer." Session 2026-04-30 shifted entirely to desktop +
+  keyboard + mouse + Naga, so touch tuning didn't get attention.
+  Pick back up if/when Mike returns to tablet play.
+- **Vibrate-on-android:** Still untested. `navigator.vibrate(15)`
+  did NOT fire on Mike's Samsung tablet in 12.4. Debug list in
+  Open Issues below — try first thing whenever touch-mode
+  development resumes.
 - **Phase 13:** Speed-run bonus rounds every N levels.
 - **Phase 14:** Rename. Either rename `bunker.html` →
   `escape.html` (and update home page card) or keep filename and
@@ -179,18 +272,29 @@ Up next:
   prep. Mobile build may opt into a richer sprite set (more tiles,
   character poses) — decision for later.
 
-## bunker.html architecture (current — Phase 12.4)
+## bunker.html architecture (current — Phase 12.17)
 
-Single file, ~3700 lines. `grep -n "function draw\|// =====" games/bunker.html`
+Single file, ~4200 lines. `grep -n "function draw\|// =====" games/bunker.html`
 is the fastest way to navigate. Key sections by header comment:
 
-- **HTML/CSS** (lines 1–230): topbar, canvas, two virtual thumbsticks
-  (move + aim), NADE button overlay inside aim-zone. Topbar shows
-  `PHASE N.M` indicator from `BUILD_LABEL` constant — single source.
+- **HTML/CSS** (lines 1–260): topbar (with on-screen pause button —
+  12.5), canvas, two virtual thumbsticks (move + aim), NADE button
+  overlay inside aim-zone. Topbar shows `PHASE N.M` indicator from
+  `BUILD_LABEL` constant — single source. Canvas has
+  `cursor: crosshair` (12.8).
 - **Input merge:** keyboard, two touch thumbsticks (`touch` + `touchAim`),
-  Gamepad API → unified vector. `getMoveVector()` produces normalized (vx, vy).
-  `setTouchMode(on)` (12.1) is the single toggle for canvas resize +
-  `body.gamepad-active`. Most-recent-input wins.
+  Gamepad API, **mouse** (`mouse.x/y/active/fire`, 12.8) → unified
+  aim direction `p.aimDir`. Body direction `p.dir` is movement-driven
+  only (12.10 decoupling). `getMoveVector()` produces normalized
+  (vx, vy). `setTouchMode(on)` (12.1) is the single toggle for canvas
+  resize + `body.gamepad-active`. Most-recent-input wins.
+  - Fire on keyboard/mouse: **Digit1 only** (12.17). Held = autofire.
+    Space is search-only. LMB is aim-only.
+  - Search: Space (12.13). Edge-triggered, finds nearest unlooted
+    corpse within `SEARCH_R = 50`, transfers loot.
+  - Heal: H (12.17). Edge-triggered. Consumes one `p.inv.health`
+    charge, +1 HP.
+  - Grenade-mode toggle: G or Digit3 (Naga btn 3, 12.12).
 - **Adaptive Director (12.0):** Module-level `directorState` recomputed
   in `buildStateFor()` from `currentSkillScore()` (avg of last
   `SKILL_HISTORY_N` completed-level scores from `localStorage`).
@@ -211,24 +315,32 @@ is the fastest way to navigate. Key sections by header comment:
   → search → investigate. Grenade dodge behavior added in 11.7.
   Room-bound (no cross-room logic needed).
 - **State:** `state.player`, `state.levelIndex`, `state.currentRoomId`,
-  `state.rooms[id].{guards,bullets,grenades,keys,pickups,explosions}`,
-  alertness, timer, transition, gameover.
+  `state.rooms[id].{guards,bullets,grenades,keys,pickups,explosions,corpses}`,
+  alertness, timer, transition, gameover. **Player has `dir` (body)
+  and `aimDir` (aim) now (12.10).** Player carries `inv` (12.17 —
+  health charges in the backpack, persists across levels).
+- **Corpses (12.13):** `rs.corpses[]` per room. Pre-rolled loot
+  (`{ammo, grenade, looted, lootFlash, bloodRot, bloodScale}`).
+  Drawn under live elements via `drawCorpses()`.
 - **`update()`**: freezes during gameover/transition. Handles movement,
   firing (bullets or grenade cook/throw), bullet/grenade physics, guards,
-  pickups, damage, doorway transitions. Touch firing (12.4): `touchAimMag`
-  >= `AIM_FIRE_THRESHOLD` (0.7) drives both gun-mode autofire and
-  grenade cook. NADE tap is a mode-toggle.
-- **Draw:** `drawFloor()` (floor + walls + doorway tints + exit door),
-  `drawGuards()` (cones + bodies + state icons), `drawPlayer()`,
-  `drawFireReadyDot()` (12.4: gun-tip color cue for touch), `drawBullets()`,
-  `drawGrenades()`, `drawKeys()`, `drawPickups()`, `drawHUD()`, `drawMinimap()`,
+  pickups, damage, doorway transitions, **search (Space) and heal (H)**.
+  Touch firing (12.4): `touchAimMag >= AIM_FIRE_THRESHOLD` (0.7) drives
+  gun-mode autofire and grenade cook. Mouse fire path was removed in
+  12.17 — fire on desktop = `keys['Digit1']`.
+- **Draw:** `drawFloor()`, `drawCorpses()` (12.13, under live elements),
+  `drawKeys()`, `drawPickups()`, `drawGuards()`, `drawBullets()`,
+  `drawGrenades()`, `drawGrenadeAim()`, `drawAimLine()` (12.10 — desktop
+  aim cue), `drawPlayer()`, `drawFireReadyDot()` (12.4 — touch only),
+  `drawCookTimer()`, `drawExplosions()`, `drawHUD()`, `drawMinimap()`,
   overlays (gameover, level complete, times up, transition).
 
 **Sprite system (art pass):** Near the top of the DRAW section, a small
 `IMG` object + `loadImg()`/`imgReady()`/`drawChar()` preload and render
 Kenney sprites. Every sprite-using draw call is gated on `imgReady(key)`
 and falls back to the original procedural render — so a missing or
-slow-loading image never blocks gameplay.
+slow-loading image never blocks gameplay. 12.15 added `corpsePool`
+keyed to `assets/bodyblood.png` (Mike's custom blood splat).
 
 When adding new room-scoped state (new pickup type, etc.), put it in
 `LEVELs[id].rooms[id]` (definition) AND in `state.rooms[id]` (runtime).
@@ -315,6 +427,29 @@ awk '/<script>/,/<\/script>/' games/bunker.html | grep -v '^<script>\|^</script>
    we pushed the art pass to handoff then tried to merge → conflict.
    Fix was a cherry-pick onto main. See Workflow section above for
    the check to do before editing.
+8. **Don't write `const X = Y + Z` at module top if Y or Z is
+   declared further down.** TDZ — `const`/`let` are hoisted but
+   their values aren't. The reference throws a ReferenceError at
+   parse-evaluate time and halts the entire script → blank screen.
+   Bit me in 12.13 (`SEARCH_R = PLAYER_R + GUARD_R + 6`; GUARD_R
+   declared a thousand lines later). `node --check` catches grammar
+   but not runtime TDZ, so syntax-pass means nothing here. Fix:
+   inline the literal, or move the declaration after its dependencies.
+9. **When a code commit depends on Mike's separate asset commit,
+   rebase or wait for the asset before pushing.** 12.15 had me
+   wire `bodyblood.png` and push the code; meanwhile Mike pushed
+   the asset to main. Histories diverged → ended up as a merge
+   commit instead of fast-forward. Either: wait for the asset to
+   land before pushing the code (and rebase if main moved), or
+   coordinate so both go in the same push.
+10. **When user says "I have N ways to fire" they mean drop the
+    extras.** Don't preserve "all known fire inputs" out of
+    over-cautious convenience. 12.11 bound Digit1-Equal as fire
+    "covering all the Naga keys"; 12.12 trimmed to Digit1+Digit3;
+    12.17 trimmed to Digit1 only when Mike said "i should only
+    have 1." Picking ONE is almost always what the user wants;
+    map other physical buttons to that one keybind via the
+    settings UI (or, today, via Razer Synapse).
 
 ## Scope guidance
 
@@ -332,6 +467,18 @@ What to actually hold the line on:
 
 **Active (next session):**
 
+- **Settings UI for key remap.** Mike's explicit ask: "i'd also
+  like to be able to change up my forward angle and strife keys"
+  + "did we put in control settings yet". MVP scope in "Up next"
+  → Phase 12.18 above. Significant change — touches every input
+  handler that currently reads `keys['KeyW']` etc. Worth doing
+  before adding more actions because every new keybind compounds
+  the migration cost.
+- **Speed-boost pickup is still auto-applied on walk-over.** 12.17
+  converted health to inventory but skipped speed. Mike said "pick
+  up all items and put them in our back-pack" — speed is the
+  obvious follow-up. Suggest V or some other unused key to consume
+  one charge.
 - **Haptic vibrate didn't fire on Mike's Android tablet (12.4).** Code
   is `if (touchAimFire && !lastTouchAimFire && navigator.vibrate) navigator.vibrate(15)`.
   Possible causes to check:
@@ -344,7 +491,9 @@ What to actually hold the line on:
   - Console-log inside the threshold-cross block to confirm the call
     is even reached, then add a diag overlay if it is
 - **Touch UX still iterating.** 12.4 was "getting closer" not "done."
-  Watch what specifically still feels awkward when Mike comes back.
+  The 2026-04-30 session was almost entirely desktop/keyboard/mouse
+  + Naga focus, so touch tuning didn't get attention. Pick back up
+  if/when Mike returns to tablet play.
 
 **Backlog (long-running):**
 
@@ -359,6 +508,9 @@ What to actually hold the line on:
   (we ran `git merge --abort` mid-session 2026-04-26 to clear it).
   Either delete it (`git push origin --delete claude/arcade-reactor-handoff-mwRLq`)
   or fast-forward it to main. Mike's call.
+- The `claude/pause-button-stick-input-gcQw2` feature branch from
+  the 2026-04-30 session is at parity with main — safe to delete
+  whenever convenient.
 - Rename `bunker.html` → `escape.html` (Phase 14)
 
 ## Session end log
@@ -387,3 +539,37 @@ incrementally with `git merge --ff-only`.
   That branch is still on its old commit on the remote.
 - Mike's last word: "we are getting closer. there was no vibrate."
   Vibration debug + further touch tuning is the first task next time.
+
+**2026-04-30 (Phases 12.5 → 12.17):** Long session, all
+desktop/keyboard/mouse focused. Mike played from his Windows
+PC with a Razer Naga. Branch:
+`claude/pause-button-stick-input-gcQw2`. Most phases ff-merged
+to main; 12.15 ended up as a merge commit due to asset/code split
+push (see Lesson #9). All shipped commits:
+- `9b4dfda` — 12.5: on-screen pause button + aim-stick anchor-on-touch
+- `ce1203f` — 12.6: ammo budget bump (45/80/25)
+- `9042dae` — 12.7: Q/E/Z/C single-key diagonals
+- `15518ce` — 12.8: mouse aim + LMB autofire
+- `842f64b` — 12.9: slow body turn (reverted in 12.10)
+- `ce6f6a7` — 12.10: decouple body from aim + aim line
+- `4d98a6b` — 12.11: Naga / side-mouse fire bindings
+- `d5e1440` — 12.12: trim to Digit1=fire, Digit3=grenade
+- `12ca32c` — 12.13: searchable corpses (ammo + grenade loot)
+- `52f2e54` — 12.13.1: hotfix SEARCH_R TDZ blank screen
+- `35a0a99` — 12.14: Space-fire latch fix + longer flash + blood pool
+- `aa4632e` — 12.15 merge: bodyblood.png decal (Mike's PS asset)
+- `308e485` — 12.16: drop search ring + randomize blood splat
+- `9c4b385` — 12.17: SEARCH_R 50, single-fire (Digit1 only),
+  health backpack + H-to-heal
+
+Big arc of the session: rebuilding the desktop input model from
+scratch after Mike pointed out keyboard had no way to aim
+independent of movement. Tried mouse-aim (12.8) → tried slow
+body turn for "realism" (12.9) → realized that wasn't right →
+fully decoupled body from aim with separate `p.aimDir` (12.10).
+Then built corpse-loot system (12.13-12.16) hitting on Castle
+Wolfenstein. Then trimmed fire inputs from 3 to 1 + introduced
+backpack inventory (12.17).
+
+End of session: settings UI for key remap is the explicit next
+ask. Mike paused to start a new chat after CLAUDE.md update.
