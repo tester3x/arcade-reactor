@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.16';
+const BUILD_LABEL = '12.17';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -871,7 +871,8 @@ const TIMER_FLASH_FRAMES    = 10  * 60;   // flash under 10s
 const PLAYER_AMMO_START   = 45;    // starting rounds
 const PLAYER_AMMO_MAX     = 80;    // cap when picking up ammo
 const AMMO_PICKUP_AMOUNT  = 25;    // rounds per ammo pickup
-const HEALTH_PICKUP_HEAL  = 1;     // HP per health pickup (capped at PLAYER_HP_MAX)
+const HEALTH_PICKUP_HEAL  = 1;     // HP per consumed inventory charge
+const HEALTH_INV_MAX      = 5;     // 12.17: max health charges carriable in the backpack
 const SPEED_BOOST_MULT    = 1.5;   // movement multiplier while active
 const SPEED_BOOST_DURATION = 300;  // frames the boost lasts (~5s)
 const PICKUP_R            = 14;    // pickup radius, same feel as keys
@@ -881,7 +882,7 @@ const PICKUP_R            = 14;    // pickup radius, same feel as keys
 // search → ammo and occasional grenades transfer to the player.
 // Bodies stay through the level so you can backtrack and loot
 // later. Cleared on level transition (corpses are room-scoped).
-const SEARCH_R            = 30;    // PLAYER_R + GUARD_R + 6 — generous so you don't have to be exactly on top
+const SEARCH_R            = 50;    // 12.17: bumped 30→50 so anywhere on the visible splat triggers search
 const CORPSE_AMMO_MIN     = 4;
 const CORPSE_AMMO_MAX     = 8;
 const CORPSE_GRENADE_PROB = 0.18;   // ~1 in 6 guards drops a grenade
@@ -2096,13 +2097,16 @@ function buildStateFor(levelIndex, carryPlayer) {
       burstStep:       0,
       lastFirePressed: false,
       lastNadePressed: false,
-      // 12.13: edge-detect Space for corpse search (one search per press).
+      // 12.13: edge-detect Space for corpse search.
       lastSpaceDown:   false,
-      // 12.14: latches true when a Space press is consumed by a
-      // search; resets on Space release. Without this, the next
-      // frame's still-held Space re-arms fireEdge and sneaks one
-      // burst out the moment after looting.
-      spaceConsumed:   false,
+      // 12.17: edge-detect H for use-health-from-inventory.
+      lastUseHealthDown: false,
+      // 12.17: backpack/inventory. Health pickups go here instead of
+      // auto-healing on walk-over; press H to consume one charge
+      // and heal +1 HP. Carries between levels like ammo/grenades.
+      inv: carryPlayer && carryPlayer.inv
+            ? { health: carryPlayer.inv.health }
+            : { health: 0 },
       ammo:     carryPlayer ? carryPlayer.ammo     : PLAYER_AMMO_START,
       // Grenades (11.2): inventory carries between levels like ammo.
       // weaponMode flips to 'grenade' on B; throwing reverts to 'gun'.
@@ -2167,7 +2171,8 @@ function advanceLevel() {
   const carry = {
     hp:       state.player.hp,
     ammo:     state.player.ammo,
-    grenades: state.player.grenades
+    grenades: state.player.grenades,
+    inv:      state.player.inv     // 12.17: backpack persists across levels
   };
   state = buildStateFor(state.levelIndex + 1, carry);
 }
@@ -2537,8 +2542,11 @@ function update() {
       if (ddx * ddx + ddy * ddy < PICKUP_R * PICKUP_R) {
         let consume = false;
         if (pk.type === 'health') {
-          if (p.hp < PLAYER_HP_MAX) {
-            p.hp = Math.min(PLAYER_HP_MAX, p.hp + HEALTH_PICKUP_HEAL);
+          // 12.17: into the backpack. Consumed on H press, not on
+          // walk-over. Cap inventory at HEALTH_INV_MAX so a level
+          // packed with vials doesn't break balance.
+          if (p.inv.health < HEALTH_INV_MAX) {
+            p.inv.health++;
             consume = true;
           }
         } else if (pk.type === 'ammo') {
@@ -2660,17 +2668,25 @@ function update() {
   }
   p.lastNadePressed = touch.nade;
 
-  // 12.13: Space-to-search corpses (Castle Wolfenstein). On the rising
-  // edge of Space, if any unlooted corpse is within SEARCH_R, loot
-  // the closest one and *consume* the press so the gun doesn't fire
-  // this frame. Other fire keys (Digit1, mouse, gamepad) still fire
-  // normally even while standing on a corpse.
-  // 12.14: spaceConsumed latches across frames until Space is
-  // released so a held Space after a search doesn't immediately
-  // re-fire (was firing one burst the frame after looting).
+  // 12.17: H consumes one health charge from the backpack. Edge-
+  // triggered so a held key doesn't drain the whole stack. Skipped
+  // when paused or at full HP (no waste).
+  const useHealthDown = !!keys['KeyH'];
+  if (useHealthDown && !p.lastUseHealthDown && !state.paused
+      && p.inv.health > 0 && p.hp < PLAYER_HP_MAX) {
+    p.inv.health--;
+    p.hp = Math.min(PLAYER_HP_MAX, p.hp + HEALTH_PICKUP_HEAL);
+  }
+  p.lastUseHealthDown = useHealthDown;
+
+  // 12.17: Space is now search-only — no longer a fire input. Drops
+  // the Space/fire conflict from 12.13-12.14 entirely. Fire is
+  // Razer Naga btn 1 (Digit1) on keyboard, gamepad A, or touch
+  // aim threshold. LMB is no longer a fire trigger — keep mouse
+  // for aim only (one fire input on the keyboard/mouse, as Mike
+  // requested 12.17).
   const spaceDown = !!keys['Space'];
   const spaceRise = spaceDown && !p.lastSpaceDown;
-  if (!spaceDown) p.spaceConsumed = false;
   p.lastSpaceDown = spaceDown;
   if (spaceRise && !state.paused) {
     const rs2 = currentRoomState();
@@ -2689,24 +2705,24 @@ function update() {
         p.grenades = Math.min(GRENADE_MAX, p.grenades + 1);
       }
       closest.looted    = true;
-      closest.lootFlash = 120;   // ~2s visual confirmation (12.14: was 30)
-      p.spaceConsumed   = true;
+      closest.lootFlash = 120;
     }
   }
 
-  // 12.12: keyboard fire = Space or Digit1 (Razer Naga thumb btn 1
-  // in default profile). Other Naga digits are free for other
-  // actions: Digit3 = grenade-mode toggle (mirrors G). Edge-trigger
-  // means a held key gives one burst per press, not a torrent.
-  const fireKeyDown = (spaceDown && !p.spaceConsumed) || keys['Digit1'];
-  const firePressed = fireKeyDown || pad.fire || touchAimFire || mouse.fire;
+  // 12.17: fire = Digit1 (Naga btn 1) + gamepad A + touch aim.
+  // LMB is dropped — mouse is aim-only on the keyboard/mouse setup.
+  // Held Digit1 autofires (continuous mode) so the trigger feels
+  // the same as the old held-LMB did.
+  const fireKeyDown = !!keys['Digit1'];
+  const firePressed = fireKeyDown || pad.fire || touchAimFire;
   const fireEdge    = firePressed && !p.lastFirePressed;
   p.lastFirePressed = firePressed;
 
-  // Touch's hard-push and mouse LMB are level-triggered (auto-burst
-  // at cooldown rate while held). Keyboard Space and gamepad A stay
-  // edge-triggered (one burst per press).
-  const continuousFire = (touchAimFire || mouse.fire) && p.weaponMode === 'gun';
+  // Touch's hard-push and held Digit1 are level-triggered
+  // (auto-burst at cooldown rate while held), so the trigger feels
+  // continuous. Gamepad A stays edge-triggered (one burst per
+  // press) since gamepad players generally pump it.
+  const continuousFire = (touchAimFire || fireKeyDown) && p.weaponMode === 'gun';
   const gunStartFire   = continuousFire ? firePressed : fireEdge;
 
   if (p.shootCooldown > 0) p.shootCooldown--;
@@ -3695,7 +3711,7 @@ function drawHUD() {
   } else if (touchMode) {
     ctx.fillText('STICK  MOVE  ·  FIRE  SHOOT', GW - 14, 22);
   } else {
-    ctx.fillText('WASD  MOVE  ·  SPACE  FIRE  ·  G  GRENADE', GW - 14, 22);
+    ctx.fillText('WASD  MOVE  ·  1  FIRE  ·  3  NADE  ·  H  HEAL  ·  SPACE  SEARCH', GW - 14, 22);
   }
 
   // HP indicator (bottom-left): "HP" label + actual heart shapes so
@@ -3752,6 +3768,16 @@ function drawHUD() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+  }
+
+  // 12.17: backpack health charges (bottom-left, just right of HP).
+  // Shown only when carrying any — quiet HUD when empty.
+  if (p.inv && p.inv.health > 0) {
+    ctx.font      = "bold 12px 'Courier New', monospace";
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fbbf24';
+    const hpRowEnd = heartStartX + (PLAYER_HP_MAX - 1) * heartGap + heartSize + 8;
+    ctx.fillText(`+ ${p.inv.health}  [H]`, hpRowEnd, hpLabelY);
   }
 
   // Key counter (bottom-left, above the HP hearts)
