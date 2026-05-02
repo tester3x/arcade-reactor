@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.19';
+const BUILD_LABEL = '12.20';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -835,6 +835,12 @@ const GUARD_HUNTER_PATROL_MULT  = 1.2;
 const GUARD_HUNTER_CHASE_MULT   = 1.3;
 const GUARD_HUNTER_ALERT_MULT   = 0.5;
 const ALERTNESS_ALARM_BONUS     = 35;             // extra alertness from an alarm-raiser spot (so total ≈ 50)
+
+// 12.20: bullet awareness. Player bullets that fly within this
+// radius of a (still-patrolling) guard alert that guard, treating
+// the player position as last-known. Covers both "near miss in
+// flight" and "bullet impact on wall nearby" — same check.
+const BULLET_AWARENESS_R = 60;
 
 // ── Global alertness — Phase 9 ───────────────────────────────────
 // Scalar 0..100 that rises when the player is loud/sloppy and
@@ -1980,6 +1986,19 @@ const GUARD_INVESTIGATE_MAX    = 1500;  // max frames between investigations (25
 const GUARD_INVESTIGATE_RANGE  = 400;   // max distance of chosen investigate spot (px)
 const GUARD_INVESTIGATE_LOOK   = 90;    // frames spent looking at the spot (~1.5s)
 
+// 12.20: bullet awareness. Snap a still-patrolling (or investigating)
+// guard to alert with the player as last-known position. No-op if
+// they're already in a combat phase — re-pinging would just reset
+// their alert timer.
+function alertGuardFromBullet(g) {
+  if (g.dead) return;
+  if (g.phase !== 'patrol' && g.phase !== 'investigate') return;
+  g.phase = 'alert';
+  g.phaseT = guardAlertTimeForType(g);
+  g.lastSeenX = state.player.x;
+  g.lastSeenY = state.player.y;
+}
+
 // Build guards for a specific room from its guardSpawns definition.
 // Spawn entries may include { type, facingDir }:
 //   type     - 'patrol' (default), 'sentry', 'hunter', 'alarm'
@@ -2823,6 +2842,16 @@ function update() {
     // Wall hit: mark for removal
     if (isWallAt(b.x, b.y)) b.dead = true;
     if (b.traveled > BULLET_RANGE) b.dead = true;
+    // 12.20: any guard within BULLET_AWARENESS_R of the bullet's
+    // current position alerts to the player. Runs every frame the
+    // bullet is alive, so this covers both fly-by near-misses and
+    // wall impacts (the bullet's last position is at the wall).
+    for (const g of rs.guards) {
+      const adx = g.x - b.x, ady = g.y - b.y;
+      if (adx * adx + ady * ady < BULLET_AWARENESS_R * BULLET_AWARENESS_R) {
+        alertGuardFromBullet(g);
+      }
+    }
     // Guard hit: find nearest guard within BULLET_R + GUARD_R
     for (const g of rs.guards) {
       const ddx = g.x - b.x, ddy = g.y - b.y;
