@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.20';
+const BUILD_LABEL = '12.21';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -841,6 +841,25 @@ const ALERTNESS_ALARM_BONUS     = 35;             // extra alertness from an ala
 // the player position as last-known. Covers both "near miss in
 // flight" and "bullet impact on wall nearby" — same check.
 const BULLET_AWARENESS_R = 60;
+
+// 12.21: guard return fire. Type unlock progression — earlier
+// levels have fewer types capable of firing. Indexed by
+// state.levelIndex; if levels exceed the array length, the last
+// row applies (full roster).
+const GUARD_FIRE_TYPES_BY_LEVEL = [
+  ['sentry'],
+  ['sentry', 'hunter'],
+  ['sentry', 'hunter', 'patrol', 'alarm'],
+];
+const GUARD_FIRE_INTERVAL = 72;                 // ~1.2s between shots
+const GUARD_BULLET_SPEED  = BULLET_SPEED * 0.7; // dodgeable
+const GUARD_BULLET_RANGE  = BULLET_RANGE;
+// Contact damage is 1 HP + a long knockback. Guard bullets match
+// the HP cost (anything less reads as harmless) but use a much
+// shorter knockback so getting caught in melee is still the worse
+// outcome positionally.
+const GUARD_BULLET_DAMAGE = 1;
+const GUARD_BULLET_KNOCKBACK = KNOCKBACK_DISTANCE * 0.4;
 
 // ── Global alertness — Phase 9 ───────────────────────────────────
 // Scalar 0..100 that rises when the player is loud/sloppy and
@@ -1757,6 +1776,10 @@ function nearbyGrenadeFor(g) {
 
 // Per-guard update: drive the state machine
 function updateGuard(g) {
+  // 12.21: tick fire cooldown every frame regardless of phase, so a
+  // guard that just lost LoS can't immediately pop off the moment
+  // they reacquire.
+  if (g.fireCooldown > 0) g.fireCooldown--;
   // 11.7: dodge first. Any guard that sees a grenade close enough
   // bolts directly away from it for this frame, skipping the rest
   // of the AI tick. Sentries get displaced from anchor and walk
@@ -1914,6 +1937,11 @@ function updateGuard(g) {
       g.lastSeenX = state.player.x;
       g.lastSeenY = state.player.y;
       g.stuckT = 0;   // seeing the player resets stuck counter
+      // 12.21: return fire. LoS is implicit in canSee (cone + segment
+      // clear). Type-gated by level so early levels stay easier.
+      if (g.fireCooldown <= 0 && guardCanFireThisLevel(g)) {
+        guardFireAtPlayer(g);
+      }
     }
     // Record pre-move position so we can detect "pushing against a wall"
     const preX = g.x, preY = g.y;
@@ -1999,6 +2027,29 @@ function alertGuardFromBullet(g) {
   g.lastSeenY = state.player.y;
 }
 
+// 12.21: which guard types are allowed to return fire on this
+// level. Falls back to the last row if the player makes it past
+// the configured progression.
+function guardCanFireThisLevel(g) {
+  const idx = Math.min(state.levelIndex, GUARD_FIRE_TYPES_BY_LEVEL.length - 1);
+  return GUARD_FIRE_TYPES_BY_LEVEL[idx].includes(g.type || 'patrol');
+}
+
+// 12.21: fire a bullet from the guard toward the player.
+function guardFireAtPlayer(g) {
+  const ang = Math.atan2(state.player.y - g.y, state.player.x - g.x);
+  const bx  = g.x + Math.cos(ang) * (GUARD_R + 4);
+  const by  = g.y + Math.sin(ang) * (GUARD_R + 4);
+  currentRoomState().bullets.push({
+    x: bx, y: by,
+    vx: Math.cos(ang) * GUARD_BULLET_SPEED,
+    vy: Math.sin(ang) * GUARD_BULLET_SPEED,
+    traveled: 0,
+    owner: 'guard',
+  });
+  g.fireCooldown = GUARD_FIRE_INTERVAL;
+}
+
 // Build guards for a specific room from its guardSpawns definition.
 // Spawn entries may include { type, facingDir }:
 //   type     - 'patrol' (default), 'sentry', 'hunter', 'alarm'
@@ -2036,7 +2087,11 @@ function makeGuardsForRoom(roomDef) {
       wanderTimer: 300 + Math.floor(Math.random() * 600),
       investigateTimer: GUARD_INVESTIGATE_MIN + Math.floor(Math.random() * (GUARD_INVESTIGATE_MAX - GUARD_INVESTIGATE_MIN)),
       investigateX: 0, investigateY: 0,
-      lastSeenX: 0, lastSeenY: 0
+      lastSeenX: 0, lastSeenY: 0,
+      // 12.21: per-guard fire timer. Stagger initial values so a
+      // wave of guards spotting you simultaneously doesn't fire in
+      // perfect lockstep.
+      fireCooldown: Math.floor(Math.random() * GUARD_FIRE_INTERVAL),
     };
   });
 }
@@ -2770,7 +2825,8 @@ function update() {
           x: bx, y: by,
           vx: Math.cos(p.aimDir) * BULLET_SPEED,
           vy: Math.sin(p.aimDir) * BULLET_SPEED,
-          traveled: 0
+          traveled: 0,
+          owner: 'player',
         });
         p.ammo--;
         addAlertness(ALERTNESS_ON_FIRE);
@@ -2834,32 +2890,56 @@ function update() {
   }
 
   // ── Bullets ───────────────────────────────────────────────────
+  // 12.21: bullets carry an `owner` field — 'player' (default) or
+  // 'guard'. Player bullets alert + damage guards; guard bullets
+  // damage the player and never friendly-fire other guards.
   const rs = currentRoomState();
   for (const b of rs.bullets) {
     b.x += b.vx;
     b.y += b.vy;
-    b.traveled += BULLET_SPEED;
-    // Wall hit: mark for removal
+    // Range counts actual distance so slower (guard) bullets aren't
+    // clipped early by the player-bullet speed assumption.
+    b.traveled += Math.hypot(b.vx, b.vy);
     if (isWallAt(b.x, b.y)) b.dead = true;
     if (b.traveled > BULLET_RANGE) b.dead = true;
-    // 12.20: any guard within BULLET_AWARENESS_R of the bullet's
-    // current position alerts to the player. Runs every frame the
-    // bullet is alive, so this covers both fly-by near-misses and
-    // wall impacts (the bullet's last position is at the wall).
-    for (const g of rs.guards) {
-      const adx = g.x - b.x, ady = g.y - b.y;
-      if (adx * adx + ady * ady < BULLET_AWARENESS_R * BULLET_AWARENESS_R) {
-        alertGuardFromBullet(g);
-      }
-    }
-    // Guard hit: find nearest guard within BULLET_R + GUARD_R
-    for (const g of rs.guards) {
-      const ddx = g.x - b.x, ddy = g.y - b.y;
-      if (ddx * ddx + ddy * ddy < (GUARD_R + BULLET_R) * (GUARD_R + BULLET_R)) {
-        g.dead = true;
+
+    if (b.owner === 'guard') {
+      // Guard bullet vs player
+      const pdx = state.player.x - b.x, pdy = state.player.y - b.y;
+      if (pdx * pdx + pdy * pdy < (PLAYER_R + BULLET_R) * (PLAYER_R + BULLET_R)) {
         b.dead = true;
-        addAlertness(ALERTNESS_ON_KILL);
-        break;
+        if (state.player.iframes === 0 && state.player.hp > 0) {
+          state.player.hp = Math.max(0, state.player.hp - GUARD_BULLET_DAMAGE);
+          state.player.iframes = PLAYER_IFRAMES;
+          recordHit();
+          if (state.player.hp <= 0) {
+            state.gameover = true;
+            state.gameoverT = 0;
+            recordDeath();
+          } else {
+            applyKnockback(state.player, b.x, b.y, GUARD_BULLET_KNOCKBACK);
+          }
+        }
+      }
+    } else {
+      // Player bullet (default)
+      // 12.20: any guard within BULLET_AWARENESS_R alerts. Runs every
+      // frame so this covers both fly-by misses and wall impacts.
+      for (const g of rs.guards) {
+        const adx = g.x - b.x, ady = g.y - b.y;
+        if (adx * adx + ady * ady < BULLET_AWARENESS_R * BULLET_AWARENESS_R) {
+          alertGuardFromBullet(g);
+        }
+      }
+      // Guard hit: kill on contact
+      for (const g of rs.guards) {
+        const ddx = g.x - b.x, ddy = g.y - b.y;
+        if (ddx * ddx + ddy * ddy < (GUARD_R + BULLET_R) * (GUARD_R + BULLET_R)) {
+          g.dead = true;
+          b.dead = true;
+          addAlertness(ALERTNESS_ON_KILL);
+          break;
+        }
       }
     }
   }
@@ -3537,9 +3617,9 @@ function drawFireReadyDot() {
 }
 
 function drawBullets() {
-  ctx.fillStyle = '#22d3ee';
   for (const b of currentRoomState().bullets) {
-    // Soft glow then bright core
+    // 12.21: red for guard return-fire, cyan for player.
+    ctx.fillStyle = b.owner === 'guard' ? '#ef4444' : '#22d3ee';
     ctx.globalAlpha = 0.35;
     ctx.beginPath();
     ctx.arc(b.x, b.y, BULLET_R * 2.2, 0, Math.PI * 2);
