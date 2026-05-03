@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.23';
+const BUILD_LABEL = '12.24';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2106,7 +2106,90 @@ function makeGuardsForRoom(roomDef) {
 //
 // Phase 11: takes a level def so we can build room state for any
 // level, not just the current one (needed when we advance).
+// 12.24: per-level pickup randomization. Replaces the old
+// authored pickupSpawns lists. Once generated at level start, the
+// placement is locked for the rest of the level — re-entering a
+// cleared room never respawns or relocates loot. Budget composes
+// to 12 total per level (matches prior density). Tweak weights
+// here, not in level data.
+const LEVEL_PICKUP_BUDGET = { health: 6, ammo: 3, speed: 1, grenade: 2 };
+const PICKUP_MIN_TILE_SPACING = 2;       // intra-room min tile distance between pickups
+const PICKUP_MIN_DIST_FROM_SPAWN = 3;    // tiles, start room only
+
+// Pick valid floor tiles for pickups across all rooms in the level
+// and assign types from the budget. Returns { roomId: [{x, y, type}] }.
+function generateLevelPickups(levelDef) {
+  const startId = levelDef.startRoomId;
+  const ps      = levelDef.rooms[startId].playerSpawn;
+
+  const candidatesByRoom = {};
+  const roomIds = [];
+  for (const id in levelDef.rooms) {
+    roomIds.push(id);
+    const def = levelDef.rooms[id];
+    const map = def.map;
+    const cands = [];
+    for (let y = 0; y < map.length; y++) {
+      for (let x = 0; x < map[y].length; x++) {
+        if (map[y][x] !== 0) continue;
+        if ((def.doorways    || []).some(d => d.x === x && d.y === y)) continue;
+        if ((def.keySpawns   || []).some(k => k.x === x && k.y === y)) continue;
+        if ((def.guardSpawns || []).some(g => g.x === x && g.y === y)) continue;
+        if (def.exit && def.exit.x === x && def.exit.y === y) continue;
+        if (id === startId) {
+          const dx = x - ps.x, dy = y - ps.y;
+          if (dx * dx + dy * dy < PICKUP_MIN_DIST_FROM_SPAWN * PICKUP_MIN_DIST_FROM_SPAWN) continue;
+        }
+        cands.push({ roomId: id, x, y });
+      }
+    }
+    candidatesByRoom[id] = cands;
+  }
+
+  // Flat shuffle of all candidates. Bigger rooms naturally have
+  // more candidates, so distribution skews proportional to floor area.
+  const all = [];
+  for (const id of roomIds) all.push(...candidatesByRoom[id]);
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+
+  // Type pool: one entry per pickup we want to place, then shuffle
+  // so we don't always hand out health-first.
+  const pool = [];
+  for (const t of Object.keys(LEVEL_PICKUP_BUDGET)) {
+    for (let i = 0; i < LEVEL_PICKUP_BUDGET[t]; i++) pool.push(t);
+  }
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  const picked = {};
+  for (const id of roomIds) picked[id] = [];
+  let typeIdx = 0;
+  for (const c of all) {
+    if (typeIdx >= pool.length) break;
+    const taken = picked[c.roomId];
+    let tooClose = false;
+    for (const t of taken) {
+      const dx = t.x - c.x, dy = t.y - c.y;
+      if (dx * dx + dy * dy < PICKUP_MIN_TILE_SPACING * PICKUP_MIN_TILE_SPACING) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    taken.push({ x: c.x, y: c.y, type: pool[typeIdx++] });
+  }
+  return picked;
+}
+
 function makeRoomsState(levelDef) {
+  // 12.24: roll random pickup placement once per level. Authored
+  // pickupSpawns lists in level data are no longer read.
+  const pickupsByRoom = generateLevelPickups(levelDef);
   const rooms = {};
   for (const id in levelDef.rooms) {
     const def = levelDef.rooms[id];
@@ -2122,10 +2205,10 @@ function makeRoomsState(levelDef) {
       // the level. Each carries random loot (ammo + maybe grenade)
       // until searched.
       corpses:    [],
-      // Keys and pickups are clones of the spawn lists so we can
-      // splice them out as collected without mutating definitions.
-      keys:    (def.keySpawns    || []).map(k => ({ x: k.x, y: k.y })),
-      pickups: (def.pickupSpawns || []).map(p => ({ x: p.x, y: p.y, type: p.type }))
+      // Keys cloned from the spawn list so we can splice them out
+      // as collected without mutating definitions.
+      keys:    (def.keySpawns || []).map(k => ({ x: k.x, y: k.y })),
+      pickups: pickupsByRoom[id] || []
     };
   }
   return rooms;
