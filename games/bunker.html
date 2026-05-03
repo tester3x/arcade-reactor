@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.25';
+const BUILD_LABEL = '13.0';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -1143,6 +1143,18 @@ const LEVEL_1 = {
         { x: 14, y: 11, type: 'health' },
         { x: 8,  y: 11, type: 'grenade' },   // 11.2: one grenade in mid-level
       ],
+      // 13.0: cracked wall on the west face of the central box.
+      // Nade it open to reach the bonus loot inside.
+      cracks: [
+        { x: 6, y: 5 },
+      ],
+      // 13.2: bonus loot inside the box. Unreachable until the
+      // crack is destroyed. Authored, not rolled into the random
+      // pickup pool.
+      bonusLoot: [
+        { x: 8, y: 5, type: 'health'  },
+        { x: 9, y: 6, type: 'grenade' },
+      ],
     },
     C: {
       name: 'East Block',
@@ -1308,6 +1320,15 @@ const LEVEL_2 = {
       pickupSpawns: [
         { x: 9,  y: 1,  type: 'ammo' },
         { x: 15, y: 1,  type: 'grenade' },   // 11.2: tucked corner pickup
+      ],
+      // 13.0: cracked wall on the south face of the central island.
+      cracks: [
+        { x: 8, y: 7 },
+      ],
+      // 13.2: bonus cache inside the island.
+      bonusLoot: [
+        { x: 8, y: 5, type: 'ammo'    },
+        { x: 9, y: 6, type: 'grenade' },
       ],
     },
     D: {
@@ -1572,13 +1593,36 @@ function doorwayAt(col, row) {
   return null;
 }
 
+// 13.0: cracked-wall lookup. Returns the crack def if (col, row)
+// is a cracked tile in the current room, else null. Cracks are
+// authored as wall tiles that can be destroyed by grenades.
+function crackAt(col, row) {
+  const room = currentRoom();
+  if (!room.cracks) return null;
+  for (const c of room.cracks) {
+    if (c.x === col && c.y === row) return c;
+  }
+  return null;
+}
+
+// 13.0: has the crack at (col, row) been blown open this run?
+// Reads from the runtime room state (state.rooms[id].cracksDestroyed).
+function isCrackDestroyed(col, row) {
+  const rs = (state && state.rooms) ? state.rooms[state.currentRoomId] : null;
+  if (!rs || !rs.cracksDestroyed) return false;
+  return rs.cracksDestroyed.has(col + ',' + row);
+}
+
 // Sample the map at a world pixel (x, y). Returns true if that
 // point is inside a wall tile. Out-of-bounds counts as wall.
 function isWallAt(x, y) {
   const col = Math.floor(x / TILE);
   const row = Math.floor(y / TILE);
   if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return true;
-  return currentRoom().map[row][col] === 1;
+  if (currentRoom().map[row][col] !== 1) return false;
+  // 13.0: a destroyed crack tile reads as floor.
+  if (isCrackDestroyed(col, row)) return false;
+  return true;
 }
 
 // Does a circle of radius r centered at (cx, cy) overlap any wall tile?
@@ -2233,6 +2277,12 @@ function makeRoomsState(levelDef) {
   const rooms = {};
   for (const id in levelDef.rooms) {
     const def = levelDef.rooms[id];
+    // 13.2: append authored bonusLoot to the random pickups. These
+    // sit in unreachable spots until the cracked wall is blown.
+    const pickups = (pickupsByRoom[id] || []).slice();
+    if (def.bonusLoot) {
+      for (const b of def.bonusLoot) pickups.push({ x: b.x, y: b.y, type: b.type });
+    }
     rooms[id] = {
       guards:  makeGuardsForRoom(def),
       bullets: [],
@@ -2248,7 +2298,10 @@ function makeRoomsState(levelDef) {
       // Keys cloned from the spawn list so we can splice them out
       // as collected without mutating definitions.
       keys:    (def.keySpawns || []).map(k => ({ x: k.x, y: k.y })),
-      pickups: pickupsByRoom[id] || []
+      pickups: pickups,
+      // 13.0: per-room destroyed-crack tracking. Set keys are
+      // "x,y" strings of tiles whose cracked wall has been blown.
+      cracksDestroyed: new Set(),
     };
   }
   return rooms;
@@ -2532,6 +2585,20 @@ function detonateGrenadeAt(x, y) {
     if (ddx * ddx + ddy * ddy < r2) {
       g.dead = true;
       addAlertness(ALERTNESS_ON_KILL);
+    }
+  }
+  // 13.0: blast destroys cracked walls within the radius. Tile
+  // center vs blast center — close enough at this scale.
+  const room = currentRoom();
+  if (room.cracks) {
+    for (const c of room.cracks) {
+      if (rs.cracksDestroyed.has(c.x + ',' + c.y)) continue;
+      const cx = c.x * TILE + TILE / 2;
+      const cy = c.y * TILE + TILE / 2;
+      const ddx = cx - x, ddy = cy - y;
+      if (ddx * ddx + ddy * ddy < r2) {
+        rs.cracksDestroyed.add(c.x + ',' + c.y);
+      }
     }
   }
   // Self-damage: standing in your own blast costs HP and gets you
@@ -3267,29 +3334,54 @@ function drawWalls() {
   const wallReady = imgReady('wall');
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
-      if (map[row][col] === 1) {
-        const x = col * TILE, y = row * TILE;
-        if (wallReady) {
-          // Opaque backing first — the Kenney wall sprite has slightly
-          // soft/transparent edges, and 12.18.2 also moves walls above
-          // all entities. Without this, blood pools and guard sprite
-          // halos that overhang from neighboring floor tiles bleed
-          // through the wall and read as "on top of the wall".
-          ctx.fillStyle = '#1a1f26';
-          ctx.fillRect(x, y, TILE, TILE);
-          ctx.drawImage(IMG.wall, x, y, TILE, TILE);
-        } else {
-          ctx.fillStyle = '#242a33';
-          ctx.fillRect(x, y, TILE, TILE);
-          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
-          // Top edge highlight — procedural-only extrusion cue
-          if (row > 0 && map[row - 1][col] === 0) {
-            ctx.fillStyle = 'rgba(34,211,238,0.18)';
-            ctx.fillRect(x, y, TILE, 2);
-          }
+      if (map[row][col] !== 1) continue;
+      // 13.0: skip rendering destroyed cracked walls — they read as
+      // floor now, and the floor pass already painted underneath.
+      if (isCrackDestroyed(col, row)) continue;
+      const x = col * TILE, y = row * TILE;
+      if (wallReady) {
+        // Opaque backing first — the Kenney wall sprite has slightly
+        // soft/transparent edges, and 12.18.2 also moves walls above
+        // all entities. Without this, blood pools and guard sprite
+        // halos that overhang from neighboring floor tiles bleed
+        // through the wall and read as "on top of the wall".
+        ctx.fillStyle = '#1a1f26';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.drawImage(IMG.wall, x, y, TILE, TILE);
+      } else {
+        ctx.fillStyle = '#242a33';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
+        // Top edge highlight — procedural-only extrusion cue
+        if (row > 0 && map[row - 1][col] === 0) {
+          ctx.fillStyle = 'rgba(34,211,238,0.18)';
+          ctx.fillRect(x, y, TILE, 2);
         }
+      }
+      // 13.0: cracked-wall hint overlay. Three jagged lines and a
+      // soft amber tint so the player can see "this one's breakable"
+      // without it screaming. Only intact cracks render; destroyed
+      // ones were skipped above.
+      if (crackAt(col, row)) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = 'rgba(245,158,11,0.18)';
+        ctx.fillRect(0, 0, TILE, TILE);
+        ctx.strokeStyle = 'rgba(20,20,20,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(8,         12);
+        ctx.lineTo(TILE * 0.45, 22);
+        ctx.lineTo(TILE * 0.35, 32);
+        ctx.lineTo(TILE - 10,   TILE - 8);
+        ctx.moveTo(TILE * 0.45, 22);
+        ctx.lineTo(TILE - 12,   18);
+        ctx.moveTo(TILE * 0.35, 32);
+        ctx.lineTo(10,          TILE - 10);
+        ctx.stroke();
+        ctx.restore();
       }
     }
   }
