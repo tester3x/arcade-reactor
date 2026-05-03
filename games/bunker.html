@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.22';
+const BUILD_LABEL = '12.23';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -846,12 +846,15 @@ const BULLET_AWARENESS_R = 60;
 // levels have fewer types capable of firing. Indexed by
 // state.levelIndex; if levels exceed the array length, the last
 // row applies (full roster).
+// 12.23: rotated the progression up one slot (L1 = sentry+hunter,
+// L2 = +patrol) and tightened the fire rate so it actually feels
+// like a firefight. Tune further if still too tame.
 const GUARD_FIRE_TYPES_BY_LEVEL = [
-  ['sentry'],
   ['sentry', 'hunter'],
+  ['sentry', 'hunter', 'patrol'],
   ['sentry', 'hunter', 'patrol', 'alarm'],
 ];
-const GUARD_FIRE_INTERVAL = 72;                 // ~1.2s between shots
+const GUARD_FIRE_INTERVAL = 45;                 // ~0.75s between shots (was 72)
 const GUARD_BULLET_SPEED  = BULLET_SPEED * 0.7; // dodgeable
 const GUARD_BULLET_RANGE  = BULLET_RANGE;
 // Contact damage is 1 HP + a long knockback. Guard bullets match
