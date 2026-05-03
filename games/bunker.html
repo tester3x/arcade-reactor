@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.24';
+const BUILD_LABEL = '12.25';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -2116,6 +2116,38 @@ const LEVEL_PICKUP_BUDGET = { health: 6, ammo: 3, speed: 1, grenade: 2 };
 const PICKUP_MIN_TILE_SPACING = 2;       // intra-room min tile distance between pickups
 const PICKUP_MIN_DIST_FROM_SPAWN = 3;    // tiles, start room only
 
+// 12.25: BFS through floor tiles from a set of seed tiles. Returns
+// a Set of "x,y" keys for every reachable floor tile. Used to keep
+// pickups out of walled-off pockets where the player can't get to
+// them.
+function reachableFloorTiles(map, seeds) {
+  const rows = map.length, cols = map[0].length;
+  const reached = new Set();
+  const queue = [];
+  for (const s of seeds) {
+    if (s.x < 0 || s.x >= cols || s.y < 0 || s.y >= rows) continue;
+    if (map[s.y][s.x] !== 0) continue;
+    const k = s.x + ',' + s.y;
+    if (reached.has(k)) continue;
+    reached.add(k);
+    queue.push(s);
+  }
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (queue.length) {
+    const { x, y } = queue.shift();
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+      if (map[ny][nx] !== 0) continue;
+      const k = nx + ',' + ny;
+      if (reached.has(k)) continue;
+      reached.add(k);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return reached;
+}
+
 // Pick valid floor tiles for pickups across all rooms in the level
 // and assign types from the budget. Returns { roomId: [{x, y, type}] }.
 function generateLevelPickups(levelDef) {
@@ -2128,10 +2160,18 @@ function generateLevelPickups(levelDef) {
     roomIds.push(id);
     const def = levelDef.rooms[id];
     const map = def.map;
+    // 12.25: reachable set per room. Seeds are this room's
+    // doorway tiles (entry points from neighbors) plus the player
+    // spawn for the start room. Tiles enclosed by inner walls
+    // with no doorway connection get filtered out.
+    const seeds = (def.doorways || []).map(d => ({ x: d.x, y: d.y }));
+    if (id === startId) seeds.push({ x: ps.x, y: ps.y });
+    const reached = reachableFloorTiles(map, seeds);
     const cands = [];
     for (let y = 0; y < map.length; y++) {
       for (let x = 0; x < map[y].length; x++) {
         if (map[y][x] !== 0) continue;
+        if (!reached.has(x + ',' + y)) continue;
         if ((def.doorways    || []).some(d => d.x === x && d.y === y)) continue;
         if ((def.keySpawns   || []).some(k => k.x === x && k.y === y)) continue;
         if ((def.guardSpawns || []).some(g => g.x === x && g.y === y)) continue;
