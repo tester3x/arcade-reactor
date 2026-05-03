@@ -285,7 +285,7 @@ const GW = 900, GH = 650;        // logical play field (matches other games)
 //   N.x  — refinements / tuning / bug fixes within a phase
 // Bumping this on every deploy gives a visual "new build is live"
 // check regardless of cache — if the old label shows, refresh again.
-const BUILD_LABEL = '12.21';
+const BUILD_LABEL = '12.22';
 document.getElementById('ar-score-value').textContent = BUILD_LABEL;
 
 // ── Responsive canvas ────────────────────────────────────────────
@@ -3459,28 +3459,34 @@ function drawCorpses() {
       ctx.fill();
     }
     ctx.restore();
+  }
+}
 
-    // Loot pickup flash — text + arrow above the body for ~2s.
-    // Fades over the last 30 frames so it doesn't hard-cut.
-    if (c.lootFlash > 0) {
-      const a = Math.min(1, c.lootFlash / 30);
-      const lift = 14 + (1 - Math.min(1, c.lootFlash / 90)) * 6;   // small drift up
-      ctx.save();
-      ctx.globalAlpha = a;
-      ctx.fillStyle = '#fbbf24';
-      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-      ctx.lineWidth = 3;
-      ctx.font = 'bold 13px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      const parts = [];
-      if (c.ammo > 0)  parts.push('+' + c.ammo + ' AMMO');
-      if (c.grenade)   parts.push('+1 NADE');
-      const txt = parts.join('  ');
-      ctx.strokeText(txt, c.x, c.y - GUARD_R - lift);
-      ctx.fillText  (txt, c.x, c.y - GUARD_R - lift);
-      ctx.restore();
-      c.lootFlash--;
-    }
+// 12.22: loot flash rendered in its own pass so it can run after
+// drawWalls. Otherwise looting a body next to a wall hides the
+// pickup text behind the wall tile above it.
+function drawCorpseFlashes() {
+  const corpses = currentRoomState().corpses;
+  if (!corpses.length) return;
+  for (const c of corpses) {
+    if (c.lootFlash <= 0) continue;
+    const a = Math.min(1, c.lootFlash / 30);
+    const lift = 14 + (1 - Math.min(1, c.lootFlash / 90)) * 6;   // small drift up
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#fbbf24';
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 3;
+    ctx.font = 'bold 13px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    const parts = [];
+    if (c.ammo > 0)  parts.push('+' + c.ammo + ' AMMO');
+    if (c.grenade)   parts.push('+1 NADE');
+    const txt = parts.join('  ');
+    ctx.strokeText(txt, c.x, c.y - GUARD_R - lift);
+    ctx.fillText  (txt, c.x, c.y - GUARD_R - lift);
+    ctx.restore();
+    c.lootFlash--;
   }
 }
 
@@ -4357,6 +4363,7 @@ function draw() {
   drawExplosions();   // on top of player so the flash visually wins
   drawWalls();        // walls last — covers any entity that overhangs a wall tile
   // --- UI / HUD overlays from here on ---
+  drawCorpseFlashes(); // 12.22: above walls so loot text isn't hidden by an adjacent wall
   drawGrenadeAim();   // 11.6: landing reticle while in grenade mode
   drawAimLine();      // 12.10: where bullets go (body is decoupled from aim)
   drawFireReadyDot(); // 12.4: gun-tip color cue for touch fire threshold
