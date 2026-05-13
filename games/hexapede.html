@@ -1118,16 +1118,28 @@ function tickCentipede(cp, dt) {
     let newRow = head.row;
 
     if (cp.diving) {
-      // While diving, just plunge straight down
-      newRow = head.row + 1;
-      if (newRow >= ROWS) {
+      // Diving straight down — but a mushroom in the path stops the dive
+      const targetRow = head.row + 1;
+      const blockerMushroom = (targetRow < ROWS) ? getM(head.col, targetRow) : null;
+
+      if (blockerMushroom) {
+        // Mushroom column blocks the dive — cancel and resume normal zigzag from here.
+        // The head stays in place this tick (next tick the normal logic will move it).
+        cp.diving = false;
+        cp.vDir = 1;
+        newCol = head.col;
+        newRow = head.row;
+      } else if (targetRow >= ROWS) {
         cp.diving = false;
         cp.vDir = -1;
         newRow = head.row - 1;
-      } else if (newRow >= PLAYER_ZONE_TOP) {
+      } else if (targetRow >= PLAYER_ZONE_TOP) {
         // Reached player zone — exit dive and resume normal bouncing
         cp.diving = false;
         cp.vDir = 1;
+        newRow = targetRow;
+      } else {
+        newRow = targetRow;
       }
     } else {
       // Normal: try horizontal move
