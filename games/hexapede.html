@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE v0.11 — Arcade Reactor</title>
+<title>HEXAPEDE v0.12 — Arcade Reactor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
@@ -368,7 +368,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag">v0.11</div>
+    <div class="version-tag" id="versionTag">v0.12</div>
   </div>
 </div>
 
@@ -435,6 +435,10 @@ let flea = null;
 let scorpion = null;
 let scorpionTimer = 0;
 let fleaCooldown = 0;
+let mushDestroyedTrigger = 0;     // mushrooms destroyed in flea trigger zone (decays)
+let mushDestroyDecayT = 0;
+let scorpionsSpawned = 0;          // diagnostic counter
+let fleasSpawned = 0;              // diagnostic counter
 let particles = [];
 let popups = [];
 let shake = 0;
@@ -593,6 +597,11 @@ function start() {
   scorpion = null;
   scorpionTimer = nextScorpionTimer(); // wave is still 0 here, so this gives the wave-1 range
   fleaCooldown = 2.0;
+  mushDestroyedTrigger = 0;
+  mushDestroyDecayT = 0;
+  scorpionsSpawned = 0;
+  fleasSpawned = 0;
+  updateVersionTag();
   shake = 0;
   invincible = 0;
   respawnTimer = 0;
@@ -690,6 +699,26 @@ function onKeyDown(e) {
   if (e.code === 'KeyP' || e.code === 'Escape') {
     togglePause();
     return;
+  }
+  // Debug spawn keys (for verifying entities render correctly)
+  if (state === 'PLAYING') {
+    if (e.code === 'KeyN' && !scorpion) {
+      scorpion = createScorpion();
+      scorpionsSpawned++;
+      updateVersionTag();
+    }
+    if (e.code === 'KeyM' && !flea) {
+      const scoreBonus = Math.min(200, Math.floor(score / 1000) * 10);
+      flea = {
+        x: randInt(1, COLS - 2) * CELL + CELL / 2,
+        y: -CELL,
+        speed: 160 + scoreBonus,
+        hp: 2,
+        lastRow: -999,
+      };
+      fleasSpawned++;
+      updateVersionTag();
+    }
   }
   keys.add(e.code);
 }
@@ -843,26 +872,28 @@ function update(dt) {
   }
   if (spider) updateSpider(spider, dt);
 
-  // ---- Flea ---- (trigger when <5 mushrooms in rows 17-23, the band above your zone)
+  // ---- Flea ---- (triggers on player action: destroying 4+ mushrooms in trigger zone)
+  // Decay: lose 1 from the destruction counter every 8 seconds (so a flea won't spawn
+  // forever after a single burst of mushroom-shooting)
+  mushDestroyDecayT += dt;
+  if (mushDestroyDecayT >= 8) {
+    mushDestroyedTrigger = Math.max(0, mushDestroyedTrigger - 1);
+    mushDestroyDecayT -= 8;
+  }
   if (fleaCooldown > 0) fleaCooldown -= dt;
-  if (!flea && fleaCooldown <= 0) {
-    let triggerCount = 0;
-    for (const k of mushrooms.keys()) {
-      const r = parseInt(k.split(',')[1]);
-      if (r >= FLEA_TRIGGER_TOP && r <= FLEA_TRIGGER_BOT) triggerCount++;
-    }
-    if (triggerCount < 5) {
-      // Speed scales with score (classic arcade behavior — caps at +200 over base)
-      const scoreBonus = Math.min(200, Math.floor(score / 1000) * 10);
-      flea = {
-        x: randInt(1, COLS - 2) * CELL + CELL / 2,
-        y: -CELL,
-        speed: 160 + scoreBonus,
-        hp: 2,
-        lastRow: -999,
-      };
-      fleaCooldown = rand(1.5, 3.0);
-    }
+  if (!flea && fleaCooldown <= 0 && mushDestroyedTrigger >= 4) {
+    const scoreBonus = Math.min(200, Math.floor(score / 1000) * 10);
+    flea = {
+      x: randInt(1, COLS - 2) * CELL + CELL / 2,
+      y: -CELL,
+      speed: 160 + scoreBonus,
+      hp: 2,
+      lastRow: -999,
+    };
+    mushDestroyedTrigger = 0;
+    fleaCooldown = rand(2.5, 4.5);
+    fleasSpawned++;
+    updateVersionTag();
   }
   if (flea) updateFlea(flea, dt);
 
@@ -871,6 +902,8 @@ function update(dt) {
   if (!scorpion && scorpionTimer <= 0 && state === 'PLAYING') {
     scorpion = createScorpion();
     scorpionTimer = nextScorpionTimer();
+    scorpionsSpawned++;
+    updateVersionTag();
   }
   if (scorpion) updateScorpion(scorpion, dt);
 
@@ -949,6 +982,10 @@ function handleBulletHit(b) {
       score += m.poisoned ? 10 : 4;
       snd('killMush');
       spawnParticles(b.x, brow * CELL + CELL/2, baseColor, 8, 120);
+      // Track destruction in flea trigger zone for flea spawn condition
+      if (brow >= FLEA_TRIGGER_TOP && brow <= FLEA_TRIGGER_BOT) {
+        mushDestroyedTrigger++;
+      }
     }
     updateHUD();
     return true;
@@ -1346,6 +1383,11 @@ function updateHUD() {
     d.className = 'life';
     el.appendChild(d);
   }
+}
+
+function updateVersionTag() {
+  const el = document.getElementById('versionTag');
+  if (el) el.textContent = `v0.12 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
