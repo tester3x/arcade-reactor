@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE v0.8 — Arcade Reactor</title>
+<title>HEXAPEDE v0.10 — Arcade Reactor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
@@ -368,7 +368,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag">v0.8</div>
+    <div class="version-tag">v0.10</div>
   </div>
 </div>
 
@@ -385,6 +385,7 @@ const W = COLS * CELL;            // 480
 const H = ROWS * CELL;            // 600
 const PLAYER_ZONE_TOP = 24;       // rows 24..29 = player area
 const CENT_BOUNCE_TOP = 22;       // centipede vDir flips back to down here
+const FLEA_TRIGGER_ROW = 17;      // flea checks mushroom count in rows 17..29 (bottom 13 rows, classic arcade)
 const TOP_DEAD_ZONE = 1;          // mushrooms can't appear in row 0
 const MUSH_HP_MAX = 4;
 const PLAYER_SPEED = 240;         // px/sec
@@ -432,6 +433,7 @@ let spider = null;
 let flea = null;
 let scorpion = null;
 let scorpionTimer = 0;
+let fleaCooldown = 0;
 let particles = [];
 let popups = [];
 let shake = 0;
@@ -589,6 +591,7 @@ function start() {
   flea = null;
   scorpion = null;
   scorpionTimer = rand(18, 28); // first scorpion comes later in the game
+  fleaCooldown = 2.0;
   shake = 0;
   invincible = 0;
   respawnTimer = 0;
@@ -618,6 +621,21 @@ function start() {
 function startWave() {
   wave++;
   centSpeed = Math.max(0.05, BASE_CENT_SPEED - (wave - 1) * 0.011);
+
+  // Between-wave regeneration (classic arcade behavior):
+  // - Damaged mushrooms heal back to full HP
+  // - Poisoned mushrooms revert to normal
+  // Mushroom POSITIONS are preserved — walls you built still exist.
+  // Skip on wave 1 since there's nothing to regenerate yet.
+  if (wave > 1) {
+    for (const m of mushrooms.values()) {
+      m.hp = MUSH_HP_MAX;
+      m.poisoned = false;
+    }
+  }
+
+  // Fresh scorpion timer scaled to the new wave
+  scorpionTimer = nextScorpionTimer();
 
   // Wave composition
   const baseLen = 11;
@@ -824,31 +842,34 @@ function update(dt) {
   }
   if (spider) updateSpider(spider, dt);
 
-  // ---- Flea ----
-  if (!flea) {
-    let pzCount = 0;
+  // ---- Flea ---- (arcade-accurate: trigger when <5 mushrooms in bottom 13 rows)
+  if (fleaCooldown > 0) fleaCooldown -= dt;
+  if (!flea && fleaCooldown <= 0) {
+    let triggerCount = 0;
     for (const k of mushrooms.keys()) {
       const r = parseInt(k.split(',')[1]);
-      if (r >= PLAYER_ZONE_TOP) pzCount++;
+      if (r >= FLEA_TRIGGER_ROW) triggerCount++;
     }
-    const threshold = 3;
-    if (pzCount < threshold && Math.random() < dt * 0.12) {
+    if (triggerCount < 5) {
+      // Speed scales with score (classic arcade behavior — caps at +200 over base)
+      const scoreBonus = Math.min(200, Math.floor(score / 1000) * 10);
       flea = {
         x: randInt(1, COLS - 2) * CELL + CELL / 2,
         y: -CELL,
-        speed: 160 + wave * 8,
+        speed: 160 + scoreBonus,
         hp: 2,
         lastRow: -999,
       };
+      fleaCooldown = rand(1.5, 3.0);
     }
   }
   if (flea) updateFlea(flea, dt);
 
-  // ---- Scorpion ---- (starts appearing at wave 2)
+  // ---- Scorpion ---- (rare early, ramps with wave)
   scorpionTimer -= dt;
-  if (!scorpion && scorpionTimer <= 0 && wave >= 2 && state === 'PLAYING') {
+  if (!scorpion && scorpionTimer <= 0 && state === 'PLAYING') {
     scorpion = createScorpion();
-    scorpionTimer = rand(16, 26);
+    scorpionTimer = nextScorpionTimer();
   }
   if (scorpion) updateScorpion(scorpion, dt);
 
@@ -1189,9 +1210,9 @@ function updateFlea(f, dt) {
   f.y += f.speed * dt;
   const fc = Math.floor(f.x / CELL);
   const fr = Math.floor(f.y / CELL);
-  // Only consider dropping ONCE per cell entered (not on a timer), with a low probability
+  // Only consider dropping ONCE per cell entered (not on a timer); 60% rate = arcade-accurate
   if (fr !== f.lastRow) {
-    if (Math.random() < 0.18 &&
+    if (Math.random() < 0.60 &&
         fr >= TOP_DEAD_ZONE + 1 && fr < ROWS - 1 &&
         !getM(fc, fr)) {
       const cellLeft = fc * CELL;
@@ -1213,6 +1234,14 @@ function updateFlea(f, dt) {
 // ============================================================================
 // SCORPION
 // ============================================================================
+function nextScorpionTimer() {
+  // Classic arcade pattern: very rare early, ramps up by wave
+  if (wave <= 1) return rand(80, 140); // wave probably won't last that long
+  if (wave <= 3) return rand(40, 70);  // maybe once per wave
+  if (wave <= 9) return rand(22, 38);  // regularly
+  return rand(12, 22);                  // frequent
+}
+
 function createScorpion() {
   const fromLeft = Math.random() < 0.5;
   // Walks in the mushroom field — anywhere from row 3 to a couple above the player zone
@@ -1220,22 +1249,20 @@ function createScorpion() {
   return {
     x: fromLeft ? -CELL : W + CELL,
     y: row * CELL + CELL / 2,
-    vx: fromLeft ? 145 + wave * 6 : -(145 + wave * 6), // ~30% faster
+    vx: fromLeft ? 145 + wave * 6 : -(145 + wave * 6),
     lastCol: null,
-    poisonsLeft: randInt(1, 3), // cap poisonings per pass
   };
 }
 
 function updateScorpion(s, dt) {
   s.x += s.vx * dt;
-  // Poison up to N mushrooms in the row it crosses
+  // Poison EVERY mushroom in the row it crosses (classic behavior)
   const col = Math.floor(s.x / CELL);
   const row = Math.floor(s.y / CELL);
   if (col !== s.lastCol) {
     const m = getM(col, row);
-    if (m && !m.poisoned && s.poisonsLeft > 0) {
+    if (m && !m.poisoned) {
       m.poisoned = true;
-      s.poisonsLeft--;
       spawnParticles(col * CELL + CELL/2, row * CELL + CELL/2, C.poisonMush[0], 3, 50);
     }
     s.lastCol = col;
@@ -1250,6 +1277,14 @@ function updateScorpion(s, dt) {
 function playerDie() {
   lives--;
   bullets = [];
+  spider = null;
+  flea = null;
+  scorpion = null;
+  fleaCooldown = 3.0; // breathing room after respawn
+  // Classic arcade: poisoned mushrooms revert to normal on death (HP preserved)
+  for (const m of mushrooms.values()) {
+    if (m.poisoned) m.poisoned = false;
+  }
   shake = 12;
   spawnParticles(player.x, player.y, C.player, 28, 240);
   spawnParticles(player.x, player.y, '#ffffff', 12, 200);
