@@ -3,10 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE v0.14 — Arcade Reactor</title>
+<meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
+<title>HEXAPEDE v0.15 — Arcade Reactor</title>
+<!-- Favicons (relative to /games/) -->
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+<!-- Open Graph -->
+<meta property="og:title" content="Hexapede — Arcade Reactor">
+<meta property="og:description" content="A classic-style segmented-bug arcade shooter.">
+<meta property="og:image" content="../assets/arcade-reactor-badge.png">
+<meta property="og:url" content="https://arcadereactor.com/games/hexapede.html">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../site.css">
 <style>
   :root {
     --bg:        #07070d;
@@ -30,6 +43,7 @@
 
   html, body {
     height: 100%;
+    margin: 0;
     background:
       radial-gradient(ellipse at 50% 30%, var(--bg-2) 0%, var(--bg) 70%);
     color: var(--text);
@@ -39,6 +53,17 @@
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+  /* Site chrome (header/footer) sits in normal flow; game fills the gap. */
+  body > .site-header,
+  body > .site-footer {
+    flex: 0 0 auto;
+    position: relative;
+    z-index: 20;
   }
 
   /* Subtle moving glow behind the cabinet */
@@ -57,8 +82,9 @@
   }
 
   #stage {
-    position: fixed;
-    inset: 0;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -67,8 +93,12 @@
 
   #game-wrap {
     position: relative;
-    width: min(94vw, calc(92vh * 4 / 5), 800px);
     aspect-ratio: 4 / 5;
+    max-width: 100%;
+    max-height: 100%;
+    /* Pick the larger of width-driven or height-driven sizing,
+       capped to a sane absolute max. */
+    width: min(94%, calc((100vh - 160px) * 4 / 5), 800px);
   }
 
   canvas {
@@ -320,6 +350,19 @@
 </style>
 </head>
 <body>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="../index.html" class="brand" aria-label="Arcade Reactor home">
+      <img src="../assets/favicon.png" alt="Arcade Reactor" class="brand-logo">
+    </a>
+    <nav class="site-nav">
+      <a href="../index.html#vector-vault">Collections</a>
+      <a href="../index.html#leaderboard">Leaderboard</a>
+    </nav>
+  </div>
+</header>
+
 <div id="stage">
   <div id="game-wrap">
     <canvas id="game" width="480" height="600"></canvas>
@@ -368,7 +411,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.14</div>
+    <div class="version-tag" id="versionTag">v0.15</div>
   </div>
 </div>
 
@@ -1421,7 +1464,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.14 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.15 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
@@ -1817,5 +1860,13 @@ function drawPlayer(p) {
 // ============================================================================
 init();
 </script>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <span class="footer-brand">ARCADE<span class="brand-accent">REACTOR</span></span>
+    <span class="footer-meta">© <span id="year"></span> Arcade Reactor · Built for play.</span>
+  </div>
+</footer>
+<script src="../site.js"></script>
 </body>
 </html>
