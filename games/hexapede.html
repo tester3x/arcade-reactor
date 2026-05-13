@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE v0.12 — Arcade Reactor</title>
+<title>HEXAPEDE v0.13 — Arcade Reactor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
@@ -368,7 +368,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.12</div>
+    <div class="version-tag" id="versionTag">v0.13</div>
   </div>
 </div>
 
@@ -1160,18 +1160,40 @@ function tickCentipede(cp, dt) {
 
       if (blocked) {
         if (poisonedBlock && newRow < PLAYER_ZONE_TOP) {
-          // Bumped into a poisoned mushroom outside the player zone — enter dive mode.
-          // Drop straight down without reversing direction.
-          cp.diving = true;
-          newCol = head.col;
-          newRow = head.row + 1;
-          if (newRow >= ROWS) {
-            cp.diving = false;
-            cp.vDir = -1;
-            newRow = head.row - 1;
-          } else if (newRow >= PLAYER_ZONE_TOP) {
-            cp.diving = false;
-            cp.vDir = 1;
+          // Bumped into a poisoned mushroom — try to enter dive mode.
+          // BUT if the cell directly below us is also blocked by a mushroom, the dive
+          // can't even start; fall back to a normal bounce.
+          const diveTargetRow = head.row + 1;
+          const diveBlocker = (diveTargetRow < ROWS) ? getM(head.col, diveTargetRow) : null;
+
+          if (diveBlocker) {
+            // Dive immediately blocked — do a normal horizontal bounce instead
+            newCol = head.col;
+            newRow = head.row + cp.vDir;
+            if (newRow >= ROWS) {
+              cp.vDir = -1;
+              newRow = head.row - 1;
+            } else if (newRow < CENT_BOUNCE_TOP && cp.vDir === -1) {
+              cp.vDir = 1;
+              newRow = head.row + 1;
+            } else if (newRow < 0) {
+              cp.vDir = 1;
+              newRow = head.row + 1;
+            }
+            cp.dir *= -1;
+          } else {
+            // Dive can proceed — drop one row, stay in dive mode for subsequent ticks
+            cp.diving = true;
+            newCol = head.col;
+            newRow = diveTargetRow;
+            if (newRow >= ROWS) {
+              cp.diving = false;
+              cp.vDir = -1;
+              newRow = head.row - 1;
+            } else if (newRow >= PLAYER_ZONE_TOP) {
+              cp.diving = false;
+              cp.vDir = 1;
+            }
           }
         } else {
           // Normal bounce: drop & reverse
@@ -1399,7 +1421,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.12 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.13 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
