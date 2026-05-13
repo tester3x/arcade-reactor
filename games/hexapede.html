@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE — Arcade Reactor</title>
+<title>HEXAPEDE v0.8 — Arcade Reactor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
@@ -302,6 +302,20 @@
     z-index: 5;
   }
 
+  .version-tag {
+    position: absolute;
+    bottom: 8px;
+    right: 14px;
+    font-family: 'Silkscreen', monospace;
+    font-size: 9px;
+    color: var(--cent);
+    letter-spacing: 0.15em;
+    opacity: 0.55;
+    pointer-events: none;
+    z-index: 6;
+    text-shadow: 0 0 4px var(--cent);
+  }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -354,6 +368,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
+    <div class="version-tag">v0.8</div>
   </div>
 </div>
 
@@ -761,16 +776,20 @@ function update(dt) {
   if (shootCD > 0)      shootCD -= dt;
 
   // ---- Player movement (with mushroom collision; separate-axis so you can slide) ----
+  // If we're already overlapping a mushroom (e.g., one spawned next to us and we slid into it),
+  // grant free movement until we exit — otherwise the collision check would lock us in place.
   if (respawnTimer <= 0) {
+    const alreadyStuck = playerHitsMushroom();
+
     const oldX = player.x;
     player.x += dx * PLAYER_SPEED * dt;
     player.x = clamp(player.x, CELL * 0.5, W - CELL * 0.5);
-    if (playerHitsMushroom()) player.x = oldX;
+    if (!alreadyStuck && playerHitsMushroom()) player.x = oldX;
 
     const oldY = player.y;
     player.y += dy * PLAYER_SPEED * dt;
     player.y = clamp(player.y, PLAYER_ZONE_TOP * CELL + CELL * 0.5, H - CELL * 0.5);
-    if (playerHitsMushroom()) player.y = oldY;
+    if (!alreadyStuck && playerHitsMushroom()) player.y = oldY;
   }
 
   // ---- Firing ----
