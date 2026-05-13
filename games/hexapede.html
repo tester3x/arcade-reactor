@@ -812,14 +812,14 @@ function update(dt) {
       const r = parseInt(k.split(',')[1]);
       if (r >= PLAYER_ZONE_TOP) pzCount++;
     }
-    const threshold = 4;
-    if (pzCount < threshold && Math.random() < dt * 0.25) {
+    const threshold = 3;
+    if (pzCount < threshold && Math.random() < dt * 0.12) {
       flea = {
         x: randInt(1, COLS - 2) * CELL + CELL / 2,
         y: -CELL,
         speed: 160 + wave * 8,
         hp: 2,
-        trailTimer: 0,
+        lastRow: -999,
       };
     }
   }
@@ -930,9 +930,19 @@ function handleBulletHit(b) {
         shake = Math.max(shake, isHead ? 5 : 3);
         snd(isHead ? 'killHead' : 'hitCent');
 
-        // Place mushroom at the segment's CURRENT target cell
+        // Place mushroom at the segment's CURRENT target cell — UNLESS the player is overlapping
+        // that cell. Otherwise we'd spawn a mushroom on top of the ship and trap them.
         if (s.col >= 0 && s.col < COLS && s.row >= 0 && s.row < ROWS && !getM(s.col, s.row)) {
-          setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
+          const cellLeft = s.col * CELL;
+          const cellTop  = s.row * CELL;
+          const overlapsPlayer =
+            player.x + player.r > cellLeft &&
+            player.x - player.r < cellLeft + CELL &&
+            player.y + player.r > cellTop  &&
+            player.y - player.r < cellTop + CELL;
+          if (!overlapsPlayer) {
+            setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
+          }
         }
 
         // Split / shorten
@@ -1158,16 +1168,25 @@ function updateSpider(s, dt) {
 // ============================================================================
 function updateFlea(f, dt) {
   f.y += f.speed * dt;
-  f.trailTimer -= dt;
-  if (f.trailTimer <= 0) {
-    f.trailTimer = 0.07;
-    if (Math.random() < 0.35) {
-      const fc = Math.floor(f.x / CELL);
-      const fr = Math.floor(f.y / CELL);
-      if (fr >= TOP_DEAD_ZONE + 1 && fr < ROWS - 1 && !getM(fc, fr)) {
+  const fc = Math.floor(f.x / CELL);
+  const fr = Math.floor(f.y / CELL);
+  // Only consider dropping ONCE per cell entered (not on a timer), with a low probability
+  if (fr !== f.lastRow) {
+    if (Math.random() < 0.18 &&
+        fr >= TOP_DEAD_ZONE + 1 && fr < ROWS - 1 &&
+        !getM(fc, fr)) {
+      const cellLeft = fc * CELL;
+      const cellTop  = fr * CELL;
+      const overlapsPlayer =
+        player.x + player.r > cellLeft &&
+        player.x - player.r < cellLeft + CELL &&
+        player.y + player.r > cellTop  &&
+        player.y - player.r < cellTop + CELL;
+      if (!overlapsPlayer) {
         setM(fc, fr, { hp: MUSH_HP_MAX, poisoned: false });
       }
     }
+    f.lastRow = fr;
   }
   if (f.y > H + CELL) flea = null;
 }
