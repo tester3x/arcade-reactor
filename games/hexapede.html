@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-<title>HEXAPEDE v0.13 — Arcade Reactor</title>
+<title>HEXAPEDE v0.14 — Arcade Reactor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
@@ -310,9 +310,9 @@
     font-size: 9px;
     color: var(--cent);
     letter-spacing: 0.15em;
-    opacity: 0.55;
+    opacity: 0.7;
     pointer-events: none;
-    z-index: 6;
+    z-index: 15;
     text-shadow: 0 0 4px var(--cent);
   }
 
@@ -368,7 +368,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.13</div>
+    <div class="version-tag" id="versionTag">v0.14</div>
   </div>
 </div>
 
@@ -1421,7 +1421,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.13 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.14 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
