@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>HEXAPEDE — Arcade Reactor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #07070d;
+    --bg-2:      #110a22;
+    --grid:      #1d1238;
+    --player:    #4ddbff;
+    --bullet:    #ffffff;
+    --mush-1:    #ff5587;
+    --mush-2:    #ff8fc4;
+    --cent:      #aaff55;
+    --cent-head: #66ffcc;
+    --spider:    #c66dff;
+    --flea:      #ffd34d;
+    --text:      #e9e8f5;
+    --dim:       #6c6890;
+    --danger:    #ff4060;
+    --accent:    #ffe44d;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background:
+      radial-gradient(ellipse at 50% 30%, var(--bg-2) 0%, var(--bg) 70%);
+    color: var(--text);
+    font-family: 'Silkscreen', 'Courier New', monospace;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+
+  /* Subtle moving glow behind the cabinet */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -20%;
+    background:
+      radial-gradient(circle at 20% 80%, rgba(170,255,85,0.08), transparent 40%),
+      radial-gradient(circle at 80% 20%, rgba(198,109,255,0.08), transparent 40%);
+    pointer-events: none;
+    animation: ambient 16s ease-in-out infinite alternate;
+  }
+  @keyframes ambient {
+    to { transform: rotate(8deg) scale(1.05); }
+  }
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
+
+  #game-wrap {
+    position: relative;
+    width: min(94vw, calc(92vh * 4 / 5), 800px);
+    aspect-ratio: 4 / 5;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    border: 1px solid #2a2452;
+    box-shadow:
+      0 0 0 1px #2a2452,
+      0 0 80px rgba(102, 70, 180, 0.4),
+      inset 0 0 100px rgba(0, 0, 0, 0.6);
+    border-radius: 2px;
+  }
+
+  /* CRT scanlines */
+  .crt {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.0) 0px,
+      rgba(0,0,0,0.0) 2px,
+      rgba(0,0,0,0.18) 3px,
+      rgba(0,0,0,0.0) 4px
+    );
+    mix-blend-mode: multiply;
+    border-radius: 2px;
+    z-index: 3;
+  }
+
+  /* Vignette */
+  .vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    border-radius: 2px;
+    z-index: 4;
+  }
+
+  /* HUD */
+  .hud {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    padding: 10px 14px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: none;
+    font-family: 'Silkscreen', monospace;
+    z-index: 5;
+  }
+
+  .hud-stat { line-height: 1.2; }
+
+  .hud-stat .label {
+    color: var(--dim);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+  }
+
+  .hud-stat .value {
+    color: var(--text);
+    font-size: 18px;
+    text-shadow: 0 0 8px currentColor;
+    margin-top: 2px;
+  }
+
+  .hud-stat.center { text-align: center; }
+  .hud-stat.right  { text-align: right; }
+
+  .lives {
+    display: flex;
+    gap: 5px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+
+  .life {
+    width: 10px;
+    height: 12px;
+    background: var(--player);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    box-shadow: 0 0 6px var(--player);
+  }
+
+  /* Overlays */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: rgba(7,7,13,0.78);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 10;
+    padding: 24px;
+    border-radius: 2px;
+  }
+
+  .overlay h1 {
+    font-family: 'Bungee', sans-serif;
+    font-size: clamp(40px, 11vh, 76px);
+    color: var(--cent);
+    text-shadow:
+      0 0 16px var(--cent),
+      0 0 36px rgba(170,255,85,0.6),
+      4px 4px 0 var(--mush-1);
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    animation: titlePulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes titlePulse {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50%      { transform: scale(1.025); filter: brightness(1.15); }
+  }
+
+  .overlay h2 {
+    font-family: 'Bungee', sans-serif;
+    font-size: clamp(28px, 7vh, 52px);
+    color: var(--danger);
+    text-shadow: 0 0 18px var(--danger);
+    margin-bottom: 16px;
+    letter-spacing: 0.06em;
+  }
+
+  .overlay .sub {
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.32em;
+    margin-bottom: 26px;
+  }
+
+  .controls {
+    font-size: 11px;
+    line-height: 2;
+    color: var(--text);
+    margin-bottom: 28px;
+    text-align: left;
+    letter-spacing: 0.06em;
+  }
+
+  .controls .key {
+    color: var(--cent);
+    display: inline-block;
+    min-width: 90px;
+    text-shadow: 0 0 6px var(--cent);
+  }
+
+  .btn {
+    font-family: 'Silkscreen', monospace;
+    font-weight: 700;
+    font-size: 16px;
+    background: transparent;
+    color: var(--cent);
+    border: 2px solid var(--cent);
+    padding: 14px 32px;
+    cursor: pointer;
+    letter-spacing: 0.24em;
+    text-shadow: 0 0 8px var(--cent);
+    box-shadow:
+      0 0 18px rgba(170,255,85,0.35),
+      inset 0 0 18px rgba(170,255,85,0.08);
+    transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn:hover, .btn:focus {
+    background: var(--cent);
+    color: var(--bg);
+    transform: translateY(-2px);
+    box-shadow: 0 0 32px var(--cent);
+    outline: none;
+  }
+
+  .btn:active { transform: translateY(0); }
+
+  .final {
+    font-size: 13px;
+    color: var(--text);
+    margin: 4px 0;
+    letter-spacing: 0.16em;
+  }
+
+  .final .num {
+    color: var(--accent);
+    font-size: 38px;
+    text-shadow: 0 0 14px var(--accent);
+    display: block;
+    margin: 6px 0 12px;
+    font-family: 'Silkscreen', monospace;
+  }
+
+  .wave-banner {
+    position: absolute;
+    inset: 38% 0 auto 0;
+    text-align: center;
+    pointer-events: none;
+    font-family: 'Bungee', sans-serif;
+    font-size: clamp(28px, 7vh, 56px);
+    color: var(--cent);
+    text-shadow:
+      0 0 24px var(--cent),
+      4px 4px 0 var(--mush-1);
+    letter-spacing: 0.12em;
+    z-index: 6;
+    animation: waveSlide 2s ease-out forwards;
+  }
+
+  @keyframes waveSlide {
+    0%   { opacity: 0; transform: translateY(-30px) scale(0.9); }
+    20%  { opacity: 1; transform: translateY(0)     scale(1);   }
+    80%  { opacity: 1; transform: translateY(0)     scale(1);   }
+    100% { opacity: 0; transform: translateY(15px)  scale(1.05); }
+  }
+
+  .footer-hint {
+    position: absolute;
+    bottom: 8px; left: 0; right: 0;
+    text-align: center;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.32em;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="game-wrap">
+    <canvas id="game" width="480" height="600"></canvas>
+    <div class="crt"></div>
+    <div class="vignette"></div>
+
+    <div class="hud hidden" id="hud">
+      <div class="hud-stat">
+        <div class="label">SCORE</div>
+        <div class="value" id="scoreEl">000000</div>
+      </div>
+      <div class="hud-stat center">
+        <div class="label">WAVE</div>
+        <div class="value" id="waveEl">1</div>
+      </div>
+      <div class="hud-stat right">
+        <div class="label">LIVES</div>
+        <div class="lives" id="livesEl"></div>
+      </div>
+    </div>
+
+    <div class="overlay" id="titleScreen">
+      <h1>HEXAPEDE</h1>
+      <div class="sub">ARCADE&nbsp;&nbsp;·&nbsp;&nbsp;REACTOR</div>
+      <div class="controls">
+        <div><span class="key">MOVE</span>ARROWS&nbsp;/&nbsp;WASD&nbsp;/&nbsp;STICK</div>
+        <div><span class="key">FIRE</span>SPACE&nbsp;/&nbsp;Z&nbsp;/&nbsp;A&nbsp;BUTTON</div>
+        <div><span class="key">PAUSE</span>P&nbsp;/&nbsp;ESC</div>
+        <div><span class="key">TOUCH</span>DRAG&nbsp;TO&nbsp;MOVE&nbsp;(AUTO-FIRE)</div>
+      </div>
+      <button class="btn" id="startBtn">PRESS START</button>
+    </div>
+
+    <div class="overlay hidden" id="gameOverScreen">
+      <h2>GAME OVER</h2>
+      <div class="final">FINAL SCORE</div>
+      <div class="final"><span class="num" id="finalScoreEl">0</span></div>
+      <div class="final">WAVE&nbsp;<span id="finalWaveEl">1</span></div>
+      <button class="btn" id="restartBtn" style="margin-top:24px">PLAY AGAIN</button>
+    </div>
+
+    <div class="overlay hidden" id="pauseScreen">
+      <h2 style="color:var(--accent);text-shadow:0 0 18px var(--accent)">PAUSED</h2>
+      <button class="btn" id="resumeBtn">RESUME</button>
+    </div>
+
+    <div class="wave-banner hidden" id="waveBanner"></div>
+    <div class="footer-hint">— ARCADE REACTOR —</div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// HEXAPEDE — Arcade Reactor
+// ============================================================================
+
+// ---------- Constants ----------
+const COLS = 24;
+const ROWS = 30;
+const CELL = 20;
+const W = COLS * CELL;            // 480
+const H = ROWS * CELL;            // 600
+const PLAYER_ZONE_TOP = 24;       // rows 24..29 = player area
+const CENT_BOUNCE_TOP = 22;       // centipede vDir flips back to down here
+const TOP_DEAD_ZONE = 1;          // mushrooms can't appear in row 0
+const MUSH_HP_MAX = 4;
+const PLAYER_SPEED = 240;         // px/sec
+const BULLET_SPEED = 620;         // px/sec
+const SHOOT_COOLDOWN = 0.08;      // sec between shots (one bullet on screen, but this prevents instant respawn)
+const BASE_CENT_SPEED = 0.16;     // seconds per cell (lower = faster)
+const SPIDER_SPAWN_MIN = 7;
+const SPIDER_SPAWN_MAX = 14;
+
+const C = {
+  bg:        '#07070d',
+  bgZone:    '#0c0a1c',
+  grid:      '#1a1230',
+  player:    '#4ddbff',
+  bullet:    '#ffffff',
+  mush:      ['#ff5587','#ff7aab','#ff9bd1','#ffd2e8'], // hp 4,3,2,1
+  mushStem:  '#5e2f4a',
+  cent:      '#aaff55',
+  centDark:  '#6cc12a',
+  centHead:  '#66ffcc',
+  centHeadDark: '#2dbb98',
+  spider:    '#c66dff',
+  spiderDark:'#7a3aa8',
+  flea:      '#ffd34d',
+  scorpion:  '#ff8a3d',
+  scorpionDark: '#b04a10',
+  poisonMush: ['#d4ff3a','#aedd22','#8bb211','#6d8a04'], // hp 4,3,2,1
+  danger:    '#ff4060',
+  text:      '#e9e8f5',
+};
+
+// ---------- State ----------
+let canvas, ctx;
+let state = 'TITLE';              // TITLE | PLAYING | PAUSED | GAMEOVER
+let lastTime = 0;
+let score = 0;
+let highScore = 0;
+let lives = 3;
+let wave = 0;
+let mushrooms = new Map();        // Map<"c,r", {hp, poisoned}>
+let centipedes = [];              // [{segments, dir, vDir, tickTimer}]
+let player = { x: W / 2, y: H - CELL * 1.6, r: CELL * 0.45 };
+let bullets = [];
+let spider = null;
+let flea = null;
+let scorpion = null;
+let scorpionTimer = 0;
+let particles = [];
+let popups = [];
+let shake = 0;
+let respawnTimer = 0;
+let invincible = 0;
+let spiderTimer = 0;
+let shootCD = 0;
+let centSpeed = BASE_CENT_SPEED;
+let extraLifeAwarded = false;
+let waveTransitioning = false;
+
+// Input
+const keys = new Set();
+const touch = { active: false, x: 0, y: 0, dragging: false };
+
+// ---------- Utility ----------
+const key  = (c, r) => c + ',' + r;
+const getM = (c, r) => mushrooms.get(key(c, r));
+const setM = (c, r, m) => mushrooms.set(key(c, r), m);
+const delM = (c, r) => mushrooms.delete(key(c, r));
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function playerHitsMushroom() {
+  // Check the four corners of a slightly-shrunken player AABB against mushroom cells
+  const r = player.r * 0.75;
+  const corners = [
+    [player.x - r, player.y - r],
+    [player.x + r, player.y - r],
+    [player.x - r, player.y + r],
+    [player.x + r, player.y + r],
+  ];
+  for (const [cx, cy] of corners) {
+    const col = Math.floor(cx / CELL);
+    const row = Math.floor(cy / CELL);
+    if (getM(col, row)) return true;
+  }
+  return false;
+}
+
+// ============================================================================
+// AUDIO — WebAudio synthesis (no external assets)
+// ============================================================================
+let audioCtx = null;
+function ensureAudio() {
+  if (audioCtx) return;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  catch (e) { audioCtx = null; }
+}
+
+function blip(freqStart, freqEnd, dur, type = 'square', vol = 0.08) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freqStart, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+
+function noise(dur, vol = 0.08, hp = 800) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * dur, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const g = audioCtx.createGain();
+  const f = audioCtx.createBiquadFilter();
+  f.type = 'highpass';
+  f.frequency.value = hp;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(audioCtx.destination);
+  src.start(t);
+  src.stop(t + dur);
+}
+
+function snd(type) {
+  if (!audioCtx) return;
+  switch (type) {
+    case 'shoot':     blip(880, 220, 0.06, 'square',   0.06); break;
+    case 'hitMush':   blip(220, 160, 0.04, 'square',   0.04); break;
+    case 'killMush':  blip(340, 80,  0.10, 'triangle', 0.06); break;
+    case 'hitCent':   blip(440, 110, 0.10, 'square',   0.09); break;
+    case 'killHead':  blip(880, 220, 0.18, 'triangle', 0.10); break;
+    case 'hitSpider': noise(0.25, 0.12, 400);                  break;
+    case 'hitFlea':   blip(600, 140, 0.15, 'triangle', 0.10); break;
+    case 'hitScorp':  blip(330, 60,  0.25, 'sawtooth', 0.14); noise(0.25, 0.10, 300); setTimeout(() => blip(660, 110, 0.18, 'triangle', 0.10), 60); break;
+    case 'die':       blip(440, 40,  0.6,  'sawtooth', 0.18); noise(0.6, 0.08, 200); break;
+    case 'wave':      blip(220, 660, 0.25, 'triangle', 0.10); setTimeout(() => blip(440, 880, 0.25, 'triangle', 0.10), 120); break;
+    case 'extraLife': blip(440, 880, 0.15, 'triangle', 0.10); setTimeout(() => blip(880, 1320, 0.2, 'triangle', 0.10), 150); break;
+  }
+}
+
+// ============================================================================
+// INIT / START
+// ============================================================================
+function init() {
+  canvas = document.getElementById('game');
+  ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // High score from localStorage isn't available in this sandbox; keep session-local
+  highScore = 0;
+
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('restartBtn').addEventListener('click', start);
+  document.getElementById('resumeBtn').addEventListener('click', () => togglePause());
+
+  // Keyboard
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+
+  // Pointer / touch
+  canvas.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+
+  // Prevent space scroll
+  window.addEventListener('keydown', (e) => {
+    if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  });
+
+  requestAnimationFrame(loop);
+}
+
+function start() {
+  ensureAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+  document.getElementById('titleScreen').classList.add('hidden');
+  document.getElementById('gameOverScreen').classList.add('hidden');
+  document.getElementById('pauseScreen').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+
+  score = 0;
+  lives = 3;
+  wave = 0;
+  extraLifeAwarded = false;
+  mushrooms = new Map();
+  centipedes = [];
+  bullets = [];
+  particles = [];
+  popups = [];
+  spider = null;
+  flea = null;
+  scorpion = null;
+  scorpionTimer = rand(18, 28); // first scorpion comes later in the game
+  shake = 0;
+  invincible = 0;
+  respawnTimer = 0;
+  spiderTimer = rand(SPIDER_SPAWN_MIN, SPIDER_SPAWN_MAX);
+  shootCD = 0;
+  waveTransitioning = false;
+
+  // Seed mushroom field
+  const seed = 32;
+  for (let i = 0; i < seed; i++) {
+    const c = randInt(1, COLS - 2);
+    const r = randInt(TOP_DEAD_ZONE + 1, PLAYER_ZONE_TOP - 3);
+    if (!getM(c, r)) setM(c, r, { hp: MUSH_HP_MAX, poisoned: false });
+  }
+
+  player = {
+    x: W / 2,
+    y: H - CELL * 1.6,
+    r: CELL * 0.45,
+  };
+
+  state = 'PLAYING';
+  startWave();
+  updateHUD();
+}
+
+function startWave() {
+  wave++;
+  centSpeed = Math.max(0.05, BASE_CENT_SPEED - (wave - 1) * 0.011);
+
+  // Wave composition
+  const baseLen = 11;
+  const len = Math.max(5, baseLen - Math.floor((wave - 1) / 2));
+  const extras = Math.floor((wave - 1) / 2); // additional small centipedes at top
+  const extraDelay = 1.2;
+
+  spawnCentipede(len, 0);
+  for (let i = 0; i < extras; i++) {
+    setTimeout(() => {
+      if (state === 'PLAYING') spawnCentipede(Math.max(2, 4 - Math.floor(i / 2)), 0);
+    }, (i + 1) * extraDelay * 1000);
+  }
+
+  const banner = document.getElementById('waveBanner');
+  banner.textContent = 'WAVE ' + wave;
+  banner.classList.remove('hidden');
+  // Re-trigger animation
+  banner.style.animation = 'none';
+  void banner.offsetWidth;
+  banner.style.animation = '';
+  setTimeout(() => banner.classList.add('hidden'), 2000);
+
+  snd('wave');
+  updateHUD();
+}
+
+function spawnCentipede(length, row = 0) {
+  const segments = [];
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  // Head spawns ON the playfield at one edge; body trails off-screen behind it
+  const startCol = dir > 0 ? 0 : COLS - 1;
+  for (let i = 0; i < length; i++) {
+    const col = startCol - dir * i;
+    segments.push({ col, row, prevCol: col, prevRow: row });
+  }
+  centipedes.push({
+    segments,
+    dir,
+    vDir: 1,
+    tickTimer: 0,
+    diving: false,
+  });
+}
+
+// ============================================================================
+// INPUT
+// ============================================================================
+function onKeyDown(e) {
+  if (e.repeat) return;
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    togglePause();
+    return;
+  }
+  keys.add(e.code);
+}
+
+function onKeyUp(e) {
+  keys.delete(e.code);
+}
+
+function onPointerDown(e) {
+  ensureAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (state !== 'PLAYING') return;
+  const r = canvas.getBoundingClientRect();
+  touch.active = true;
+  touch.dragging = true;
+  touch.x = (e.clientX - r.left) * (W / r.width);
+  touch.y = (e.clientY - r.top)  * (H / r.height);
+  canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+}
+
+function onPointerMove(e) {
+  if (!touch.active) return;
+  const r = canvas.getBoundingClientRect();
+  touch.x = (e.clientX - r.left) * (W / r.width);
+  touch.y = (e.clientY - r.top)  * (H / r.height);
+}
+
+function onPointerUp() {
+  touch.active = false;
+  touch.dragging = false;
+}
+
+function togglePause() {
+  if (state === 'PLAYING') {
+    state = 'PAUSED';
+    document.getElementById('pauseScreen').classList.remove('hidden');
+  } else if (state === 'PAUSED') {
+    state = 'PLAYING';
+    document.getElementById('pauseScreen').classList.add('hidden');
+  }
+}
+
+// ============================================================================
+// GAME LOOP
+// ============================================================================
+function loop(t) {
+  const dt = Math.min(0.04, (t - lastTime) / 1000 || 0);
+  lastTime = t;
+
+  if (state === 'PLAYING') update(dt);
+  render();
+
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  // ---- Input synthesis ----
+  let dx = 0, dy = 0;
+  if (keys.has('ArrowLeft')  || keys.has('KeyA')) dx -= 1;
+  if (keys.has('ArrowRight') || keys.has('KeyD')) dx += 1;
+  if (keys.has('ArrowUp')    || keys.has('KeyW')) dy -= 1;
+  if (keys.has('ArrowDown')  || keys.has('KeyS')) dy += 1;
+  let fire = keys.has('Space') || keys.has('KeyZ') || keys.has('KeyX');
+
+  // Gamepad
+  const gp = (navigator.getGamepads && navigator.getGamepads()[0]) || null;
+  if (gp) {
+    const ax = gp.axes[0] || 0;
+    const ay = gp.axes[1] || 0;
+    if (Math.abs(ax) > 0.18 || Math.abs(ay) > 0.18) {
+      dx = Math.abs(ax) > 0.18 ? ax : dx;
+      dy = Math.abs(ay) > 0.18 ? ay : dy;
+    }
+    if (gp.buttons[14] && gp.buttons[14].pressed) dx = -1;
+    if (gp.buttons[15] && gp.buttons[15].pressed) dx =  1;
+    if (gp.buttons[12] && gp.buttons[12].pressed) dy = -1;
+    if (gp.buttons[13] && gp.buttons[13].pressed) dy =  1;
+    if ((gp.buttons[0] && gp.buttons[0].pressed) ||
+        (gp.buttons[7] && gp.buttons[7].pressed)) fire = true;
+  }
+
+  // Touch: move toward finger, auto-fire
+  if (touch.active) {
+    const tdx = touch.x - player.x;
+    const tdy = touch.y - player.y;
+    const tdist = Math.hypot(tdx, tdy);
+    if (tdist > 3) {
+      dx = tdx / tdist;
+      dy = tdy / tdist;
+    } else {
+      dx = 0; dy = 0;
+    }
+    fire = true;
+  }
+
+  // Normalize
+  const mag = Math.hypot(dx, dy);
+  if (mag > 1) { dx /= mag; dy /= mag; }
+
+  // ---- Timers ----
+  if (invincible > 0)   invincible -= dt;
+  if (respawnTimer > 0) respawnTimer -= dt;
+  if (shootCD > 0)      shootCD -= dt;
+
+  // ---- Player movement (with mushroom collision; separate-axis so you can slide) ----
+  if (respawnTimer <= 0) {
+    const oldX = player.x;
+    player.x += dx * PLAYER_SPEED * dt;
+    player.x = clamp(player.x, CELL * 0.5, W - CELL * 0.5);
+    if (playerHitsMushroom()) player.x = oldX;
+
+    const oldY = player.y;
+    player.y += dy * PLAYER_SPEED * dt;
+    player.y = clamp(player.y, PLAYER_ZONE_TOP * CELL + CELL * 0.5, H - CELL * 0.5);
+    if (playerHitsMushroom()) player.y = oldY;
+  }
+
+  // ---- Firing ----
+  if (fire && respawnTimer <= 0 && shootCD <= 0 && bullets.length === 0) {
+    bullets.push({ x: player.x, y: player.y - CELL * 0.5, vy: -BULLET_SPEED });
+    shootCD = SHOOT_COOLDOWN;
+    snd('shoot');
+  }
+
+  // ---- Bullets ----
+  for (const b of bullets) b.y += b.vy * dt;
+  bullets = bullets.filter(b => b.y > -CELL * 0.5);
+
+  // Bullet collisions
+  for (let bi = bullets.length - 1; bi >= 0; bi--) {
+    const b = bullets[bi];
+    if (handleBulletHit(b)) bullets.splice(bi, 1);
+  }
+
+  // ---- Centipedes ----
+  for (let i = centipedes.length - 1; i >= 0; i--) {
+    const cp = centipedes[i];
+    tickCentipede(cp, dt);
+    if (cp.segments.length === 0) centipedes.splice(i, 1);
+  }
+
+  // ---- Spider ----
+  spiderTimer -= dt;
+  if (!spider && spiderTimer <= 0) {
+    spider = createSpider();
+    spiderTimer = rand(SPIDER_SPAWN_MIN, SPIDER_SPAWN_MAX);
+  }
+  if (spider) updateSpider(spider, dt);
+
+  // ---- Flea ----
+  if (!flea) {
+    let pzCount = 0;
+    for (const k of mushrooms.keys()) {
+      const r = parseInt(k.split(',')[1]);
+      if (r >= PLAYER_ZONE_TOP) pzCount++;
+    }
+    const threshold = 4;
+    if (pzCount < threshold && Math.random() < dt * 0.25) {
+      flea = {
+        x: randInt(1, COLS - 2) * CELL + CELL / 2,
+        y: -CELL,
+        speed: 160 + wave * 8,
+        hp: 2,
+        trailTimer: 0,
+      };
+    }
+  }
+  if (flea) updateFlea(flea, dt);
+
+  // ---- Scorpion ---- (starts appearing at wave 2)
+  scorpionTimer -= dt;
+  if (!scorpion && scorpionTimer <= 0 && wave >= 2 && state === 'PLAYING') {
+    scorpion = createScorpion();
+    scorpionTimer = rand(16, 26);
+  }
+  if (scorpion) updateScorpion(scorpion, dt);
+
+  // ---- Particles & popups ----
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.y -= 28 * dt;
+    p.life -= dt;
+    if (p.life <= 0) popups.splice(i, 1);
+  }
+
+  // ---- Player vs enemies ----
+  if (invincible <= 0 && respawnTimer <= 0) {
+    let dead = false;
+    for (const cp of centipedes) {
+      const t = cp.tickTimer / centSpeed;
+      for (const s of cp.segments) {
+        const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+        const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+        if (Math.hypot(player.x - sx, player.y - sy) < CELL * 0.72) { dead = true; break; }
+      }
+      if (dead) break;
+    }
+    if (!dead && spider && Math.hypot(player.x - spider.x, player.y - spider.y) < CELL * 0.7) dead = true;
+    if (!dead && flea && Math.hypot(player.x - flea.x, player.y - flea.y) < CELL * 0.7) dead = true;
+    if (dead) playerDie();
+  }
+
+  // ---- Wave clear ----
+  if (centipedes.length === 0 && !waveTransitioning && state === 'PLAYING') {
+    waveTransitioning = true;
+    setTimeout(() => {
+      if (state === 'PLAYING') startWave();
+      waveTransitioning = false;
+    }, 800);
+  }
+
+  // ---- Extra life ----
+  if (!extraLifeAwarded && score >= 12000) {
+    extraLifeAwarded = true;
+    lives++;
+    snd('extraLife');
+    updateHUD();
+  }
+
+  // ---- Shake decay ----
+  shake = Math.max(0, shake - dt * 14);
+}
+
+// ============================================================================
+// BULLET COLLISION
+// ============================================================================
+function handleBulletHit(b) {
+  const bcol = Math.floor(b.x / CELL);
+  const brow = Math.floor(b.y / CELL);
+
+  // vs mushroom
+  const m = getM(bcol, brow);
+  if (m) {
+    m.hp--;
+    const baseColor = m.poisoned ? C.poisonMush[0] : C.mush[0];
+    score += m.poisoned ? 5 : 1;
+    snd('hitMush');
+    spawnParticles(b.x, brow * CELL + CELL/2, baseColor, 3, 60);
+    if (m.hp <= 0) {
+      delM(bcol, brow);
+      score += m.poisoned ? 10 : 4;
+      snd('killMush');
+      spawnParticles(b.x, brow * CELL + CELL/2, baseColor, 8, 120);
+    }
+    updateHUD();
+    return true;
+  }
+
+  // vs centipede
+  for (let ci = 0; ci < centipedes.length; ci++) {
+    const cp = centipedes[ci];
+    const t = cp.tickTimer / centSpeed;
+    for (let si = 0; si < cp.segments.length; si++) {
+      const s = cp.segments[si];
+      const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+      const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+      if (Math.hypot(b.x - sx, b.y - sy) < CELL * 0.5) {
+        const isHead = (si === 0);
+        const gained = isHead ? 100 : 10;
+        score += gained;
+        popup(sx, sy, gained, isHead ? C.centHead : C.cent);
+        spawnParticles(sx, sy, isHead ? C.centHead : C.cent, isHead ? 14 : 10, isHead ? 180 : 130);
+        shake = Math.max(shake, isHead ? 5 : 3);
+        snd(isHead ? 'killHead' : 'hitCent');
+
+        // Place mushroom at the segment's CURRENT target cell
+        if (s.col >= 0 && s.col < COLS && s.row >= 0 && s.row < ROWS && !getM(s.col, s.row)) {
+          setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
+        }
+
+        // Split / shorten
+        if (si === 0) {
+          cp.segments.shift();
+        } else if (si === cp.segments.length - 1) {
+          cp.segments.pop();
+        } else {
+          // Classic split: back half keeps the original direction. On its very next tick,
+          // its new head will try to move into the cell where the killed segment was —
+          // which is now a mushroom — and bounce off it (drop one row, reverse). This
+          // produces the "stutter then turn" look of the real arcade machine instead
+          // of an instant pivot.
+          const tail = cp.segments.slice(si + 1);
+          cp.segments = cp.segments.slice(0, si);
+          centipedes.push({
+            segments: tail,
+            dir: cp.dir,
+            vDir: cp.vDir,
+            tickTimer: cp.tickTimer,
+            diving: cp.diving,
+          });
+        }
+        updateHUD();
+        return true;
+      }
+    }
+  }
+
+  // vs spider
+  if (spider) {
+    if (Math.hypot(b.x - spider.x, b.y - spider.y) < CELL * 0.6) {
+      const d = Math.hypot(player.x - spider.x, player.y - spider.y);
+      const gained = d < 50 ? 900 : d < 100 ? 600 : 300;
+      score += gained;
+      popup(spider.x, spider.y, gained, C.spider);
+      spawnParticles(spider.x, spider.y, C.spider, 18, 200);
+      shake = Math.max(shake, 6);
+      snd('hitSpider');
+      spider = null;
+      updateHUD();
+      return true;
+    }
+  }
+
+  // vs flea
+  if (flea) {
+    if (Math.hypot(b.x - flea.x, b.y - flea.y) < CELL * 0.55) {
+      flea.hp--;
+      if (flea.hp <= 0) {
+        score += 200;
+        popup(flea.x, flea.y, 200, C.flea);
+        spawnParticles(flea.x, flea.y, C.flea, 14, 160);
+        shake = Math.max(shake, 4);
+        snd('hitFlea');
+        flea = null;
+      } else {
+        flea.speed *= 2.2;
+        spawnParticles(flea.x, flea.y, C.flea, 6, 100);
+      }
+      updateHUD();
+      return true;
+    }
+  }
+
+  // vs scorpion
+  if (scorpion) {
+    if (Math.hypot(b.x - scorpion.x, b.y - scorpion.y) < CELL * 0.6) {
+      score += 1000;
+      popup(scorpion.x, scorpion.y, 1000, C.scorpion);
+      spawnParticles(scorpion.x, scorpion.y, C.scorpion, 20, 220);
+      shake = Math.max(shake, 7);
+      snd('hitScorp');
+      scorpion = null;
+      updateHUD();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+// CENTIPEDE TICK
+// ============================================================================
+function tickCentipede(cp, dt) {
+  if (cp.segments.length === 0) return;
+  cp.tickTimer += dt;
+  // Diving centipedes plunge at 2x speed
+  const tickInterval = cp.diving ? centSpeed * 0.5 : centSpeed;
+  while (cp.tickTimer >= tickInterval && cp.segments.length > 0) {
+    cp.tickTimer -= tickInterval;
+    const head = cp.segments[0];
+    let newCol = head.col;
+    let newRow = head.row;
+
+    if (cp.diving) {
+      // While diving, just plunge straight down
+      newRow = head.row + 1;
+      if (newRow >= ROWS) {
+        cp.diving = false;
+        cp.vDir = -1;
+        newRow = head.row - 1;
+      } else if (newRow >= PLAYER_ZONE_TOP) {
+        // Reached player zone — exit dive and resume normal bouncing
+        cp.diving = false;
+        cp.vDir = 1;
+      }
+    } else {
+      // Normal: try horizontal move
+      newCol = head.col + cp.dir;
+      newRow = head.row;
+      let blocked = false;
+      let poisonedBlock = false;
+
+      if (newCol < 0 || newCol >= COLS) {
+        blocked = true;
+      } else {
+        const m = getM(newCol, newRow);
+        if (m) {
+          blocked = true;
+          if (m.poisoned) poisonedBlock = true;
+        }
+      }
+
+      if (blocked) {
+        if (poisonedBlock && newRow < PLAYER_ZONE_TOP) {
+          // Bumped into a poisoned mushroom outside the player zone — enter dive mode.
+          // Drop straight down without reversing direction.
+          cp.diving = true;
+          newCol = head.col;
+          newRow = head.row + 1;
+          if (newRow >= ROWS) {
+            cp.diving = false;
+            cp.vDir = -1;
+            newRow = head.row - 1;
+          } else if (newRow >= PLAYER_ZONE_TOP) {
+            cp.diving = false;
+            cp.vDir = 1;
+          }
+        } else {
+          // Normal bounce: drop & reverse
+          newCol = head.col;
+          newRow = head.row + cp.vDir;
+          if (newRow >= ROWS) {
+            cp.vDir = -1;
+            newRow = head.row - 1;
+          } else if (newRow < CENT_BOUNCE_TOP && cp.vDir === -1) {
+            cp.vDir = 1;
+            newRow = head.row + 1;
+          } else if (newRow < 0) {
+            cp.vDir = 1;
+            newRow = head.row + 1;
+          }
+          cp.dir *= -1;
+        }
+      }
+    }
+
+    // Shift segments forward (snake-style)
+    for (let i = cp.segments.length - 1; i > 0; i--) {
+      const s = cp.segments[i];
+      s.prevCol = s.col;
+      s.prevRow = s.row;
+      s.col = cp.segments[i - 1].col;
+      s.row = cp.segments[i - 1].row;
+    }
+    head.prevCol = head.col;
+    head.prevRow = head.row;
+    head.col = newCol;
+    head.row = newRow;
+  }
+}
+
+// ============================================================================
+// SPIDER
+// ============================================================================
+function createSpider() {
+  const fromLeft = Math.random() < 0.5;
+  return {
+    x: fromLeft ? -CELL : W + CELL,
+    y: (PLAYER_ZONE_TOP + Math.random() * (ROWS - PLAYER_ZONE_TOP - 1)) * CELL + CELL/2,
+    vx: fromLeft ? 90 + wave * 4 : -(90 + wave * 4),
+    vy: (Math.random() - 0.5) * 140,
+    changeT: 0,
+    eatT: 0,
+  };
+}
+
+function updateSpider(s, dt) {
+  s.x += s.vx * dt;
+  s.y += s.vy * dt;
+  s.changeT -= dt;
+  s.eatT -= dt;
+
+  if (s.changeT <= 0) {
+    s.changeT = rand(0.35, 0.9);
+    s.vy = (Math.random() - 0.5) * 220;
+  }
+  // Stay in player zone vertically
+  const yMin = PLAYER_ZONE_TOP * CELL + CELL/2;
+  const yMax = H - CELL/2;
+  if (s.y < yMin) { s.y = yMin; s.vy = Math.abs(s.vy); }
+  if (s.y > yMax) { s.y = yMax; s.vy = -Math.abs(s.vy); }
+
+  // Eat mushrooms on contact
+  if (s.eatT <= 0) {
+    s.eatT = 0.12;
+    const sc = Math.floor(s.x / CELL);
+    const sr = Math.floor(s.y / CELL);
+    if (getM(sc, sr)) {
+      delM(sc, sr);
+      spawnParticles(sc * CELL + CELL/2, sr * CELL + CELL/2, C.mush[0], 6, 80);
+    }
+  }
+
+  // Despawn
+  if (s.x < -CELL * 2 || s.x > W + CELL * 2) spider = null;
+}
+
+// ============================================================================
+// FLEA
+// ============================================================================
+function updateFlea(f, dt) {
+  f.y += f.speed * dt;
+  f.trailTimer -= dt;
+  if (f.trailTimer <= 0) {
+    f.trailTimer = 0.07;
+    if (Math.random() < 0.35) {
+      const fc = Math.floor(f.x / CELL);
+      const fr = Math.floor(f.y / CELL);
+      if (fr >= TOP_DEAD_ZONE + 1 && fr < ROWS - 1 && !getM(fc, fr)) {
+        setM(fc, fr, { hp: MUSH_HP_MAX, poisoned: false });
+      }
+    }
+  }
+  if (f.y > H + CELL) flea = null;
+}
+
+// ============================================================================
+// SCORPION
+// ============================================================================
+function createScorpion() {
+  const fromLeft = Math.random() < 0.5;
+  // Walks in the mushroom field — anywhere from row 3 to a couple above the player zone
+  const row = randInt(3, PLAYER_ZONE_TOP - 3);
+  return {
+    x: fromLeft ? -CELL : W + CELL,
+    y: row * CELL + CELL / 2,
+    vx: fromLeft ? 145 + wave * 6 : -(145 + wave * 6), // ~30% faster
+    lastCol: null,
+    poisonsLeft: randInt(1, 3), // cap poisonings per pass
+  };
+}
+
+function updateScorpion(s, dt) {
+  s.x += s.vx * dt;
+  // Poison up to N mushrooms in the row it crosses
+  const col = Math.floor(s.x / CELL);
+  const row = Math.floor(s.y / CELL);
+  if (col !== s.lastCol) {
+    const m = getM(col, row);
+    if (m && !m.poisoned && s.poisonsLeft > 0) {
+      m.poisoned = true;
+      s.poisonsLeft--;
+      spawnParticles(col * CELL + CELL/2, row * CELL + CELL/2, C.poisonMush[0], 3, 50);
+    }
+    s.lastCol = col;
+  }
+  // Despawn off-screen
+  if (s.x < -CELL * 2 || s.x > W + CELL * 2) scorpion = null;
+}
+
+// ============================================================================
+// PLAYER DEATH
+// ============================================================================
+function playerDie() {
+  lives--;
+  bullets = [];
+  shake = 12;
+  spawnParticles(player.x, player.y, C.player, 28, 240);
+  spawnParticles(player.x, player.y, '#ffffff', 12, 200);
+  snd('die');
+  updateHUD();
+
+  if (lives <= 0) {
+    setTimeout(() => {
+      if (state !== 'GAMEOVER') {
+        state = 'GAMEOVER';
+        document.getElementById('hud').classList.add('hidden');
+        document.getElementById('gameOverScreen').classList.remove('hidden');
+        document.getElementById('finalScoreEl').textContent = score.toLocaleString();
+        document.getElementById('finalWaveEl').textContent = wave;
+      }
+    }, 1100);
+  } else {
+    respawnTimer = 1.0;
+    invincible = 2.4;
+    player.x = W / 2;
+    player.y = H - CELL * 1.6;
+  }
+}
+
+// ============================================================================
+// EFFECTS
+// ============================================================================
+function spawnParticles(x, y, color, n = 8, baseSpeed = 140) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = baseSpeed * (0.5 + Math.random());
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 0.4 + Math.random() * 0.5,
+      maxLife: 0.9,
+      color,
+      size: 1.5 + Math.random() * 2.5,
+    });
+  }
+}
+
+function popup(x, y, n, color) {
+  popups.push({ x, y, text: '+' + n, color, life: 0.9, maxLife: 0.9 });
+}
+
+// ============================================================================
+// HUD
+// ============================================================================
+function updateHUD() {
+  document.getElementById('scoreEl').textContent = String(score).padStart(6, '0');
+  document.getElementById('waveEl').textContent = wave || 1;
+  const el = document.getElementById('livesEl');
+  el.innerHTML = '';
+  for (let i = 0; i < Math.max(0, lives - 1); i++) {
+    const d = document.createElement('div');
+    d.className = 'life';
+    el.appendChild(d);
+  }
+}
+
+// ============================================================================
+// RENDER
+// ============================================================================
+function render() {
+  // clear
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  if (shake > 0) {
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  }
+
+  // Player zone background tint
+  ctx.fillStyle = C.bgZone;
+  ctx.fillRect(0, PLAYER_ZONE_TOP * CELL, W, H - PLAYER_ZONE_TOP * CELL);
+
+  // Subtle grid in player zone
+  ctx.strokeStyle = C.grid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let r = PLAYER_ZONE_TOP; r <= ROWS; r++) {
+    ctx.moveTo(0, r * CELL + 0.5);
+    ctx.lineTo(W, r * CELL + 0.5);
+  }
+  for (let c = 0; c <= COLS; c++) {
+    ctx.moveTo(c * CELL + 0.5, PLAYER_ZONE_TOP * CELL);
+    ctx.lineTo(c * CELL + 0.5, H);
+  }
+  ctx.stroke();
+
+  // Divider line
+  ctx.strokeStyle = 'rgba(170,255,85,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, PLAYER_ZONE_TOP * CELL + 0.5);
+  ctx.lineTo(W, PLAYER_ZONE_TOP * CELL + 0.5);
+  ctx.stroke();
+
+  // Mushrooms
+  for (const [k, m] of mushrooms) {
+    const [c, r] = k.split(',').map(Number);
+    drawMushroom(c * CELL + CELL/2, r * CELL + CELL/2, m.hp, m.poisoned);
+  }
+
+  // Particles
+  for (const p of particles) {
+    const a = p.life / p.maxLife;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Centipedes
+  for (const cp of centipedes) drawCentipede(cp);
+
+  // Spider
+  if (spider) drawSpider(spider);
+
+  // Flea
+  if (flea) drawFlea(flea);
+
+  // Scorpion
+  if (scorpion) drawScorpion(scorpion);
+
+  // Bullets
+  for (const b of bullets) drawBullet(b);
+
+  // Player
+  if (respawnTimer <= 0) {
+    const blink = invincible > 0 ? (Math.floor(invincible * 12) % 2 === 0) : true;
+    if (blink) drawPlayer(player);
+  }
+
+  // Popups
+  for (const p of popups) {
+    const a = Math.min(1, p.life / p.maxLife);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.font = 'bold 12px Silkscreen, monospace';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+
+  ctx.restore();
+}
+
+// ---------- Entity drawing ----------
+function drawMushroom(x, y, hp, poisoned) {
+  const idx = clamp(MUSH_HP_MAX - hp, 0, MUSH_HP_MAX - 1);
+  const cap = poisoned ? C.poisonMush[idx] : C.mush[idx];
+  const size = CELL * 0.82;
+
+  // Stem
+  ctx.fillStyle = C.mushStem;
+  ctx.fillRect(x - size * 0.18, y, size * 0.36, size * 0.32);
+
+  // Pulse glow on poisoned mushrooms
+  if (poisoned) {
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 280));
+    ctx.shadowBlur = 10 * pulse;
+    ctx.shadowColor = cap;
+  }
+
+  // Cap dome
+  ctx.fillStyle = cap;
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.45, Math.PI, 0);
+  ctx.lineTo(x + size * 0.45, y + size * 0.08);
+  ctx.lineTo(x - size * 0.45, y + size * 0.08);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Cap rim
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(x - size * 0.45, y + size * 0.04, size * 0.9, 2);
+
+  // Cap dots
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(x - size*0.22, y - size*0.18, 2, 2);
+  ctx.fillRect(x + size*0.08, y - size*0.08, 2, 2);
+  ctx.fillRect(x - size*0.06, y - size*0.26, 2, 2);
+}
+
+function drawCentipede(cp) {
+  const t = cp.tickTimer / centSpeed;
+  // Body segments back-to-front for nice overlap
+  for (let i = cp.segments.length - 1; i >= 0; i--) {
+    const s = cp.segments[i];
+    const x = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+    const y = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+    drawSegment(x, y, i === 0, cp.dir, i);
+  }
+}
+
+function drawSegment(x, y, isHead, dir, idx) {
+  const r = CELL * 0.42;
+  const c1 = isHead ? C.centHead     : C.cent;
+  const c2 = isHead ? C.centHeadDark : C.centDark;
+
+  // Outer glow
+  ctx.shadowBlur = isHead ? 16 : 10;
+  ctx.shadowColor = c1;
+  ctx.fillStyle = c1;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Inner darker
+  ctx.fillStyle = c2;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.62, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body texture / segment line
+  if (!isHead) {
+    ctx.fillStyle = c1;
+    ctx.fillRect(x - r * 0.7, y - 1, r * 1.4, 2);
+  }
+
+  // Head: eyes facing direction of travel
+  if (isHead) {
+    const ox = dir > 0 ? 4 : -4;
+    ctx.fillStyle = '#0a0a14';
+    ctx.beginPath();
+    ctx.arc(x + ox - 3, y - 2, 2.2, 0, Math.PI * 2);
+    ctx.arc(x + ox + 3, y - 2, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x + ox - 3 + (dir > 0 ? 0.6 : -0.6), y - 2.4, 0.9, 0, Math.PI * 2);
+    ctx.arc(x + ox + 3 + (dir > 0 ? 0.6 : -0.6), y - 2.4, 0.9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawSpider(s) {
+  const x = s.x, y = s.y;
+  const r = CELL * 0.4;
+  const t = performance.now() / 80;
+
+  ctx.strokeStyle = C.spider;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = C.spider;
+  for (let i = 0; i < 4; i++) {
+    const baseA = i / 4 * Math.PI - Math.PI / 2;
+    const w = Math.sin(t + i) * 0.35;
+    const len = r * 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(baseA + w) * len, y + Math.sin(baseA + w) * len);
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - Math.cos(baseA + w) * len, y - Math.sin(baseA + w) * len);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // Body
+  ctx.fillStyle = C.spider;
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = C.spider;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = C.spiderDark;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(x - 3, y - 2, 1.6, 0, Math.PI * 2);
+  ctx.arc(x + 3, y - 2, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#0a0a14';
+  ctx.beginPath();
+  ctx.arc(x - 3, y - 2, 0.8, 0, Math.PI * 2);
+  ctx.arc(x + 3, y - 2, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFlea(f) {
+  const x = f.x, y = f.y;
+  ctx.fillStyle = C.flea;
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = C.flea;
+  // Diamond / bug body
+  ctx.beginPath();
+  ctx.moveTo(x, y - 9);
+  ctx.lineTo(x + 6, y);
+  ctx.lineTo(x, y + 9);
+  ctx.lineTo(x - 6, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Inner
+  ctx.fillStyle = '#ff9c2e';
+  ctx.beginPath();
+  ctx.moveTo(x, y - 5);
+  ctx.lineTo(x + 3, y);
+  ctx.lineTo(x, y + 5);
+  ctx.lineTo(x - 3, y);
+  ctx.closePath();
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(x - 2, y - 4, 1.5, 1.5);
+  ctx.fillRect(x + 1, y - 4, 1.5, 1.5);
+}
+
+function drawScorpion(s) {
+  const x = s.x, y = s.y;
+  const t = performance.now() / 90;
+  const facing = Math.sign(s.vx) || 1;
+
+  // Body — chain of 5 segments trailing behind the head
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = C.scorpion;
+  for (let i = 0; i < 5; i++) {
+    const sx = x - facing * i * 4.5;
+    const sy = y + Math.sin(t + i * 0.7) * 1.2;
+    const r = 4.5 - i * 0.3;
+    ctx.fillStyle = C.scorpion;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C.scorpionDark;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Tail — curves up and over the back, ending in a stinger
+  const tailBaseX = x - facing * 5 * 4.5;
+  const tailBaseY = y;
+  const wob = Math.sin(t * 0.9) * 1.2;
+  ctx.strokeStyle = C.scorpion;
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = C.scorpion;
+  ctx.beginPath();
+  ctx.moveTo(tailBaseX, tailBaseY);
+  ctx.quadraticCurveTo(
+    tailBaseX - facing * 4, tailBaseY - 10 + wob,
+    tailBaseX + facing * 1, tailBaseY - 13 + wob
+  );
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Stinger
+  ctx.fillStyle = C.scorpion;
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = C.scorpion;
+  ctx.beginPath();
+  ctx.arc(tailBaseX + facing * 1, tailBaseY - 13 + wob, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Pincers up front, facing direction of travel
+  ctx.strokeStyle = C.scorpion;
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round';
+  const legWob = Math.sin(t) * 0.4;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 1);
+  ctx.lineTo(x + facing * 7, y - 4 + legWob);
+  ctx.moveTo(x, y + 1);
+  ctx.lineTo(x + facing * 7, y + 4 - legWob);
+  ctx.stroke();
+  // Pincer claws (little hooks)
+  ctx.beginPath();
+  ctx.moveTo(x + facing * 7, y - 4 + legWob);
+  ctx.lineTo(x + facing * 9, y - 2 + legWob);
+  ctx.moveTo(x + facing * 7, y + 4 - legWob);
+  ctx.lineTo(x + facing * 9, y + 2 - legWob);
+  ctx.stroke();
+
+  // Side legs
+  for (let i = 1; i < 4; i++) {
+    const lx = x - facing * i * 4.5;
+    const lyOff = Math.sin(t + i * 1.3) * 2;
+    ctx.beginPath();
+    ctx.moveTo(lx, y);
+    ctx.lineTo(lx - 4, y - 5 + lyOff);
+    ctx.moveTo(lx, y);
+    ctx.lineTo(lx - 4, y + 5 - lyOff);
+    ctx.stroke();
+  }
+}
+
+function drawBullet(b) {
+  ctx.fillStyle = C.bullet;
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = C.bullet;
+  ctx.fillRect(b.x - 1.5, b.y - 7, 3, 14);
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillRect(b.x - 3, b.y - 4, 6, 8);
+  ctx.shadowBlur = 0;
+}
+
+function drawPlayer(p) {
+  const x = p.x, y = p.y;
+  ctx.fillStyle = C.player;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = C.player;
+  // Wings
+  ctx.beginPath();
+  ctx.moveTo(x, y - 10);
+  ctx.lineTo(x - 9, y + 6);
+  ctx.lineTo(x - 4, y + 4);
+  ctx.lineTo(x - 4, y + 8);
+  ctx.lineTo(x + 4, y + 8);
+  ctx.lineTo(x + 4, y + 4);
+  ctx.lineTo(x + 9, y + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Cockpit highlight
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - 1, y - 4, 2, 4);
+
+  // Engine glow
+  ctx.fillStyle = 'rgba(255,228,77,0.9)';
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = '#ffe44d';
+  ctx.fillRect(x - 2, y + 8, 4, 2 + Math.random() * 2);
+  ctx.shadowBlur = 0;
+}
+
+// ============================================================================
+// BOOT
+// ============================================================================
+init();
+</script>
+</body>
+</html>
