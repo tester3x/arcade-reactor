@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.15 — Arcade Reactor</title>
+<title>HEXAPEDE v0.16 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -411,7 +411,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.15</div>
+    <div class="version-tag" id="versionTag">v0.16</div>
   </div>
 </div>
 
@@ -1149,6 +1149,23 @@ function handleBulletHit(b) {
 // ============================================================================
 // CENTIPEDE TICK
 // ============================================================================
+
+// Returns true if (col,row) is occupied by a segment of some centipede OTHER
+// than `ignoreCp`. Used so two chains can't pile up in the same cell — when a
+// head would move into another chain's segment, it bounces like it hit a wall.
+function cellHasOtherCentipedeSegment(col, row, ignoreCp) {
+  for (let ci = 0; ci < centipedes.length; ci++) {
+    const other = centipedes[ci];
+    if (other === ignoreCp) continue;
+    const segs = other.segments;
+    for (let si = 0; si < segs.length; si++) {
+      const s = segs[si];
+      if (s.col === col && s.row === row) return true;
+    }
+  }
+  return false;
+}
+
 function tickCentipede(cp, dt) {
   if (cp.segments.length === 0) return;
   cp.tickTimer += dt;
@@ -1198,6 +1215,9 @@ function tickCentipede(cp, dt) {
         if (m) {
           blocked = true;
           if (m.poisoned) poisonedBlock = true;
+        } else if (cellHasOtherCentipedeSegment(newCol, newRow, cp)) {
+          // Another chain is in the way — treat like a wall (bounce, no poison)
+          blocked = true;
         }
       }
 
@@ -1464,7 +1484,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.15 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.16 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
