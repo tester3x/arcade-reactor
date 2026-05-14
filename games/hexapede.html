@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.19 — Arcade Reactor</title>
+<title>HEXAPEDE v0.20 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.19</div>
+    <div class="version-tag" id="versionTag">v0.20</div>
   </div>
 </div>
 
@@ -494,7 +494,7 @@ let highScore = 0;
 let lives = 3;
 let wave = 0;
 let mushrooms = new Map();        // Map<"c,r", {hp, poisoned}>
-let centipedes = [];              // [{segments, dir, vDir, tickTimer}]
+let centSegments = [];            // Flat array of independent segments. Each: {col, row, prevCol, prevRow, dir, vDir, tickTimer, diving}
 let player = { x: W / 2, y: H - CELL * 1.6, r: CELL * 0.45 };
 let bullets = [];
 let spider = null;
@@ -654,7 +654,7 @@ function start() {
   wave = 0;
   extraLifeAwarded = false;
   mushrooms = new Map();
-  centipedes = [];
+  centSegments = [];
   bullets = [];
   particles = [];
   popups = [];
@@ -739,21 +739,22 @@ function startWave() {
 }
 
 function spawnCentipede(length, row = 0) {
-  const segments = [];
+  // Spawn a "chain" as individual independent segments. They share initial
+  // dir/vDir/tickTimer so they LOOK like a chain at first, but each segment
+  // makes its own movement decisions from here on — matching arcade behavior.
   const dir = Math.random() < 0.5 ? 1 : -1;
-  // Head spawns ON the playfield at one edge; body trails off-screen behind it
   const startCol = dir > 0 ? 0 : COLS - 1;
   for (let i = 0; i < length; i++) {
     const col = startCol - dir * i;
-    segments.push({ col, row, prevCol: col, prevRow: row });
+    centSegments.push({
+      col, row,
+      prevCol: col, prevRow: row,
+      dir,
+      vDir: 1,
+      tickTimer: 0,
+      diving: false,
+    });
   }
-  centipedes.push({
-    segments,
-    dir,
-    vDir: 1,
-    tickTimer: 0,
-    diving: false,
-  });
 }
 
 // ============================================================================
@@ -922,12 +923,8 @@ function update(dt) {
     if (handleBulletHit(b)) bullets.splice(bi, 1);
   }
 
-  // ---- Centipedes ----
-  for (let i = centipedes.length - 1; i >= 0; i--) {
-    const cp = centipedes[i];
-    tickCentipede(cp, dt);
-    if (cp.segments.length === 0) centipedes.splice(i, 1);
-  }
+  // ---- Centipede segments (independent movement) ----
+  tickAllSegments(dt);
 
   // ---- Spider ----
   spiderTimer -= dt;
@@ -992,14 +989,11 @@ function update(dt) {
   // ---- Player vs enemies ----
   if (invincible <= 0 && respawnTimer <= 0) {
     let dead = false;
-    for (const cp of centipedes) {
-      const t = cp.tickTimer / centSpeed;
-      for (const s of cp.segments) {
-        const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
-        const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
-        if (Math.hypot(player.x - sx, player.y - sy) < CELL * 0.72) { dead = true; break; }
-      }
-      if (dead) break;
+    for (const s of centSegments) {
+      const t = s.tickTimer / centSpeed;
+      const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+      const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+      if (Math.hypot(player.x - sx, player.y - sy) < CELL * 0.72) { dead = true; break; }
     }
     if (!dead && spider && Math.hypot(player.x - spider.x, player.y - spider.y) < CELL * 0.7) dead = true;
     if (!dead && flea && Math.hypot(player.x - flea.x, player.y - flea.y) < CELL * 0.7) dead = true;
@@ -1007,7 +1001,7 @@ function update(dt) {
   }
 
   // ---- Wave clear ----
-  if (centipedes.length === 0 && !waveTransitioning && state === 'PLAYING') {
+  if (centSegments.length === 0 && !waveTransitioning && state === 'PLAYING') {
     waveTransitioning = true;
     setTimeout(() => {
       if (state === 'PLAYING') startWave();
@@ -1056,62 +1050,45 @@ function handleBulletHit(b) {
     return true;
   }
 
-  // vs centipede
-  for (let ci = 0; ci < centipedes.length; ci++) {
-    const cp = centipedes[ci];
-    const t = cp.tickTimer / centSpeed;
-    for (let si = 0; si < cp.segments.length; si++) {
-      const s = cp.segments[si];
-      const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
-      const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
-      if (Math.hypot(b.x - sx, b.y - sy) < CELL * 0.5) {
-        const isHead = (si === 0);
-        const gained = isHead ? 100 : 10;
-        score += gained;
-        popup(sx, sy, gained, isHead ? C.centHead : C.cent);
-        spawnParticles(sx, sy, isHead ? C.centHead : C.cent, isHead ? 14 : 10, isHead ? 180 : 130);
-        shake = Math.max(shake, isHead ? 5 : 3);
-        snd(isHead ? 'killHead' : 'hitCent');
+  // vs centipede segments — independent segments, killing just removes
+  for (let si = 0; si < centSegments.length; si++) {
+    const s = centSegments[si];
+    const t = s.tickTimer / centSpeed;
+    const sx = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+    const sy = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+    if (Math.hypot(b.x - sx, b.y - sy) < CELL * 0.5) {
+      const isHead = isSegmentHead(s);
+      const gained = isHead ? 100 : 10;
+      score += gained;
+      popup(sx, sy, gained, isHead ? C.centHead : C.cent);
+      spawnParticles(sx, sy, isHead ? C.centHead : C.cent, isHead ? 14 : 10, isHead ? 180 : 130);
+      shake = Math.max(shake, isHead ? 5 : 3);
+      snd(isHead ? 'killHead' : 'hitCent');
 
-        // Place mushroom at the segment's CURRENT target cell — UNLESS the player is overlapping
-        // that cell. Otherwise we'd spawn a mushroom on top of the ship and trap them.
-        if (s.col >= 0 && s.col < COLS && s.row >= 0 && s.row < ROWS && !getM(s.col, s.row)) {
-          const cellLeft = s.col * CELL;
-          const cellTop  = s.row * CELL;
-          const overlapsPlayer =
-            player.x + player.r > cellLeft &&
-            player.x - player.r < cellLeft + CELL &&
-            player.y + player.r > cellTop  &&
-            player.y - player.r < cellTop + CELL;
-          if (!overlapsPlayer) {
-            setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
-          }
+      // Place mushroom at the killed segment's cell — UNLESS the player is
+      // overlapping it (would trap the ship). Replaces any partial mushroom
+      // already there (matches arcade — kill overwrites with fresh full HP).
+      if (s.col >= 0 && s.col < COLS && s.row >= 0 && s.row < ROWS) {
+        const cellLeft = s.col * CELL;
+        const cellTop  = s.row * CELL;
+        const overlapsPlayer =
+          player.x + player.r > cellLeft &&
+          player.x - player.r < cellLeft + CELL &&
+          player.y + player.r > cellTop  &&
+          player.y - player.r < cellTop + CELL;
+        if (!overlapsPlayer) {
+          setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
         }
-
-        // Split / shorten
-        if (si === 0) {
-          cp.segments.shift();
-        } else if (si === cp.segments.length - 1) {
-          cp.segments.pop();
-        } else {
-          // Classic split: back half keeps the original direction. On its very next tick,
-          // its new head will try to move into the cell where the killed segment was —
-          // which is now a mushroom — and bounce off it (drop one row, reverse). This
-          // produces the "stutter then turn" look of the real arcade machine instead
-          // of an instant pivot.
-          const tail = cp.segments.slice(si + 1);
-          cp.segments = cp.segments.slice(0, si);
-          centipedes.push({
-            segments: tail,
-            dir: cp.dir,
-            vDir: cp.vDir,
-            tickTimer: cp.tickTimer,
-            diving: cp.diving,
-          });
-        }
-        updateHUD();
-        return true;
       }
+
+      // Remove this segment. No split logic — each segment is independent,
+      // and the segments behind it just keep on moving in their own directions.
+      // The segment that WAS behind it will now visually become a "head" on
+      // the next render frame (since isSegmentHead is computed dynamically).
+      centSegments.splice(si, 1);
+
+      updateHUD();
+      return true;
     }
   }
 
@@ -1172,162 +1149,166 @@ function handleBulletHit(b) {
 // CENTIPEDE TICK
 // ============================================================================
 
-// Returns true if (col,row) is occupied by a segment of some centipede OTHER
-// than `ignoreCp`. Used so two chains can't pile up in the same cell — when a
-// head would move into another chain's segment, it bounces like it hit a wall.
-function cellHasOtherCentipedeSegment(col, row, ignoreCp) {
-  for (let ci = 0; ci < centipedes.length; ci++) {
-    const other = centipedes[ci];
-    if (other === ignoreCp) continue;
-    const segs = other.segments;
-    for (let si = 0; si < segs.length; si++) {
-      const s = segs[si];
-      if (s.col === col && s.row === row) return true;
-    }
+// Is `s` at the FRONT of a contiguous chain in its movement direction?
+// (Used for head sprite rendering and head-bonus scoring on kill.)
+// Diving segments are always heads.
+function isSegmentHead(s) {
+  if (s.diving) return true;
+  const frontCol = s.col + s.dir;
+  for (let i = 0; i < centSegments.length; i++) {
+    const o = centSegments[i];
+    if (o === s) continue;
+    if (o.col === frontCol && o.row === s.row && o.dir === s.dir) return false;
+  }
+  return true;
+}
+
+// Is (col, row) occupied by a segment OTHER than `ignore`?
+// Used as a "wall" check so segments bounce off each other instead of overlapping.
+function cellHasSegmentOther(col, row, ignore) {
+  for (let i = 0; i < centSegments.length; i++) {
+    const s = centSegments[i];
+    if (s === ignore) continue;
+    if (s.col === col && s.row === row) return true;
   }
   return false;
 }
 
-function tickCentipede(cp, dt) {
-  if (cp.segments.length === 0) return;
-  cp.tickTimer += dt;
-  // Diving centipedes plunge at 2x speed
-  const tickInterval = cp.diving ? centSpeed * 0.5 : centSpeed;
-  while (cp.tickTimer >= tickInterval && cp.segments.length > 0) {
-    cp.tickTimer -= tickInterval;
-    const head = cp.segments[0];
-    let newCol = head.col;
-    let newRow = head.row;
-
-    if (cp.diving) {
-      // Diving straight down — but a mushroom in the path stops the dive
-      const targetRow = head.row + 1;
-      const blockerMushroom = (targetRow < ROWS) ? getM(head.col, targetRow) : null;
-
-      if (blockerMushroom) {
-        // Mushroom column blocks the dive — cancel and resume normal zigzag from here.
-        // The head stays in place this tick (next tick the normal logic will move it).
-        cp.diving = false;
-        cp.vDir = 1;
-        newCol = head.col;
-        newRow = head.row;
-      } else if (targetRow >= ROWS) {
-        cp.diving = false;
-        cp.vDir = -1;
-        newRow = head.row - 1;
-      } else if (targetRow >= PLAYER_ZONE_TOP) {
-        // Reached player zone — exit dive and resume normal bouncing
-        cp.diving = false;
-        cp.vDir = 1;
-        newRow = targetRow;
-      } else {
-        newRow = targetRow;
-      }
-    } else {
-      // Normal: try horizontal move
-      newCol = head.col + cp.dir;
-      newRow = head.row;
-      let blocked = false;
-      let poisonedBlock = false;
-
-      if (newCol < 0 || newCol >= COLS) {
-        blocked = true;
-      } else {
-        const m = getM(newCol, newRow);
-        if (m) {
-          blocked = true;
-          if (m.poisoned) poisonedBlock = true;
-        } else if (cellHasOtherCentipedeSegment(newCol, newRow, cp)) {
-          // Another chain is in the way — treat like a wall (bounce, no poison)
-          blocked = true;
-        }
-      }
-
-      if (blocked) {
-        if (poisonedBlock && newRow < PLAYER_ZONE_TOP) {
-          // Bumped into a poisoned mushroom — try to enter dive mode.
-          // BUT if the cell directly below us is also blocked by a mushroom, the dive
-          // can't even start; fall back to a normal bounce.
-          const diveTargetRow = head.row + 1;
-          const diveBlocker = (diveTargetRow < ROWS) ? getM(head.col, diveTargetRow) : null;
-
-          if (diveBlocker) {
-            // Dive immediately blocked — do a normal horizontal bounce instead
-            newCol = head.col;
-            newRow = head.row + cp.vDir;
-            if (newRow >= ROWS) {
-              cp.vDir = -1;
-              newRow = head.row - 1;
-            } else if (newRow < CENT_BOUNCE_TOP && cp.vDir === -1) {
-              cp.vDir = 1;
-              newRow = head.row + 1;
-            } else if (newRow < 0) {
-              cp.vDir = 1;
-              newRow = head.row + 1;
-            }
-            cp.dir *= -1;
-          } else {
-            // Dive can proceed — drop one row, stay in dive mode for subsequent ticks
-            cp.diving = true;
-            newCol = head.col;
-            newRow = diveTargetRow;
-            if (newRow >= ROWS) {
-              cp.diving = false;
-              cp.vDir = -1;
-              newRow = head.row - 1;
-            } else if (newRow >= PLAYER_ZONE_TOP) {
-              cp.diving = false;
-              cp.vDir = 1;
-            }
-          }
-        } else {
-          // Normal bounce: drop & reverse
-          newCol = head.col;
-          newRow = head.row + cp.vDir;
-          if (newRow >= ROWS) {
-            cp.vDir = -1;
-            newRow = head.row - 1;
-          } else if (newRow < CENT_BOUNCE_TOP && cp.vDir === -1) {
-            cp.vDir = 1;
-            newRow = head.row + 1;
-          } else if (newRow < 0) {
-            cp.vDir = 1;
-            newRow = head.row + 1;
-          }
-          cp.dir *= -1;
-        }
-      }
+// Advance every segment by dt. Each segment ticks independently — its own
+// dir, vDir, tickTimer, diving state. This is the arcade-accurate model:
+// when one segment bounces off a wall or mushroom, ONLY that segment turns;
+// the others behind it stay on their original path until they each hit the
+// same obstacle independently. That's what gives Centipede its classic
+// "wall-funnel" kill pattern.
+function tickAllSegments(dt) {
+  for (let i = 0; i < centSegments.length; i++) {
+    const s = centSegments[i];
+    s.tickTimer += dt;
+    const interval = s.diving ? centSpeed * 0.5 : centSpeed;
+    while (s.tickTimer >= interval) {
+      s.tickTimer -= interval;
+      tickOneSegment(s);
     }
-
-    // FINAL LANDING CHECK — covers all move paths (dive landings, normal
-    // bounces, poisoned-fallback bounces). If the target cell is occupied by
-    // another chain, stay in place this tick. cp.dir / cp.vDir may have
-    // already flipped above — that's fine, next tick we try the new direction
-    // and usually find a free cell.
-    if (cellHasOtherCentipedeSegment(newCol, newRow, cp)) {
-      // If we were diving, we can't go down here — exit dive and resume
-      // normal bouncing on the next tick.
-      if (cp.diving) {
-        cp.diving = false;
-        cp.vDir = 1;
-      }
-      newCol = head.col;
-      newRow = head.row;
-    }
-
-    // Shift segments forward (snake-style)
-    for (let i = cp.segments.length - 1; i > 0; i--) {
-      const s = cp.segments[i];
-      s.prevCol = s.col;
-      s.prevRow = s.row;
-      s.col = cp.segments[i - 1].col;
-      s.row = cp.segments[i - 1].row;
-    }
-    head.prevCol = head.col;
-    head.prevRow = head.row;
-    head.col = newCol;
-    head.row = newRow;
   }
+}
+
+function tickOneSegment(s) {
+  let newCol = s.col;
+  let newRow = s.row;
+
+  if (s.diving) {
+    // Plunge straight down. Mushrooms in path stop the dive.
+    const targetRow = s.row + 1;
+    const blocker = (targetRow < ROWS) ? getM(s.col, targetRow) : null;
+
+    if (blocker) {
+      // Mushroom blocks — cancel dive, resume zigzag from here next tick
+      s.diving = false;
+      s.vDir = 1;
+      newCol = s.col;
+      newRow = s.row;
+    } else if (targetRow >= ROWS) {
+      s.diving = false;
+      s.vDir = -1;
+      newRow = s.row - 1;
+    } else if (targetRow >= PLAYER_ZONE_TOP) {
+      s.diving = false;
+      s.vDir = 1;
+      newRow = targetRow;
+    } else {
+      newRow = targetRow;
+    }
+  } else {
+    // Normal: try one cell forward in horizontal direction
+    newCol = s.col + s.dir;
+    newRow = s.row;
+    let blocked = false;
+    let poisonedBlock = false;
+
+    if (newCol < 0 || newCol >= COLS) {
+      blocked = true;
+    } else {
+      const m = getM(newCol, newRow);
+      if (m) {
+        blocked = true;
+        if (m.poisoned) poisonedBlock = true;
+      } else if (cellHasSegmentOther(newCol, newRow, s)) {
+        // Another segment is there — treat as wall (bounce, no poison effect)
+        blocked = true;
+      }
+    }
+
+    if (blocked) {
+      if (poisonedBlock && newRow < PLAYER_ZONE_TOP) {
+        // Bumped a poisoned mushroom above the player zone — try to dive.
+        // If the cell below is also blocked, fall back to a normal bounce.
+        const diveTargetRow = s.row + 1;
+        const diveBlocker = (diveTargetRow < ROWS) ? getM(s.col, diveTargetRow) : null;
+
+        if (diveBlocker) {
+          newCol = s.col;
+          newRow = s.row + s.vDir;
+          if (newRow >= ROWS) {
+            s.vDir = -1;
+            newRow = s.row - 1;
+          } else if (newRow < CENT_BOUNCE_TOP && s.vDir === -1) {
+            s.vDir = 1;
+            newRow = s.row + 1;
+          } else if (newRow < 0) {
+            s.vDir = 1;
+            newRow = s.row + 1;
+          }
+          s.dir *= -1;
+        } else {
+          s.diving = true;
+          newCol = s.col;
+          newRow = diveTargetRow;
+          if (newRow >= ROWS) {
+            s.diving = false;
+            s.vDir = -1;
+            newRow = s.row - 1;
+          } else if (newRow >= PLAYER_ZONE_TOP) {
+            s.diving = false;
+            s.vDir = 1;
+          }
+        }
+      } else {
+        // Normal bounce: drop one row, reverse horizontal direction
+        newCol = s.col;
+        newRow = s.row + s.vDir;
+        if (newRow >= ROWS) {
+          s.vDir = -1;
+          newRow = s.row - 1;
+        } else if (newRow < CENT_BOUNCE_TOP && s.vDir === -1) {
+          s.vDir = 1;
+          newRow = s.row + 1;
+        } else if (newRow < 0) {
+          s.vDir = 1;
+          newRow = s.row + 1;
+        }
+        s.dir *= -1;
+      }
+    }
+  }
+
+  // FINAL LANDING CHECK: never stack on another segment, no matter how we got
+  // to (newCol, newRow). If blocked, stay in place this tick — direction
+  // flips that already happened above remain, so next tick we'll try the
+  // new direction and usually find a free cell.
+  if (cellHasSegmentOther(newCol, newRow, s)) {
+    if (s.diving) {
+      s.diving = false;
+      s.vDir = 1;
+    }
+    newCol = s.col;
+    newRow = s.row;
+  }
+
+  // Commit the move
+  s.prevCol = s.col;
+  s.prevRow = s.row;
+  s.col = newCol;
+  s.row = newRow;
 }
 
 // ============================================================================
@@ -1522,7 +1503,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.19 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.20 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
@@ -1582,7 +1563,10 @@ function render() {
   ctx.globalAlpha = 1;
 
   // Centipedes
-  for (const cp of centipedes) drawCentipede(cp);
+  // Centipede segments — each one independent. Draw back-to-front by y for
+  // a touch of depth (later segments visually behind earlier).
+  // Heads are detected dynamically via isSegmentHead().
+  for (const s of centSegments) drawCentSegment(s);
 
   // Spider
   if (spider) drawSpider(spider);
@@ -1658,15 +1642,11 @@ function drawMushroom(x, y, hp, poisoned) {
   ctx.fillRect(x - size*0.06, y - size*0.26, 2, 2);
 }
 
-function drawCentipede(cp) {
-  const t = cp.tickTimer / centSpeed;
-  // Body segments back-to-front for nice overlap
-  for (let i = cp.segments.length - 1; i >= 0; i--) {
-    const s = cp.segments[i];
-    const x = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
-    const y = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
-    drawSegment(x, y, i === 0, cp.dir, i);
-  }
+function drawCentSegment(s) {
+  const t = s.tickTimer / centSpeed;
+  const x = (s.prevCol + (s.col - s.prevCol) * t + 0.5) * CELL;
+  const y = (s.prevRow + (s.row - s.prevRow) * t + 0.5) * CELL;
+  drawSegment(x, y, isSegmentHead(s), s.dir, 0);
 }
 
 function drawSegment(x, y, isHead, dir, idx) {
