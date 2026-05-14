@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.25 — Arcade Reactor</title>
+<title>HEXAPEDE v0.26 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.25</div>
+    <div class="version-tag" id="versionTag">v0.26</div>
   </div>
 </div>
 
@@ -1125,19 +1125,31 @@ function handleBulletHit(b) {
       shake = Math.max(shake, isHead ? 5 : 3);
       snd(isHead ? 'killHead' : 'hitCent');
 
-      // Place mushroom at the killed segment's cell — UNLESS the player is
-      // overlapping it (would trap the ship). Replaces any partial mushroom
-      // already there (matches arcade — kill overwrites with fresh full HP).
-      if (s.col >= 0 && s.col < COLS && s.row >= 0 && s.row < ROWS) {
-        const cellLeft = s.col * CELL;
-        const cellTop  = s.row * CELL;
+      // Drop the kill-mushroom one cell AHEAD of the segment in its direction
+      // of travel — not at the segment's current cell. This preserves the
+      // classic tunnel-and-chain-kill strategy: when you shoot the lead of a
+      // chain walking through a clear column, the column stays clear, and
+      // the segment behind walks freely into the vacated cell so you can pop
+      // it next. Without this, every kill blocks the tunnel and forces the
+      // follower to bounce immediately, defeating both strategies.
+      //
+      // Diving segments are plunging down, so the "next cell in dir" is one
+      // row below; everyone else moves horizontally.
+      const mushCol = s.diving ? s.col       : s.col + s.dir;
+      const mushRow = s.diving ? s.row + 1   : s.row;
+      if (mushCol >= 0 && mushCol < COLS && mushRow >= 0 && mushRow < ROWS) {
+        const cellLeft = mushCol * CELL;
+        const cellTop  = mushRow * CELL;
         const overlapsPlayer =
           player.x + player.r > cellLeft &&
           player.x - player.r < cellLeft + CELL &&
           player.y + player.r > cellTop  &&
           player.y - player.r < cellTop + CELL;
-        if (!overlapsPlayer) {
-          setM(s.col, s.row, { hp: MUSH_HP_MAX, poisoned: false });
+        // Skip if another segment is already there — dropping a mushroom on
+        // top of a live segment would block the chain-kill you set up.
+        const segmentInTheWay = cellHasSegmentOther(mushCol, mushRow, s);
+        if (!overlapsPlayer && !segmentInTheWay) {
+          setM(mushCol, mushRow, { hp: MUSH_HP_MAX, poisoned: false });
         }
       }
 
@@ -1603,7 +1615,7 @@ function updateVersionTag() {
   if (centSegments.length > 0 && centSegments.length <= 5) {
     segInfo = ' @' + centSegments.map(s => `${s.col},${s.row}`).join('|');
   }
-  el.textContent = `v0.25 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
+  el.textContent = `v0.26 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
 }
 
 // ============================================================================
