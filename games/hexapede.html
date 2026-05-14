@@ -835,6 +835,7 @@ function loop(t) {
   lastTime = t;
 
   if (state === 'PLAYING') update(dt);
+  if (state === 'PLAYING' || state === 'PAUSED') updateVersionTag();
   render();
 
   requestAnimationFrame(loop);
@@ -1503,7 +1504,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.20 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.20 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
 }
 
 // ============================================================================
