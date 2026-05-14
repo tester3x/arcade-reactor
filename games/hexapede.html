@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.17 — Arcade Reactor</title>
+<title>HEXAPEDE v0.18 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -411,7 +411,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.17</div>
+    <div class="version-tag" id="versionTag">v0.18</div>
   </div>
 </div>
 
@@ -434,8 +434,7 @@ const TOP_DEAD_ZONE = 1;          // mushrooms can't appear in row 0
 const MUSH_HP_MAX = 4;
 const PLAYER_SPEED = 240;         // px/sec
 const BULLET_SPEED = 620;         // px/sec
-const SHOOT_COOLDOWN = 0.08;      // sec between shots (one bullet on screen, but this prevents instant respawn)
-const BASE_CENT_SPEED = 0.16;     // seconds per cell (lower = faster)
+const BASE_CENT_SPEED = 0.18;     // seconds per cell (lower = faster). Arcade was ~0.20-0.22 on wave 1.
 const SPIDER_SPAWN_MIN = 7;
 const SPIDER_SPAWN_MAX = 14;
 
@@ -488,7 +487,6 @@ let shake = 0;
 let respawnTimer = 0;
 let invincible = 0;
 let spiderTimer = 0;
-let shootCD = 0;
 let centSpeed = BASE_CENT_SPEED;
 let extraLifeAwarded = false;
 let waveTransitioning = false;
@@ -649,7 +647,6 @@ function start() {
   invincible = 0;
   respawnTimer = 0;
   spiderTimer = rand(SPIDER_SPAWN_MIN, SPIDER_SPAWN_MAX);
-  shootCD = 0;
   waveTransitioning = false;
 
   // Seed mushroom field (less dense than arcade-overload — keeps flea trigger reachable)
@@ -864,7 +861,6 @@ function update(dt) {
   // ---- Timers ----
   if (invincible > 0)   invincible -= dt;
   if (respawnTimer > 0) respawnTimer -= dt;
-  if (shootCD > 0)      shootCD -= dt;
 
   // ---- Player movement (with mushroom collision; separate-axis so you can slide) ----
   // If we're already overlapping a mushroom (e.g., one spawned next to us and we slid into it),
@@ -884,9 +880,10 @@ function update(dt) {
   }
 
   // ---- Firing ----
-  if (fire && respawnTimer <= 0 && shootCD <= 0 && bullets.length === 0) {
+  // Arcade rule: one bullet on screen at a time, NO time cooldown.
+  // Next shot fires the instant the previous bullet hits or flies off.
+  if (fire && respawnTimer <= 0 && bullets.length === 0) {
     bullets.push({ x: player.x, y: player.y - CELL * 0.5, vy: -BULLET_SPEED });
-    shootCD = SHOOT_COOLDOWN;
     snd('shoot');
   }
 
@@ -1500,7 +1497,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.17 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.18 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
