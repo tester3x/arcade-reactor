@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.20 — Arcade Reactor</title>
+<title>HEXAPEDE v0.21 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.20</div>
+    <div class="version-tag" id="versionTag">v0.21</div>
   </div>
 </div>
 
@@ -515,6 +515,9 @@ let spiderTimer = 0;
 let centSpeed = BASE_CENT_SPEED;
 let extraLifeAwarded = false;
 let waveTransitioning = false;
+let mushroomRegenQueue = []; // keys "c,r" of damaged mushrooms to regenerate one at a time
+let mushroomRegenTimer = 0;
+let regenScheduled = false;  // true once the post-regen startWave timeout has been set
 
 // Input
 const keys = new Set();
@@ -596,6 +599,7 @@ function snd(type) {
     case 'shoot':     blip(880, 220, 0.06, 'square',   0.06); break;
     case 'hitMush':   blip(220, 160, 0.04, 'square',   0.04); break;
     case 'killMush':  blip(340, 80,  0.10, 'triangle', 0.06); break;
+    case 'regenMush': blip(700, 1100, 0.06, 'sine', 0.035); break;
     case 'hitCent':   blip(440, 110, 0.10, 'square',   0.09); break;
     case 'killHead':  blip(880, 220, 0.18, 'triangle', 0.10); break;
     case 'hitSpider': noise(0.25, 0.12, 400);                  break;
@@ -673,6 +677,9 @@ function start() {
   respawnTimer = 0;
   spiderTimer = rand(SPIDER_SPAWN_MIN, SPIDER_SPAWN_MAX);
   waveTransitioning = false;
+  mushroomRegenQueue = [];
+  mushroomRegenTimer = 0;
+  regenScheduled = false;
 
   // Seed mushroom field (less dense than arcade-overload — keeps flea trigger reachable)
   const seed = 24;
@@ -697,17 +704,10 @@ function startWave() {
   wave++;
   centSpeed = Math.max(0.05, BASE_CENT_SPEED - (wave - 1) * 0.011);
 
-  // Between-wave regeneration (classic arcade behavior):
-  // - Damaged mushrooms heal back to full HP
-  // - Poisoned mushrooms revert to normal
-  // Mushroom POSITIONS are preserved — walls you built still exist.
-  // Skip on wave 1 since there's nothing to regenerate yet.
-  if (wave > 1) {
-    for (const m of mushrooms.values()) {
-      m.hp = MUSH_HP_MAX;
-      m.poisoned = false;
-    }
-  }
+  // Between-wave regeneration is now animated and runs BEFORE startWave is called
+  // (see the regen processor in update()). By the time we get here, partially
+  // damaged mushrooms are already restored to full HP and unpoisoned, and the
+  // player has been awarded 5 points per regen.
 
   // NOTE: scorpionTimer is NOT reset at wave start — it persists, so a scorpion
   // about to spawn at the end of a wave still shows up at the start of the next one.
@@ -1002,12 +1002,65 @@ function update(dt) {
   }
 
   // ---- Wave clear ----
+  // When the centipede is fully cleared, kick off the mushroom regen sequence.
+  // Damaged and/or poisoned mushrooms pop back to full one-by-one with a +5
+  // popup each (classic arcade scoring). The next wave starts after a short
+  // pause once the regen queue drains.
   if (centSegments.length === 0 && !waveTransitioning && state === 'PLAYING') {
     waveTransitioning = true;
-    setTimeout(() => {
-      if (state === 'PLAYING') startWave();
-      waveTransitioning = false;
-    }, 800);
+    regenScheduled = false;
+    mushroomRegenQueue = [];
+    mushroomRegenTimer = 0;
+    for (const [k, m] of mushrooms) {
+      if (m.hp < MUSH_HP_MAX || m.poisoned) mushroomRegenQueue.push(k);
+    }
+  }
+
+  // ---- Mushroom regen animation (runs during wave transition) ----
+  if (waveTransitioning) {
+    if (mushroomRegenQueue.length > 0) {
+      mushroomRegenTimer += dt;
+      let popped = 0;
+      while (mushroomRegenTimer >= 0.04 && mushroomRegenQueue.length > 0) {
+        mushroomRegenTimer -= 0.04;
+        const k = mushroomRegenQueue.shift();
+        const m = mushrooms.get(k);
+        if (m) {
+          const wasPoisoned = m.poisoned;
+          m.hp = MUSH_HP_MAX;
+          m.poisoned = false;
+          score += 5;
+          const [col, row] = k.split(',').map(Number);
+          const px = col * CELL + CELL / 2;
+          const py = row * CELL + CELL / 2;
+          const popColor = wasPoisoned ? C.poisonMush[0] : C.mush[0];
+          popup(px, py, 5, popColor);
+          spawnParticles(px, py, popColor, 4, 70);
+          popped++;
+        }
+      }
+      // Throttle sound — at 40ms cadence every pop would be a machine-gun;
+      // play the soft pop every 3rd mushroom for a satisfying tick-tick-tick.
+      if (popped > 0) {
+        for (let i = 0; i < popped; i++) {
+          if ((mushroomRegenQueue.length + popped - i) % 3 === 0) {
+            snd('regenMush');
+            break;
+          }
+        }
+        updateHUD();
+      }
+    } else if (!regenScheduled) {
+      // Queue drained — schedule the next wave after a brief pause so the
+      // last popup has time to drift up and fade.
+      regenScheduled = true;
+      const delay = mushrooms.size > 0 ? 500 : 800; // longer pause on wave 1 (no regen happened)
+      setTimeout(() => {
+        if (state === 'PLAYING') startWave();
+        waveTransitioning = false;
+        regenScheduled = false;
+      }, delay);
+    }
   }
 
   // ---- Extra life ----
@@ -1504,7 +1557,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.20 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
+  if (el) el.textContent = `v0.21 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
 }
 
 // ============================================================================
