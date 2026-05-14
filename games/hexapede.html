@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.21 — Arcade Reactor</title>
+<title>HEXAPEDE v0.22 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.21</div>
+    <div class="version-tag" id="versionTag">v0.22</div>
   </div>
 </div>
 
@@ -1280,7 +1280,13 @@ function tickOneSegment(s) {
     let poisonedBlock = false;
 
     if (newCol < 0 || newCol >= COLS) {
-      blocked = true;
+      // Only on-screen segments bounce off the screen edge. Newly spawned
+      // segments start off-screen (e.g. cols 0, -1, -2, ..., -10) and must
+      // be allowed to walk onto the playfield. Without this guard, a segment
+      // at col=-2 trying to move to col=-1 sees -1<0, treats it as a wall,
+      // bounces, falls straight down off-screen, and is never seen again.
+      const onScreen = s.col >= 0 && s.col < COLS;
+      if (onScreen) blocked = true;
     } else {
       const m = getM(newCol, newRow);
       if (m) {
@@ -1557,7 +1563,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.21 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
+  if (el) el.textContent = `v0.22 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
 }
 
 // ============================================================================
