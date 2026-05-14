@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.22 — Arcade Reactor</title>
+<title>HEXAPEDE v0.23 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.22</div>
+    <div class="version-tag" id="versionTag">v0.23</div>
   </div>
 </div>
 
@@ -518,6 +518,7 @@ let waveTransitioning = false;
 let mushroomRegenQueue = []; // keys "c,r" of damaged mushrooms to regenerate one at a time
 let mushroomRegenTimer = 0;
 let regenScheduled = false;  // true once the post-regen startWave timeout has been set
+let nextChainId = 0;         // incremented per spawnCentipede call — each chain gets a unique id
 
 // Input
 const keys = new Set();
@@ -680,6 +681,7 @@ function start() {
   mushroomRegenQueue = [];
   mushroomRegenTimer = 0;
   regenScheduled = false;
+  nextChainId = 0;
 
   // Seed mushroom field (less dense than arcade-overload — keeps flea trigger reachable)
   const seed = 24;
@@ -742,8 +744,13 @@ function spawnCentipede(length, row = 0) {
   // Spawn a "chain" as individual independent segments. They share initial
   // dir/vDir/tickTimer so they LOOK like a chain at first, but each segment
   // makes its own movement decisions from here on — matching arcade behavior.
+  // Each segment carries a chainId (shared across this spawn) and a chainRank
+  // (0 for the head, 1 for first follower, etc). Head identity stays stable:
+  // a segment is the head iff no other segment in its chain has a lower rank
+  // still alive. When the head dies, the rank-1 follower promotes — once.
   const dir = Math.random() < 0.5 ? 1 : -1;
   const startCol = dir > 0 ? 0 : COLS - 1;
+  const chainId = nextChainId++;
   for (let i = 0; i < length; i++) {
     const col = startCol - dir * i;
     centSegments.push({
@@ -753,6 +760,8 @@ function spawnCentipede(length, row = 0) {
       vDir: 1,
       tickTimer: 0,
       diving: false,
+      chainId,
+      chainRank: i,
     });
   }
 }
@@ -1135,10 +1144,23 @@ function handleBulletHit(b) {
         }
       }
 
-      // Remove this segment. No split logic — each segment is independent,
-      // and the segments behind it just keep on moving in their own directions.
-      // The segment that WAS behind it will now visually become a "head" on
-      // the next render frame (since isSegmentHead is computed dynamically).
+      // Chain split: segments BEHIND the killed one (higher rank in same
+      // chain) form a new chain with the rank-1 follower promoted to head.
+      // Without this, killing a middle segment leaves the back half headless
+      // (its members each see the original head as a lower-rank live segment
+      // and never become heads themselves).
+      const killedChainId = s.chainId;
+      const killedRank = s.chainRank;
+      const behind = centSegments
+        .filter(o => o !== s && o.chainId === killedChainId && o.chainRank > killedRank)
+        .sort((a, b) => a.chainRank - b.chainRank);
+      if (behind.length > 0) {
+        const newChainId = nextChainId++;
+        for (let j = 0; j < behind.length; j++) {
+          behind[j].chainId = newChainId;
+          behind[j].chainRank = j;
+        }
+      }
       centSegments.splice(si, 1);
 
       updateHUD();
@@ -1203,16 +1225,23 @@ function handleBulletHit(b) {
 // CENTIPEDE TICK
 // ============================================================================
 
-// Is `s` at the FRONT of a contiguous chain in its movement direction?
+// Is `s` the head of its chain? Stable across frames: a segment is the head
+// iff no other segment in the same chainId has a lower chainRank still alive.
 // (Used for head sprite rendering and head-bonus scoring on kill.)
 // Diving segments are always heads.
+//
+// Why this matters: the previous version computed head-status geometrically
+// (any segment with no other one cell ahead = head). With independent-segment
+// movement, segments turn at different times, so adjacency keeps shifting
+// and heads visually flicker in/out, and one chain could briefly look like
+// it has 2-3 heads. Rank-based head identity is permanent until the head
+// dies, then the rank-1 follower promotes.
 function isSegmentHead(s) {
   if (s.diving) return true;
-  const frontCol = s.col + s.dir;
   for (let i = 0; i < centSegments.length; i++) {
     const o = centSegments[i];
     if (o === s) continue;
-    if (o.col === frontCol && o.row === s.row && o.dir === s.dir) return false;
+    if (o.chainId === s.chainId && o.chainRank < s.chainRank) return false;
   }
   return true;
 }
@@ -1563,7 +1592,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.22 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
+  if (el) el.textContent = `v0.23 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}`;
 }
 
 // ============================================================================
