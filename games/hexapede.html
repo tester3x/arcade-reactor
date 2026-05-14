@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.26 — Arcade Reactor</title>
+<title>HEXAPEDE v0.27 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.26</div>
+    <div class="version-tag" id="versionTag">v0.27</div>
   </div>
 </div>
 
@@ -1125,18 +1125,32 @@ function handleBulletHit(b) {
       shake = Math.max(shake, isHead ? 5 : 3);
       snd(isHead ? 'killHead' : 'hitCent');
 
-      // Drop the kill-mushroom one cell AHEAD of the segment in its direction
-      // of travel — not at the segment's current cell. This preserves the
-      // classic tunnel-and-chain-kill strategy: when you shoot the lead of a
-      // chain walking through a clear column, the column stays clear, and
-      // the segment behind walks freely into the vacated cell so you can pop
-      // it next. Without this, every kill blocks the tunnel and forces the
-      // follower to bounce immediately, defeating both strategies.
+      // Mushroom placement on kill:
       //
-      // Diving segments are plunging down, so the "next cell in dir" is one
-      // row below; everyone else moves horizontally.
-      const mushCol = s.diving ? s.col       : s.col + s.dir;
-      const mushRow = s.diving ? s.row + 1   : s.row;
+      // Prefer one cell AHEAD of the segment in its direction of travel.
+      // This preserves the classic tunnel-and-chain-kill strategy — when the
+      // lead of a chain is shot in a clear column, the column stays clear so
+      // the segment behind walks freely into the vacated cell for the next
+      // bullet to pop it.
+      //
+      // Fall back to the killed segment's own cell when the cell ahead is
+      // off-screen or already occupied by another segment. Without this
+      // fallback, body kills (where the segment ahead is the next chain
+      // member) drop no mushroom at all, and the field never fills in.
+      //
+      // Diving segments are plunging down, so "ahead" is one row below.
+      const aheadCol = s.diving ? s.col       : s.col + s.dir;
+      const aheadRow = s.diving ? s.row + 1   : s.row;
+      const aheadValid = aheadCol >= 0 && aheadCol < COLS && aheadRow >= 0 && aheadRow < ROWS;
+      const aheadBlocked = aheadValid && cellHasSegmentOther(aheadCol, aheadRow, s);
+      let mushCol, mushRow;
+      if (aheadValid && !aheadBlocked) {
+        mushCol = aheadCol;
+        mushRow = aheadRow;
+      } else {
+        mushCol = s.col;
+        mushRow = s.row;
+      }
       if (mushCol >= 0 && mushCol < COLS && mushRow >= 0 && mushRow < ROWS) {
         const cellLeft = mushCol * CELL;
         const cellTop  = mushRow * CELL;
@@ -1145,10 +1159,7 @@ function handleBulletHit(b) {
           player.x - player.r < cellLeft + CELL &&
           player.y + player.r > cellTop  &&
           player.y - player.r < cellTop + CELL;
-        // Skip if another segment is already there — dropping a mushroom on
-        // top of a live segment would block the chain-kill you set up.
-        const segmentInTheWay = cellHasSegmentOther(mushCol, mushRow, s);
-        if (!overlapsPlayer && !segmentInTheWay) {
+        if (!overlapsPlayer) {
           setM(mushCol, mushRow, { hp: MUSH_HP_MAX, poisoned: false });
         }
       }
@@ -1615,7 +1626,7 @@ function updateVersionTag() {
   if (centSegments.length > 0 && centSegments.length <= 5) {
     segInfo = ' @' + centSegments.map(s => `${s.col},${s.row}`).join('|');
   }
-  el.textContent = `v0.26 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
+  el.textContent = `v0.27 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
 }
 
 // ============================================================================
