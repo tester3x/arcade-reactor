@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.16 — Arcade Reactor</title>
+<title>HEXAPEDE v0.17 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -411,7 +411,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.16</div>
+    <div class="version-tag" id="versionTag">v0.17</div>
   </div>
 </div>
 
@@ -1277,6 +1277,22 @@ function tickCentipede(cp, dt) {
       }
     }
 
+    // FINAL LANDING CHECK — covers all move paths (dive landings, normal
+    // bounces, poisoned-fallback bounces). If the target cell is occupied by
+    // another chain, stay in place this tick. cp.dir / cp.vDir may have
+    // already flipped above — that's fine, next tick we try the new direction
+    // and usually find a free cell.
+    if (cellHasOtherCentipedeSegment(newCol, newRow, cp)) {
+      // If we were diving, we can't go down here — exit dive and resume
+      // normal bouncing on the next tick.
+      if (cp.diving) {
+        cp.diving = false;
+        cp.vDir = 1;
+      }
+      newCol = head.col;
+      newRow = head.row;
+    }
+
     // Shift segments forward (snake-style)
     for (let i = cp.segments.length - 1; i > 0; i--) {
       const s = cp.segments[i];
@@ -1484,7 +1500,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.16 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.17 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
