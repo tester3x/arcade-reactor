@@ -1,0 +1,68 @@
+name: Arcade Accuracy Feedback
+description: Tell us about something in one of our games that doesn't match the original arcade machine.
+title: "[Game Name] Short description"
+labels: ["accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Arcade Reactor games more authentic.
+
+        Please be specific and cite a source where you can — that helps us evaluate the change. Verifiable sources we trust most (in order):
+        1. MAME source code (the emulator's per-game `.cpp` files)
+        2. Original Atari / manufacturer service manuals
+        3. Longplay videos of the real cabinet (with timestamp)
+        4. Personal experience with the cabinet
+
+  - type: dropdown
+    id: game
+    attributes:
+      label: Which game?
+      options:
+        - Hexapede
+        - Space Rocks
+        - Web Reactor
+        - Bunker
+        - Other / not listed
+    validations:
+      required: true
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: What does OUR version do?
+      placeholder: e.g., "The flea drops a mushroom in every cell as it falls"
+    validations:
+      required: true
+
+  - type: textarea
+    id: original
+    attributes:
+      label: How does the ORIGINAL arcade game behave?
+      placeholder: e.g., "The original flea only drops mushrooms about 60% of the time, and faster as your score climbs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source / reference
+      description: MAME file, manual, longplay timestamp, fan wiki, etc. Anything we can verify against.
+      placeholder: e.g., "MAME centiped.cpp around line 400, Atari TM-094 service manual page 12, YouTube longplay [link] @ 3:42"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How off does it feel?
+      options:
+        - Minor — just a feel thing
+        - Moderate — noticeably wrong but playable
+        - Major — changes how the game plays
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Optional. Wave / level it happens on, screenshots, reproduction steps, your high score, anything.

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.18 — Arcade Reactor</title>
+<title>HEXAPEDE v0.19 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -282,6 +282,26 @@
 
   .btn:active { transform: translateY(0); }
 
+  .feedback-link {
+    display: inline-block;
+    margin-top: 22px;
+    font-family: 'Silkscreen', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--mush-2);
+    opacity: 0.55;
+    text-decoration: none;
+    border-bottom: 1px dashed currentColor;
+    padding-bottom: 2px;
+    transition: opacity 0.15s ease, color 0.15s ease;
+    text-transform: uppercase;
+  }
+  .feedback-link:hover, .feedback-link:focus {
+    opacity: 1;
+    color: var(--cent-head);
+    outline: none;
+  }
+
   .final {
     font-size: 13px;
     color: var(--text);
@@ -402,6 +422,11 @@
       <div class="final"><span class="num" id="finalScoreEl">0</span></div>
       <div class="final">WAVE&nbsp;<span id="finalWaveEl">1</span></div>
       <button class="btn" id="restartBtn" style="margin-top:24px">PLAY AGAIN</button>
+      <a class="feedback-link"
+         href="https://github.com/tester3x/arcade-reactor/issues/new?template=accuracy-feedback.yml&game=Hexapede&labels=accuracy,hexapede&title=%5BHexapede%5D+"
+         target="_blank" rel="noopener noreferrer">
+        Notice something off? &nbsp;Report accuracy issue&nbsp;→
+      </a>
     </div>
 
     <div class="overlay hidden" id="pauseScreen">
@@ -411,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.18</div>
+    <div class="version-tag" id="versionTag">v0.19</div>
   </div>
 </div>
 
@@ -1497,7 +1522,7 @@ function updateHUD() {
 
 function updateVersionTag() {
   const el = document.getElementById('versionTag');
-  if (el) el.textContent = `v0.18 · S:${scorpionsSpawned} F:${fleasSpawned}`;
+  if (el) el.textContent = `v0.19 · S:${scorpionsSpawned} F:${fleasSpawned}`;
 }
 
 // ============================================================================
