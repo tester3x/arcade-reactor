@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.28 — Arcade Reactor</title>
+<title>HEXAPEDE v0.29 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.28</div>
+    <div class="version-tag" id="versionTag">v0.29</div>
   </div>
 </div>
 
@@ -1276,6 +1276,47 @@ function tickAllSegments(dt) {
       tickOneSegment(s);
     }
   }
+  maintainChainCohesion();
+}
+
+// Independent-segment movement means a chain can physically break apart even
+// without a kill — one segment bounces and drops a row while the rest keep
+// going, and now they're nowhere near each other. v0.23 made head identity
+// stable by ranking segments at spawn, but a stable rank-0 head is wrong if
+// the chain has visibly splintered: a rank-3 follower 10 cells from rank-0
+// should be its own head with eyes.
+//
+// This routine, run once per frame after the ticks, walks each chain in rank
+// order and splits the chain anywhere two consecutive ranks are no longer
+// within 1 cell of each other (Chebyshev distance). The broken-off tail
+// becomes a fresh chain with its rank-1 follower promoted to rank-0 head.
+function maintainChainCohesion() {
+  // Group segments by chainId
+  const byChain = new Map();
+  for (const s of centSegments) {
+    if (!byChain.has(s.chainId)) byChain.set(s.chainId, []);
+    byChain.get(s.chainId).push(s);
+  }
+  for (const segs of byChain.values()) {
+    if (segs.length <= 1) continue;
+    segs.sort((a, b) => a.chainRank - b.chainRank);
+    for (let i = 0; i < segs.length - 1; i++) {
+      const a = segs[i];
+      const b = segs[i + 1];
+      const dx = Math.abs(a.col - b.col);
+      const dy = Math.abs(a.row - b.row);
+      // Chebyshev <= 1 means a and b are in the 3x3 neighborhood around each
+      // other — close enough to read as "still chained" even mid-bounce.
+      if (dx > 1 || dy > 1) {
+        const newChainId = nextChainId++;
+        for (let j = i + 1; j < segs.length; j++) {
+          segs[j].chainId = newChainId;
+          segs[j].chainRank = j - (i + 1);
+        }
+        break; // one split per chain per frame; if more breaks exist, next frame will catch them
+      }
+    }
+  }
 }
 
 function tickOneSegment(s) {
@@ -1609,7 +1650,7 @@ function updateVersionTag() {
   if (centSegments.length > 0 && centSegments.length <= 5) {
     segInfo = ' @' + centSegments.map(s => `${s.col},${s.row}`).join('|');
   }
-  el.textContent = `v0.28 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
+  el.textContent = `v0.29 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
 }
 
 // ============================================================================
