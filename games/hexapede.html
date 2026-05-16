@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.31 — Arcade Reactor</title>
+<title>HEXAPEDE v0.32 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.31</div>
+    <div class="version-tag" id="versionTag">v0.32</div>
   </div>
 </div>
 
@@ -1172,7 +1172,7 @@ function handleBulletHit(b) {
           player.x - player.r < cellLeft + CELL &&
           player.y + player.r > cellTop  &&
           player.y - player.r < cellTop + CELL;
-        // No segment-in-the-way check — the arcade doesn't have one, and v0.31's
+        // No segment-in-the-way check — the arcade doesn't have one, and v0.32's
         // phantom grow-in phase makes "dropping on top of a segment" harmless
         // for ~300ms (segment walks through, bullet flies through).
         if (!overlapsPlayer) {
@@ -1261,23 +1261,30 @@ function handleBulletHit(b) {
 // CENTIPEDE TICK
 // ============================================================================
 
-// Is `s` the head of its chain? Stable across frames: a segment is the head
-// iff no other segment in the same chainId has a lower chainRank still alive.
-// (Used for head sprite rendering and head-bonus scoring on kill.)
-// Diving segments are always heads.
+// Is `s` rendered as a head? Stable within a cluster: a segment renders as
+// the head iff no lower-rank same-chain segment is currently *adjacent* to
+// it (Chebyshev ≤ 1). Diving segments are always heads.
 //
-// Why this matters: the previous version computed head-status geometrically
-// (any segment with no other one cell ahead = head). With independent-segment
-// movement, segments turn at different times, so adjacency keeps shifting
-// and heads visually flicker in/out, and one chain could briefly look like
-// it has 2-3 heads. Rank-based head identity is permanent until the head
-// dies, then the rank-1 follower promotes.
+// Why proximity-based and not pure rank-based: with independent-segment
+// movement, chains can physically spread out (rank-0 wandering far from the
+// rest after a bounce). Pure rank-based head identity (v0.23) left visually
+// isolated followers stuck rendering as eyeless bodies. Aggressive
+// chain-splitting (v0.29) over-corrected and produced too many heads as
+// every turn briefly separated segments. Proximity-based gives the right
+// behavior for free: clusters of touching segments share a single head
+// (the lowest rank in that cluster), and when a cluster physically detaches
+// from the rest of its chain its lowest-rank member promotes to head on the
+// next frame — automatically, no chain-splitting bookkeeping needed.
 function isSegmentHead(s) {
   if (s.diving) return true;
   for (let i = 0; i < centSegments.length; i++) {
     const o = centSegments[i];
     if (o === s) continue;
-    if (o.chainId === s.chainId && o.chainRank < s.chainRank) return false;
+    if (o.chainId !== s.chainId) continue;
+    if (o.chainRank >= s.chainRank) continue;
+    const dx = Math.abs(o.col - s.col);
+    const dy = Math.abs(o.row - s.row);
+    if (dx <= 1 && dy <= 1) return false;
   }
   return true;
 }
@@ -1309,7 +1316,13 @@ function tickAllSegments(dt) {
       tickOneSegment(s);
     }
   }
-  maintainChainCohesion();
+  // Note: prior versions called maintainChainCohesion() here to split chains
+  // whose ranks had drifted >1 cell apart. v0.32 replaced that with
+  // proximity-based isSegmentHead — chains stay logically intact, but a
+  // visually-separated cluster's lowest-rank member naturally renders as a
+  // head. Less bookkeeping, fewer "extra head" artifacts during cascading
+  // turns. The function is still present below in case we want to bring it
+  // back, but it's no longer invoked.
 }
 
 // Independent-segment movement means a chain can physically break apart even
@@ -1684,7 +1697,7 @@ function updateVersionTag() {
   if (centSegments.length > 0 && centSegments.length <= 5) {
     segInfo = ' @' + centSegments.map(s => `${s.col},${s.row}`).join('|');
   }
-  el.textContent = `v0.31 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
+  el.textContent = `v0.32 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
 }
 
 // ============================================================================
