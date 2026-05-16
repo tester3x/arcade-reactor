@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="description" content="Hexapede — a classic-style segmented-bug arcade shooter on Arcade Reactor.">
-<title>HEXAPEDE v0.32 — Arcade Reactor</title>
+<title>HEXAPEDE v0.33 — Arcade Reactor</title>
 <!-- Favicons (relative to /games/) -->
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -436,7 +436,7 @@
 
     <div class="wave-banner hidden" id="waveBanner"></div>
     <div class="footer-hint">— ARCADE REACTOR —</div>
-    <div class="version-tag" id="versionTag">v0.32</div>
+    <div class="version-tag" id="versionTag">v0.33</div>
   </div>
 </div>
 
@@ -457,7 +457,6 @@ const FLEA_TRIGGER_TOP = 17;      // flea counts mushrooms in rows 17..23 (exclu
 const FLEA_TRIGGER_BOT = 23;
 const TOP_DEAD_ZONE = 1;          // mushrooms can't appear in row 0
 const MUSH_HP_MAX = 4;
-const MUSH_GROW_MS = 300; // freshly-killed mushrooms are insubstantial (phantom) for this long — enables tunnel-kill chains
 const PLAYER_SPEED = 240;         // px/sec
 const BULLET_SPEED = 620;         // px/sec
 const BASE_CENT_SPEED = 0.18;     // seconds per cell (lower = faster). Arcade was ~0.20-0.22 on wave 1.
@@ -528,13 +527,6 @@ const key  = (c, r) => c + ',' + r;
 const getM = (c, r) => mushrooms.get(key(c, r));
 const setM = (c, r, m) => mushrooms.set(key(c, r), m);
 const delM = (c, r) => mushrooms.delete(key(c, r));
-// A mushroom is "solid" — blocks centipede movement and stops bullets — only
-// after its grow-in animation completes. Initial-seed mushrooms have no
-// placedAt and are solid immediately; kill-spawned mushrooms grow in over
-// MUSH_GROW_MS, during which centipedes walk through them and bullets fly
-// through them. This is what makes the classic chain-up-the-tunnel kill
-// strategy work despite Hexapede's one-bullet-on-screen / slow-bullet rules.
-const isMushSolid = (m) => !m.placedAt || (performance.now() - m.placedAt) >= MUSH_GROW_MS;
 const rand = (a, b) => a + Math.random() * (b - a);
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1100,10 +1092,9 @@ function handleBulletHit(b) {
   const bcol = Math.floor(b.x / CELL);
   const brow = Math.floor(b.y / CELL);
 
-  // vs mushroom (only solid ones — bullets fly through young growing-in
-  // mushrooms so the player can chain-kill up a tunnel)
+  // vs mushroom
   const m = getM(bcol, brow);
-  if (m && isMushSolid(m)) {
+  if (m) {
     m.hp--;
     const baseColor = m.poisoned ? C.poisonMush[0] : C.mush[0];
     score += m.poisoned ? 5 : 1;
@@ -1172,11 +1163,11 @@ function handleBulletHit(b) {
           player.x - player.r < cellLeft + CELL &&
           player.y + player.r > cellTop  &&
           player.y - player.r < cellTop + CELL;
-        // No segment-in-the-way check — the arcade doesn't have one, and v0.32's
-        // phantom grow-in phase makes "dropping on top of a segment" harmless
-        // for ~300ms (segment walks through, bullet flies through).
+        // No segment-in-the-way check — the arcade doesn't have one, and
+        // the ahead-placement means the mushroom lands in the wall column,
+        // not in the chain's path through the tunnel.
         if (!overlapsPlayer) {
-          setM(mushCol, mushRow, { hp: MUSH_HP_MAX, poisoned: false, placedAt: performance.now() });
+          setM(mushCol, mushRow, { hp: MUSH_HP_MAX, poisoned: false });
         }
       }
 
@@ -1317,7 +1308,7 @@ function tickAllSegments(dt) {
     }
   }
   // Note: prior versions called maintainChainCohesion() here to split chains
-  // whose ranks had drifted >1 cell apart. v0.32 replaced that with
+  // whose ranks had drifted >1 cell apart. v0.33 replaced that with
   // proximity-based isSegmentHead — chains stay logically intact, but a
   // visually-separated cluster's lowest-rank member naturally renders as a
   // head. Less bookkeeping, fewer "extra head" artifacts during cascading
@@ -1381,8 +1372,7 @@ function tickOneSegment(s) {
   if (s.diving) {
     // Plunge straight down. Mushrooms in path stop the dive.
     const targetRow = s.row + 1;
-    const blockerRaw = (targetRow < ROWS) ? getM(s.col, targetRow) : null;
-    const blocker = (blockerRaw && isMushSolid(blockerRaw)) ? blockerRaw : null;
+    const blocker = (targetRow < ROWS) ? getM(s.col, targetRow) : null;
 
     if (blocker) {
       // Mushroom blocks — cancel dive, resume zigzag from here next tick
@@ -1418,7 +1408,7 @@ function tickOneSegment(s) {
       if (onScreen) blocked = true;
     } else {
       const m = getM(newCol, newRow);
-      if (m && isMushSolid(m)) {
+      if (m) {
         blocked = true;
         if (m.poisoned) poisonedBlock = true;
       } else if (cellHasSegmentOther(newCol, newRow, s)) {
@@ -1504,12 +1494,16 @@ function tickOneSegment(s) {
 // SPIDER
 // ============================================================================
 function createSpider() {
+  // Arcade spider behavior: equal horizontal/vertical speed magnitudes so it
+  // moves mostly diagonally, and a vertical range that extends well above the
+  // player zone (~7 rows of headroom) so it shows up high before diving down.
   const fromLeft = Math.random() < 0.5;
+  const speed = 80 + wave * 4;
   return {
     x: fromLeft ? -CELL : W + CELL,
-    y: (PLAYER_ZONE_TOP + Math.random() * (ROWS - PLAYER_ZONE_TOP - 1)) * CELL + CELL/2,
-    vx: fromLeft ? 90 + wave * 4 : -(90 + wave * 4),
-    vy: (Math.random() - 0.5) * 140,
+    y: (PLAYER_ZONE_TOP - 4 + Math.random() * 10) * CELL + CELL/2,
+    vx: fromLeft ? speed : -speed,
+    vy: (Math.random() < 0.5 ? -1 : 1) * speed,
     changeT: 0,
     eatT: 0,
   };
@@ -1521,12 +1515,18 @@ function updateSpider(s, dt) {
   s.changeT -= dt;
   s.eatT -= dt;
 
+  // Direction changes: 50% chance to flip vertical, 25% chance to flip
+  // horizontal too (matches arcade — spider commits to a heading for a
+  // moment, then can pivot). Magnitudes stay equal so motion is diagonal.
   if (s.changeT <= 0) {
-    s.changeT = rand(0.35, 0.9);
-    s.vy = (Math.random() - 0.5) * 220;
+    s.changeT = rand(0.4, 0.9);
+    if (Math.random() < 0.5) s.vy = -s.vy;
+    if (Math.random() < 0.25) s.vx = -s.vx;
   }
-  // Stay in player zone vertically
-  const yMin = PLAYER_ZONE_TOP * CELL + CELL/2;
+
+  // Vertical bounds: spider roams from ~7 rows above the player zone down to
+  // the bottom of the screen. Reverse on contact with either bound.
+  const yMin = (PLAYER_ZONE_TOP - 7) * CELL + CELL/2;
   const yMax = H - CELL/2;
   if (s.y < yMin) { s.y = yMin; s.vy = Math.abs(s.vy); }
   if (s.y > yMax) { s.y = yMax; s.vy = -Math.abs(s.vy); }
@@ -1542,7 +1542,7 @@ function updateSpider(s, dt) {
     }
   }
 
-  // Despawn
+  // Despawn when fully off-screen on the side
   if (s.x < -CELL * 2 || s.x > W + CELL * 2) spider = null;
 }
 
@@ -1697,7 +1697,7 @@ function updateVersionTag() {
   if (centSegments.length > 0 && centSegments.length <= 5) {
     segInfo = ' @' + centSegments.map(s => `${s.col},${s.row}`).join('|');
   }
-  el.textContent = `v0.32 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
+  el.textContent = `v0.33 · S:${scorpionsSpawned} F:${fleasSpawned} · C:${centSegments.length} W:${wave} T:${waveTransitioning?'Y':'N'}${segInfo}`;
 }
 
 // ============================================================================
@@ -1742,8 +1742,7 @@ function render() {
   // Mushrooms
   for (const [k, m] of mushrooms) {
     const [c, r] = k.split(',').map(Number);
-    const growT = m.placedAt ? Math.min(1, (performance.now() - m.placedAt) / MUSH_GROW_MS) : 1;
-    drawMushroom(c * CELL + CELL/2, r * CELL + CELL/2, m.hp, m.poisoned, growT);
+    drawMushroom(c * CELL + CELL/2, r * CELL + CELL/2, m.hp, m.poisoned);
   }
 
   // Particles
@@ -1800,15 +1799,10 @@ function render() {
 }
 
 // ---------- Entity drawing ----------
-function drawMushroom(x, y, hp, poisoned, growT = 1) {
+function drawMushroom(x, y, hp, poisoned) {
   const idx = clamp(MUSH_HP_MAX - hp, 0, MUSH_HP_MAX - 1);
   const cap = poisoned ? C.poisonMush[idx] : C.mush[idx];
-  // During grow-in, scale and fade. This is when the mushroom is "phantom"
-  // (centipedes walk through, bullets fly through), and the visual makes it
-  // obvious — the player sees the kill turn into a mushroom over a beat.
-  const size = CELL * 0.82 * (0.4 + 0.6 * growT);
-  const prevAlpha = ctx.globalAlpha;
-  if (growT < 1) ctx.globalAlpha = prevAlpha * (0.5 + 0.5 * growT);
+  const size = CELL * 0.82;
 
   // Stem
   ctx.fillStyle = C.mushStem;
@@ -1840,8 +1834,6 @@ function drawMushroom(x, y, hp, poisoned, growT = 1) {
   ctx.fillRect(x - size*0.22, y - size*0.18, 2, 2);
   ctx.fillRect(x + size*0.08, y - size*0.08, 2, 2);
   ctx.fillRect(x - size*0.06, y - size*0.26, 2, 2);
-
-  ctx.globalAlpha = prevAlpha;
 }
 
 function drawCentSegment(s) {
