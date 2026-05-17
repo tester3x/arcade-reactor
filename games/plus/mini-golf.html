@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.3 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.4 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -249,7 +249,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.3</div>
+    <div class="version-tag" id="versionTag">v0.4</div>
   </div>
 </div>
 
@@ -262,6 +262,65 @@
 
 <script>
 'use strict';
+
+// ============================================================================
+// SOUND — Web Audio synth, matches the aesthetic of Hexapede/Space Rocks
+// ============================================================================
+// No audio files. Each sound is a quick oscillator + envelope. AudioContext is
+// created lazily on first user gesture (browsers require this).
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioReady = false;
+function unlockAudio() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  audioReady = true;
+}
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown',     unlockAudio, { once: true });
+
+// Single envelope-shaped tone. Supports linear frequency sweep (freqEnd).
+function tone(freq, dur, type = 'sine', vol = 0.18, freqEnd = null) {
+  if (!audioReady) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  if (freqEnd !== null) osc.frequency.linearRampToValueAtTime(freqEnd, t + dur);
+  // Tiny attack, exponential release — clicky and arcade-y
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+const snd = {
+  // Launch: low whoosh, sweeps down (180 -> 90 Hz over 180ms). Like a putter hit.
+  putt: () => tone(180, 0.18, 'triangle', 0.22, 90),
+
+  // Wall bounce: short ping. Pitch scales with impact speed so hard bounces
+  // are sharper. Speed is the magnitude of the ball's velocity vector.
+  bounce: (speed) => {
+    const intensity = Math.min(1, speed / 700);
+    tone(540 + intensity * 520, 0.07, 'sine', 0.12 + intensity * 0.08);
+  },
+
+  // Ball-in-hole: descending triplet. Reads as "drop in." Last note is longer.
+  sink: () => {
+    tone(620, 0.10, 'sine', 0.18);
+    setTimeout(() => tone(440, 0.10, 'sine', 0.18), 90);
+    setTimeout(() => tone(280, 0.30, 'sine', 0.20), 180);
+  },
+
+  // Round complete: triumphant arpeggio (C-E-G major chord). Triangle wave for
+  // a slightly chiptune feel matching the rest of the site.
+  chime: () => {
+    tone(523, 0.30, 'triangle', 0.14); // C5
+    setTimeout(() => tone(659, 0.30, 'triangle', 0.14), 90);  // E5
+    setTimeout(() => tone(784, 0.50, 'triangle', 0.14), 180); // G5
+  },
+};
 
 // ============================================================================
 // CANVAS / CONSTANTS
@@ -433,40 +492,51 @@ function buildCourse4() {
   return { name: 'WIDE BERTH', tier: 2, ...shape };
 }
 
-// Confocal layering: inner ellipse drawn as decoration on top of the real
-// collision wall. Looks like two layers; ball still uses the outer ellipse.
+// Confocal layering: five inner confocal ellipses drawn over the real wall.
+// Looks like ripples emanating from the foci. Ball physics is just the outer
+// ellipse, but the eye sees a complex layered course.
 function buildCourse5() {
   const cx = W / 2, cy = H / 2;
   const a = 200, b = 130, rot = Math.PI / 8;
   const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  // Inner confocal ellipse: same foci, smaller. For confocal ellipses with
-  // foci distance c, all (a, b) pairs share c so a² - b² = c² stays constant.
   const c = Math.sqrt(a * a - b * b);
-  const a2 = a * 0.62, b2 = Math.sqrt(a2 * a2 - c * c);
-  return {
-    name: 'TWIN WALLS',
-    tier: 2,
-    ...shape,
-    decorations: decorEllipse(cx, cy, a2, b2, rot),
-  };
+  const decorations = [];
+  // 4 inner confocal ellipses at varying sizes. Each one shares the foci so
+  // it visually feels like a real second wall, even though only the outer is
+  // collidable.
+  for (let i = 1; i <= 4; i++) {
+    const aD = a * (0.35 + i * 0.12);
+    const bD = Math.sqrt(Math.max(1, aD * aD - c * c));
+    decorations.push(...decorEllipse(cx, cy, aD, bD, rot));
+  }
+  return { name: 'WAVES', tier: 2, ...shape, decorations };
 }
 
-// Decorative "pillars" — circles drawn inside the ellipse. Pure visual; ball
-// passes right through (decorations have no collision). Reads as "navigate
-// the obstacles," but the geometry's still a pure ellipse.
+// SNAIL — outer ellipse with a spiral decoration curling inward from the tee.
+// Visually mimics the snail-shell physical course. Pure decoration; the ball
+// plays in the ellipse and the spiral has no collision. Player sees what
+// looks like a winding path.
 function buildCourse6() {
   const cx = W / 2, cy = H / 2;
-  const a = 210, b = 110, rot = 0;
+  const a = 210, b = 130, rot = 0;
   const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  // A few small circles arrayed between the foci, offset above and below the
-  // major axis so the player sees them as "in the way"
-  const decorations = [
-    ...decorCircle(cx,           cy - 50, 18),
-    ...decorCircle(cx - 60,      cy + 35, 14),
-    ...decorCircle(cx + 60,      cy + 35, 14),
-    ...decorCircle(cx,           cy + 30, 10),
-  ];
-  return { name: 'PILLARED', tier: 2, ...shape, decorations };
+  const decorations = [];
+  // Build an inward logarithmic spiral starting near the outer ellipse and
+  // tightening toward the center. 2.5 full turns.
+  const turns = 2.5;
+  const steps = 120;
+  let prevX = null, prevY = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const angle = t * turns * Math.PI * 2;
+    // Shrinking radius — start near the wall, end near the foci
+    const r = a * 0.72 * (1 - t * 0.85);
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle) * 0.62; // squish vertically to match ellipse aspect
+    if (prevX !== null) decorations.push({ x1: prevX, y1: prevY, x2: x, y2: y });
+    prevX = x; prevY = y;
+  }
+  return { name: 'SNAIL', tier: 2, ...shape, decorations };
 }
 
 // ---------- TIER 3 — DYNAMIC ----------
@@ -653,6 +723,7 @@ function stepPhysics(dt) {
 
       bounces++;
       hudBounces.textContent = bounces;
+      snd.bounce(length(ball.vx, ball.vy));
     } else {
       // Free flight
       distance += length(ball.vx * sub, ball.vy * sub);
@@ -696,6 +767,7 @@ function sinkBall() {
   ball.sinkT = 0;
   state = 'SINKING';
   holeTime = (performance.now() - holeStartTime) / 1000;
+  snd.sink();
 }
 
 // Called after the sink animation completes — record stats, show overlay.
@@ -936,6 +1008,7 @@ canvas.addEventListener('pointerup', (ev) => {
   ball.vy = uy * LAUNCH_SPEED;
   state = 'ROLLING';
   holeStartTime = performance.now(); // start timer at putt, not at hole setup
+  snd.putt();
 });
 
 canvas.addEventListener('pointercancel', () => {
@@ -966,6 +1039,7 @@ document.getElementById('nextBtn').addEventListener('click', () => {
     document.getElementById('totalTimeEl').textContent    = totalTime.toFixed(1) + 's';
     document.getElementById('roundScreen').classList.remove('hidden');
     state = 'ROUND_DONE';
+    snd.chime();
   } else {
     setupHole(next);
   }
