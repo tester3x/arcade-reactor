@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.4 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.5 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -211,8 +211,8 @@
         <div class="value" id="scoreEl">0</div>
       </div>
       <div class="hud-stat right">
-        <div class="label">BOUNCES</div>
-        <div class="value" id="bouncesEl">0</div>
+        <div class="label">STROKES</div>
+        <div class="value" id="strokesEl">0</div>
       </div>
     </div>
 
@@ -221,8 +221,8 @@
     <!-- TITLE -->
     <div class="overlay" id="titleScreen">
       <h1>MINI GOLF</h1>
-      <p class="course-name">EVERY HOLE-IN-ONE GUARANTEED</p>
-      <p>Pure geometry. No matter where you aim, the ball finds the hole.<br>The question is — how beautiful is the path?</p>
+      <p class="course-name">FIND THE LINE</p>
+      <p>The first holes ace from any angle — pure conic geometry.<br>Later holes add real obstacles. Pick the right path and sink it in one.</p>
       <button class="btn" id="startBtn">TEE OFF</button>
     </div>
 
@@ -230,6 +230,7 @@
     <div class="overlay glass hidden" id="holeScreen">
       <h2 id="holeMsg">HOLE-IN-ONE!</h2>
       <div class="stat-grid">
+        <div class="k">STROKES</div><div class="v" id="finalStrokesEl">0</div>
         <div class="k">BOUNCES</div><div class="v" id="finalBouncesEl">0</div>
         <div class="k">DISTANCE</div><div class="v" id="finalDistEl">0</div>
         <div class="k">TIME</div><div class="v" id="finalTimeEl">0.0s</div>
@@ -242,6 +243,7 @@
     <div class="overlay hidden" id="roundScreen">
       <h1>ROUND COMPLETE</h1>
       <div class="stat-grid">
+        <div class="k">TOTAL STROKES</div><div class="v" id="totalStrokesEl">0</div>
         <div class="k">TOTAL SCORE</div><div class="v" id="totalScoreEl">0</div>
         <div class="k">TOTAL BOUNCES</div><div class="v" id="totalBouncesEl">0</div>
         <div class="k">TOTAL TIME</div><div class="v" id="totalTimeEl">0.0s</div>
@@ -249,7 +251,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.4</div>
+    <div class="version-tag" id="versionTag">v0.5</div>
   </div>
 </div>
 
@@ -573,22 +575,49 @@ function buildCourse8() {
   return { name: 'TWISTED', tier: 3, ...shape, decorations };
 }
 
-// Maximum chaos — random ellipse, random pillars, random rotation. Different
-// every single play.
+// Maximum chaos — random ellipse with REAL solid pillars. Player must thread
+// the geometry. The course is always solvable: we generate candidate
+// configurations and only ship one where a single-stroke ace exists from the
+// tee. Pillars far away from tee/hole, with bounded count and radius, so the
+// puzzle is plausibly findable rather than maze-like.
 function buildCourse9() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const cx = W / 2, cy = H / 2;
+    const a = rand(180, 230), b = rand(95, 150);
+    const rot = rand(0, Math.PI * 2);
+    const shape = ellipseCourseShape(cx, cy, a, b, rot);
+    const pillarCount = 2 + Math.floor(Math.random() * 3); // 2-4 pillars
+    const pillars = [];
+    const minSep = 50; // minimum distance from tee/hole and each other
+    let tries = 0;
+    while (pillars.length < pillarCount && tries < 30) {
+      tries++;
+      const px = cx + rand(-Math.min(a, b) * 0.55, Math.min(a, b) * 0.55);
+      const py = cy + rand(-Math.min(a, b) * 0.45, Math.min(a, b) * 0.45);
+      const pr = rand(10, 18);
+      // Reject if too close to tee or hole
+      if (length(px - shape.tee.x,  py - shape.tee.y)  < minSep + pr) continue;
+      if (length(px - shape.hole.x, py - shape.hole.y) < minSep + pr) continue;
+      // Reject if too close to another pillar
+      let collides = false;
+      for (const q of pillars) {
+        if (length(px - q.x, py - q.y) < pr + q.r + 20) { collides = true; break; }
+      }
+      if (collides) continue;
+      pillars.push({ x: px, y: py, r: pr });
+    }
+
+    const candidate = { name: 'CHAOS', tier: 3, ...shape, pillars };
+    if (isCourseSolvable(candidate)) return candidate;
+  }
+  // Fallback: pillar-free CHAOS if 30 attempts somehow couldn't find a solvable
+  // arrangement. Shouldn't happen with these parameters, but never let the
+  // player land on a hole they can't solve.
   const cx = W / 2, cy = H / 2;
   const a = rand(170, 230), b = rand(85, 150);
   const rot = rand(0, Math.PI * 2);
   const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  // Random scatter of decorative pillars
-  const pillars = 3 + Math.floor(Math.random() * 4); // 3 to 6
-  const decorations = [];
-  for (let i = 0; i < pillars; i++) {
-    const px = cx + rand(-Math.min(a, b) * 0.55, Math.min(a, b) * 0.55);
-    const py = cy + rand(-Math.min(a, b) * 0.4,  Math.min(a, b) * 0.4);
-    decorations.push(...decorCircle(px, py, rand(8, 18)));
-  }
-  return { name: 'CHAOS', tier: 3, ...shape, decorations };
+  return { name: 'CHAOS', tier: 3, ...shape };
 }
 
 const courseBuilders = [
@@ -617,19 +646,24 @@ let aimActive = false;
 // Per-hole stats
 let bounces = 0;
 let distance = 0;
+let strokes = 0;
 let holeStartTime = 0;
 let holeTime = 0;
 
 // Cumulative round stats
 let totalScore = 0;
+let totalStrokes = 0;
 let totalBounces = 0;
 let totalTime = 0;
 
 // Score formula: longer travel + more bounces = better path. Capped so that
 // any specific course has roughly the same max contribution.
 function scoreForHole() {
-  // distance in pixels, bounces is count, time in seconds
-  return Math.round(distance * 0.5 + bounces * 200);
+  // Base score from path spectacle (distance + bounces). Multiplier rewards
+  // low stroke count — ace = full credit, 2 strokes = half, then quickly down.
+  const spectacle = Math.round(distance * 0.5 + bounces * 200);
+  const strokeMult = strokes <= 0 ? 0 : 1 / strokes;
+  return Math.round(spectacle * strokeMult);
 }
 
 // ============================================================================
@@ -658,12 +692,71 @@ function reflect(vx, vy, nx, ny) {
 // ============================================================================
 // PHYSICS
 // ============================================================================
+// Find the deepest collision at position (nx, ny). Returns null if no
+// collision, or { nrmX, nrmY, pushX, pushY } where (pushX, pushY) is where the
+// ball center should be placed just outside the obstacle.
+//
+// Both walls and pillars are considered. Whichever has greater penetration
+// "wins" — important when a ball is wedged between two obstacles.
+function findCollision(nx, ny, course) {
+  let best = null;
+  let bestDepth = 0;
+
+  for (let i = 0; i < course.walls.length; i++) {
+    const seg = course.walls[i];
+    const cp = closestPointOnSegment(nx, ny, seg.x1, seg.y1, seg.x2, seg.y2);
+    const d = length(nx - cp.x, ny - cp.y);
+    const depth = BALL_R - d;
+    if (depth > bestDepth) {
+      bestDepth = depth;
+      let nrmX = nx - cp.x, nrmY = ny - cp.y;
+      let nlen = length(nrmX, nrmY);
+      if (nlen < 0.0001) {
+        // Tangent contact — fall back to segment perpendicular
+        const sdx = seg.x2 - seg.x1, sdy = seg.y2 - seg.y1;
+        const slen = length(sdx, sdy) || 1;
+        nrmX = -sdy / slen; nrmY = sdx / slen;
+      } else {
+        nrmX /= nlen; nrmY /= nlen;
+      }
+      best = {
+        nrmX, nrmY,
+        pushX: cp.x + nrmX * (BALL_R + 0.5),
+        pushY: cp.y + nrmY * (BALL_R + 0.5),
+      };
+    }
+  }
+
+  if (course.pillars) {
+    for (let i = 0; i < course.pillars.length; i++) {
+      const p = course.pillars[i];
+      const d = length(nx - p.x, ny - p.y);
+      const collisionDist = BALL_R + p.r;
+      const depth = collisionDist - d;
+      if (depth > bestDepth) {
+        bestDepth = depth;
+        let nrmX = nx - p.x, nrmY = ny - p.y;
+        let nlen = length(nrmX, nrmY);
+        if (nlen < 0.0001) { nrmX = 1; nrmY = 0; }
+        else { nrmX /= nlen; nrmY /= nlen; }
+        best = {
+          nrmX, nrmY,
+          pushX: p.x + nrmX * (BALL_R + p.r + 0.5),
+          pushY: p.y + nrmY * (BALL_R + p.r + 0.5),
+        };
+      }
+    }
+  }
+
+  return best;
+}
+
 function stepPhysics(dt) {
   if (state !== 'ROLLING') return;
 
   // Light friction. Per-frame multiplier scaled to dt so behavior is
   // independent of framerate.
-  const fricPerSec = Math.pow(FRICTION, 60); // approximate per-second value
+  const fricPerSec = Math.pow(FRICTION, 60);
   const fricStep   = Math.pow(fricPerSec, dt);
   ball.vx *= fricStep;
   ball.vy *= fricStep;
@@ -674,64 +767,25 @@ function stepPhysics(dt) {
   const sub = dt / steps;
 
   for (let s = 0; s < steps; s++) {
-    // Try moving
     const nx = ball.x + ball.vx * sub;
     const ny = ball.y + ball.vy * sub;
 
-    // Find the closest wall that the new position would overlap
-    let bestSeg = null;
-    let bestDist = Infinity;
-    let bestCP = null;
-    for (let i = 0; i < course.walls.length; i++) {
-      const seg = course.walls[i];
-      const cp = closestPointOnSegment(nx, ny, seg.x1, seg.y1, seg.x2, seg.y2);
-      const d = length(nx - cp.x, ny - cp.y);
-      if (d < BALL_R && d < bestDist) {
-        bestDist = d;
-        bestSeg = seg;
-        bestCP = cp;
-      }
-    }
-
-    if (bestSeg) {
-      // Compute wall normal as (ball - contact_point), normalized. This always
-      // points away from the wall toward the ball, which is what reflection
-      // needs. For tangent contact (very rare), fall back to segment normal.
-      let nrmX = nx - bestCP.x;
-      let nrmY = ny - bestCP.y;
-      let nlen = length(nrmX, nrmY);
-      if (nlen < 0.0001) {
-        // Use segment-perpendicular as fallback
-        const sdx = bestSeg.x2 - bestSeg.x1;
-        const sdy = bestSeg.y2 - bestSeg.y1;
-        const slen = length(sdx, sdy);
-        nrmX = -sdy / slen;
-        nrmY =  sdx / slen;
-      } else {
-        nrmX /= nlen;
-        nrmY /= nlen;
-      }
-
-      // Push the ball just outside the wall so it doesn't stick
-      ball.x = bestCP.x + nrmX * (BALL_R + 0.5);
-      ball.y = bestCP.y + nrmY * (BALL_R + 0.5);
-
-      // Reflect velocity
-      const r = reflect(ball.vx, ball.vy, nrmX, nrmY);
+    const hit = findCollision(nx, ny, course);
+    if (hit) {
+      ball.x = hit.pushX;
+      ball.y = hit.pushY;
+      const r = reflect(ball.vx, ball.vy, hit.nrmX, hit.nrmY);
       ball.vx = r.vx;
       ball.vy = r.vy;
-
       bounces++;
-      hudBounces.textContent = bounces;
       snd.bounce(length(ball.vx, ball.vy));
     } else {
-      // Free flight
       distance += length(ball.vx * sub, ball.vy * sub);
       ball.x = nx;
       ball.y = ny;
     }
 
-    // Check hole capture — pass-through, any speed
+    // Hole capture — pass-through, any speed
     if (course.hole) {
       const dToHole = length(ball.x - course.hole.x, ball.y - course.hole.y);
       if (dToHole < HOLE_CATCH_R) {
@@ -746,16 +800,59 @@ function stepPhysics(dt) {
   if (ball.trail.length > 60) ball.trail.shift();
   for (const t of ball.trail) t.life -= dt * 1.5;
 
-  // Stopped check
+  // Stopped check — ball comes to rest. Player puts again from rest position.
   if (length(ball.vx, ball.vy) < MIN_VEL) {
-    // Ball came to rest without reaching the hole. With our conic geometry,
-    // this shouldn't happen unless friction overpowered the launch. Snap to a
-    // stop and let the player re-shoot.
     ball.vx = 0;
     ball.vy = 0;
     state = 'AIMING';
     hudHint.classList.remove('hidden');
   }
+}
+
+// Run a single-stroke simulation to verify a course is solvable: at least one
+// angle from the tee results in the ball reaching the hole within some
+// reasonable bound. Used to gate procedural courses before showing them.
+function trajectorySinks(course, angle) {
+  const b = {
+    x: course.tee.x, y: course.tee.y,
+    vx: Math.cos(angle) * LAUNCH_SPEED,
+    vy: Math.sin(angle) * LAUNCH_SPEED,
+  };
+  const dt = 0.016;
+  const maxFrames = 600; // ~10 seconds
+  const fricPerSec = Math.pow(FRICTION, 60);
+  const fricStep   = Math.pow(fricPerSec, dt);
+
+  for (let frame = 0; frame < maxFrames; frame++) {
+    b.vx *= fricStep;
+    b.vy *= fricStep;
+    const speed = length(b.vx, b.vy);
+    if (speed < MIN_VEL) return false;
+    const steps = Math.max(1, Math.ceil((speed * dt) / (BALL_R * 0.4)));
+    const sub = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      const nx = b.x + b.vx * sub;
+      const ny = b.y + b.vy * sub;
+      const hit = findCollision(nx, ny, course);
+      if (hit) {
+        b.x = hit.pushX; b.y = hit.pushY;
+        const r = reflect(b.vx, b.vy, hit.nrmX, hit.nrmY);
+        b.vx = r.vx; b.vy = r.vy;
+      } else {
+        b.x = nx; b.y = ny;
+      }
+      if (length(b.x - course.hole.x, b.y - course.hole.y) < HOLE_CATCH_R) return true;
+    }
+  }
+  return false;
+}
+
+function isCourseSolvable(course, samples = 36) {
+  for (let i = 0; i < samples; i++) {
+    const angle = (i / samples) * Math.PI * 2;
+    if (trajectorySinks(course, angle)) return true;
+  }
+  return false;
 }
 
 function sinkBall() {
@@ -774,12 +871,18 @@ function sinkBall() {
 function showHoleComplete() {
   const score = scoreForHole();
   totalScore   += score;
+  totalStrokes += strokes;
   totalBounces += bounces;
   totalTime    += holeTime;
 
+  // Stroke-based headline. Bounces still factor into scoring but the player's
+  // primary metric is now strokes.
   document.getElementById('holeMsg').textContent =
-    bounces === 0 ? 'STRAIGHT IN!' : bounces === 1 ? 'ONE-BOUNCE ACE!' :
-    bounces <= 3  ? 'HOLE-IN-ONE!' : 'TRICK SHOT!';
+    strokes === 1 ? 'HOLE-IN-ONE!' :
+    strokes === 2 ? 'BIRDIE-STYLE TWO!' :
+    strokes === 3 ? 'THREE PUTTS!' :
+                    'SUNK IT!';
+  document.getElementById('finalStrokesEl').textContent = strokes;
   document.getElementById('finalBouncesEl').textContent = bounces;
   document.getElementById('finalDistEl').textContent    = Math.round(distance);
   document.getElementById('finalTimeEl').textContent    = holeTime.toFixed(1) + 's';
@@ -849,6 +952,25 @@ function render() {
       ctx.lineTo(seg.x2, seg.y2);
     }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // Pillars — REAL collision obstacles. Drawn as filled discs with a bright
+  // rim and inner glow so the player can read them as bumpers, distinct from
+  // line decorations which are pure backdrop.
+  if (course.pillars && course.pillars.length) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(255, 100, 180, 0.6)';
+    ctx.shadowBlur = 12;
+    for (const p of course.pillars) {
+      ctx.fillStyle = 'rgba(255, 100, 180, 0.22)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ff64b4';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -948,11 +1070,12 @@ function setupHole(idx) {
   ball.trail.length = 0;
   bounces = 0;
   distance = 0;
+  strokes = 0;
   holeStartTime = performance.now();
 
   hudHole.textContent = (idx + 1) + ' / ' + courseBuilders.length;
   hudCourse.textContent = course.name;
-  hudBounces.textContent = '0';
+  hudStrokes.textContent = '0';
   hudScore.textContent = '0';
   hudHint.classList.remove('hidden');
 
@@ -1007,7 +1130,9 @@ canvas.addEventListener('pointerup', (ev) => {
   ball.vx = ux * LAUNCH_SPEED;
   ball.vy = uy * LAUNCH_SPEED;
   state = 'ROLLING';
-  holeStartTime = performance.now(); // start timer at putt, not at hole setup
+  strokes++;
+  hudStrokes.textContent = strokes;
+  if (strokes === 1) holeStartTime = performance.now(); // start timer on first putt only
   snd.putt();
 });
 
@@ -1020,13 +1145,13 @@ canvas.addEventListener('pointercancel', () => {
 // ============================================================================
 const hudHole    = document.getElementById('holeEl');
 const hudScore   = document.getElementById('scoreEl');
-const hudBounces = document.getElementById('bouncesEl');
+const hudStrokes = document.getElementById('strokesEl');
 const hudCourse  = document.getElementById('courseLabel');
 const hudHint    = document.getElementById('hint');
 
 document.getElementById('startBtn').addEventListener('click', () => {
   document.getElementById('titleScreen').classList.add('hidden');
-  totalScore = 0; totalBounces = 0; totalTime = 0;
+  totalScore = 0; totalStrokes = 0; totalBounces = 0; totalTime = 0;
   setupHole(0);
 });
 
@@ -1034,6 +1159,7 @@ document.getElementById('nextBtn').addEventListener('click', () => {
   document.getElementById('holeScreen').classList.add('hidden');
   const next = currentHole + 1;
   if (next >= courseBuilders.length) {
+    document.getElementById('totalStrokesEl').textContent = totalStrokes;
     document.getElementById('totalScoreEl').textContent   = totalScore;
     document.getElementById('totalBouncesEl').textContent = totalBounces;
     document.getElementById('totalTimeEl').textContent    = totalTime.toFixed(1) + 's';
@@ -1047,7 +1173,7 @@ document.getElementById('nextBtn').addEventListener('click', () => {
 
 document.getElementById('playAgainBtn').addEventListener('click', () => {
   document.getElementById('roundScreen').classList.add('hidden');
-  totalScore = 0; totalBounces = 0; totalTime = 0;
+  totalScore = 0; totalStrokes = 0; totalBounces = 0; totalTime = 0;
   setupHole(0);
 });
 
