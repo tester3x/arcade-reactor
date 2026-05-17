@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.5 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.6 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -11,9 +11,6 @@
 
 <link rel="stylesheet" href="../../site.css">
 <style>
-  /* ============================================================== */
-  /*  GAME-SPECIFIC STYLES                                          */
-  /* ============================================================== */
   html, body {
     background: #050810;
     width: 100%;
@@ -24,162 +21,37 @@
     touch-action: none;
     font-family: 'Courier New', monospace;
   }
-  body > .site-header,
-  body > .site-footer { font-family: var(--font-sans, 'Inter', sans-serif); }
-
-  #stage {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    margin-top: 64px;
-    padding: 16px 0 48px;
-  }
-
-  #game-wrap {
-    position: relative;
-    width: 480px;
-    max-width: 100%;
-    aspect-ratio: 480 / 600;
-    background: #050810;
-    box-shadow: 0 0 32px rgba(0, 255, 200, 0.08);
-    overflow: hidden;
-  }
-
-  canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-    cursor: crosshair;
-    background: #050810;
-  }
-
-  /* HUD */
-  .hud {
-    position: absolute;
-    inset: 0 0 auto 0;
-    display: flex;
-    justify-content: space-between;
-    padding: 10px 14px 0;
-    pointer-events: none;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 11px;
-    z-index: 5;
-  }
-  .hud-stat .label { color: rgba(255, 255, 255, 0.5); font-size: 9px; }
-  .hud-stat .value {
-    font-size: 18px;
-    font-weight: 700;
-    color: #cfeaff;
-    text-shadow: 0 0 6px rgba(140, 200, 255, 0.5);
-  }
-  .hud-stat.center { text-align: center; }
+  body > .site-header, body > .site-footer { font-family: var(--font-sans, 'Inter', sans-serif); }
+  #stage { display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: 64px; padding: 16px 0 48px; }
+  #game-wrap { position: relative; width: 720px; max-width: 100%; aspect-ratio: 720 / 900; background: #050810; box-shadow: 0 0 40px rgba(0, 255, 200, 0.08); overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; background: #050810; }
+  .hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 16px 0; pointer-events: none; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; z-index: 5; gap: 8px; }
+  .hud-stat .label { color: rgba(255,255,255,0.5); font-size: 9px; }
+  .hud-stat .value { font-size: 18px; font-weight: 700; color: #cfeaff; text-shadow: 0 0 6px rgba(140,200,255,0.5); }
+  .hud-stat.center { text-align: center; flex: 1; }
   .hud-stat.right  { text-align: right; }
-
-  /* Overlay screens */
-  .overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: rgba(5, 8, 16, 0.55);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    z-index: 10;
-    text-align: center;
-    padding: 24px;
-    gap: 18px;
-  }
+  .hud-stat .par-line { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(5,8,16,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 10; text-align: center; padding: 24px; gap: 18px; }
   .overlay.hidden { display: none; }
-
-  /* Hole-complete overlay shows the course through more — it's a celebration,
-     not a takeover. The title and round-complete overlays use the default. */
-  .overlay.glass {
-    background: rgba(5, 8, 16, 0.4);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-  }
-
-  .overlay h1 {
-    font-size: 32px;
-    font-weight: 800;
-    color: #ffe864;
-    text-shadow: 0 0 18px rgba(255, 232, 100, 0.55);
-    letter-spacing: 0.1em;
-  }
-  .overlay h2 {
-    font-size: 22px;
-    color: #b6ffe5;
-    text-shadow: 0 0 12px rgba(110, 255, 200, 0.55);
-    letter-spacing: 0.1em;
-  }
-  .overlay p {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
-    max-width: 360px;
-    line-height: 1.5;
-    letter-spacing: 0.04em;
-  }
-
-  .btn {
-    border: 2px solid #6effc8;
-    background: rgba(110, 255, 200, 0.08);
-    color: #b6ffe5;
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    font-size: 14px;
-    padding: 10px 24px;
-    cursor: pointer;
-    text-shadow: 0 0 6px rgba(110, 255, 200, 0.6);
-    transition: background 0.15s, transform 0.05s;
-  }
-  .btn:hover { background: rgba(110, 255, 200, 0.18); }
+  .overlay.glass { background: rgba(5,8,16,0.42); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .overlay h1 { font-size: 36px; font-weight: 800; color: #ffe864; text-shadow: 0 0 18px rgba(255,232,100,0.55); letter-spacing: 0.1em; }
+  .overlay h2 { font-size: 24px; color: #b6ffe5; text-shadow: 0 0 12px rgba(110,255,200,0.55); letter-spacing: 0.1em; }
+  .overlay p { color: rgba(255,255,255,0.75); font-size: 13px; max-width: 420px; line-height: 1.5; letter-spacing: 0.04em; }
+  .btn { border: 2px solid #6effc8; background: rgba(110,255,200,0.08); color: #b6ffe5; font-family: 'Courier New', monospace; font-weight: 700; letter-spacing: 0.18em; font-size: 14px; padding: 10px 24px; cursor: pointer; text-shadow: 0 0 6px rgba(110,255,200,0.6); transition: background 0.15s, transform 0.05s; }
+  .btn:hover { background: rgba(110,255,200,0.18); }
   .btn:active { transform: translateY(1px); }
-
-  .stat-grid {
-    display: grid;
-    grid-template-columns: auto auto;
-    gap: 8px 24px;
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 13px;
-    letter-spacing: 0.06em;
-  }
-  .stat-grid .k { color: rgba(255, 255, 255, 0.5); text-align: right; }
+  .stat-grid { display: grid; grid-template-columns: auto auto; gap: 8px 24px; color: rgba(255,255,255,0.85); font-size: 13px; letter-spacing: 0.06em; }
+  .stat-grid .k { color: rgba(255,255,255,0.5); text-align: right; }
   .stat-grid .v { color: #cfeaff; font-weight: 700; }
-
-  .course-name {
-    color: #cfeaff;
-    font-size: 14px;
-    letter-spacing: 0.2em;
-    font-weight: 700;
-  }
-
-  .version-tag {
-    position: absolute;
-    bottom: 6px; right: 10px;
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    color: rgba(110, 255, 200, 0.55);
-    pointer-events: none;
-    z-index: 4;
-    letter-spacing: 0.06em;
-  }
-
-  .hint {
-    position: absolute;
-    bottom: 8px; left: 0; right: 0;
-    text-align: center;
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    color: rgba(255, 255, 255, 0.4);
-    z-index: 4;
-    pointer-events: none;
-    text-transform: uppercase;
-  }
+  .stat-grid .v.under { color: #6effc8; }
+  .stat-grid .v.over  { color: #ff6b9d; }
+  .scorecard { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; font-size: 11px; color: rgba(255,255,255,0.8); max-width: 600px; }
+  .scorecard .cell { background: rgba(110,255,200,0.05); border: 1px solid rgba(110,255,200,0.2); padding: 6px 4px; text-align: center; border-radius: 3px; }
+  .scorecard .cell.header { color: rgba(255,255,255,0.45); font-size: 9px; }
+  .scorecard .cell.total  { background: rgba(255,232,100,0.1); border-color: rgba(255,232,100,0.4); }
+  .course-name { color: #cfeaff; font-size: 14px; letter-spacing: 0.2em; font-weight: 700; }
+  .version-tag { position: absolute; bottom: 6px; right: 10px; font-family: 'Courier New', monospace; font-size: 10px; color: rgba(110,255,200,0.55); pointer-events: none; z-index: 4; letter-spacing: 0.06em; }
+  .hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 10px; letter-spacing: 0.18em; color: rgba(255,255,255,0.4); z-index: 4; pointer-events: none; text-transform: uppercase; }
   .hint.hidden { display: none; }
 </style>
 </head>
@@ -199,59 +71,58 @@
 
 <div id="stage">
   <div id="game-wrap">
-    <canvas id="game" width="480" height="600"></canvas>
+    <canvas id="game" width="720" height="900"></canvas>
 
     <div class="hud">
       <div class="hud-stat">
         <div class="label">HOLE</div>
-        <div class="value" id="holeEl">1 / 3</div>
+        <div class="value" id="holeEl">1 / 9</div>
+        <div class="par-line">PAR <span id="parEl">2</span></div>
       </div>
       <div class="hud-stat center">
-        <div class="label" id="courseLabel">FOCAL POINT</div>
-        <div class="value" id="scoreEl">0</div>
+        <div class="label" id="courseLabel">OPENER</div>
+        <div class="value" id="strokesEl">0</div>
+        <div class="par-line">STROKES</div>
       </div>
       <div class="hud-stat right">
-        <div class="label">STROKES</div>
-        <div class="value" id="strokesEl">0</div>
+        <div class="label">TOTAL</div>
+        <div class="value" id="totalEl">0</div>
+        <div class="par-line">VS PAR <span id="vsParEl">E</span></div>
       </div>
     </div>
 
-    <div class="hint" id="hint">Drag from ball to aim — release to putt</div>
+    <div class="hint" id="hint">Drag from ball — distance = power · direction = aim</div>
 
-    <!-- TITLE -->
     <div class="overlay" id="titleScreen">
       <h1>MINI GOLF</h1>
       <p class="course-name">FIND THE LINE</p>
-      <p>The first holes ace from any angle — pure conic geometry.<br>Later holes add real obstacles. Pick the right path and sink it in one.</p>
+      <p>Nine holes of neon mini-golf. Aim, putt, sink it in as few strokes as possible. Some holes have tubes that take you to a different green. Lower score wins.</p>
       <button class="btn" id="startBtn">TEE OFF</button>
     </div>
 
-    <!-- HOLE COMPLETE -->
     <div class="overlay glass hidden" id="holeScreen">
       <h2 id="holeMsg">HOLE-IN-ONE!</h2>
       <div class="stat-grid">
-        <div class="k">STROKES</div><div class="v" id="finalStrokesEl">0</div>
-        <div class="k">BOUNCES</div><div class="v" id="finalBouncesEl">0</div>
-        <div class="k">DISTANCE</div><div class="v" id="finalDistEl">0</div>
-        <div class="k">TIME</div><div class="v" id="finalTimeEl">0.0s</div>
-        <div class="k">SCORE</div><div class="v" id="finalScoreEl">0</div>
+        <div class="k">HOLE</div><div class="v" id="hcHoleEl">1</div>
+        <div class="k">PAR</div><div class="v" id="hcParEl">2</div>
+        <div class="k">STROKES</div><div class="v" id="hcStrokesEl">1</div>
+        <div class="k">VS PAR</div><div class="v" id="hcVsParEl">-1</div>
       </div>
       <button class="btn" id="nextBtn">NEXT HOLE</button>
     </div>
 
-    <!-- ROUND COMPLETE -->
     <div class="overlay hidden" id="roundScreen">
       <h1>ROUND COMPLETE</h1>
-      <div class="stat-grid">
-        <div class="k">TOTAL STROKES</div><div class="v" id="totalStrokesEl">0</div>
-        <div class="k">TOTAL SCORE</div><div class="v" id="totalScoreEl">0</div>
-        <div class="k">TOTAL BOUNCES</div><div class="v" id="totalBouncesEl">0</div>
-        <div class="k">TOTAL TIME</div><div class="v" id="totalTimeEl">0.0s</div>
+      <div class="stat-grid" style="margin-bottom: 8px;">
+        <div class="k">TOTAL STROKES</div><div class="v" id="rcTotalEl">0</div>
+        <div class="k">PAR</div><div class="v" id="rcParEl">0</div>
+        <div class="k">VS PAR</div><div class="v" id="rcVsParEl">E</div>
       </div>
+      <div class="scorecard" id="scorecardEl"></div>
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.5</div>
+    <div class="version-tag" id="versionTag">v0.6</div>
   </div>
 </div>
 
@@ -266,10 +137,8 @@
 'use strict';
 
 // ============================================================================
-// SOUND — Web Audio synth, matches the aesthetic of Hexapede/Space Rocks
+// SOUND
 // ============================================================================
-// No audio files. Each sound is a quick oscillator + envelope. AudioContext is
-// created lazily on first user gesture (browsers require this).
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let audioReady = false;
 function unlockAudio() {
@@ -279,7 +148,6 @@ function unlockAudio() {
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 window.addEventListener('keydown',     unlockAudio, { once: true });
 
-// Single envelope-shaped tone. Supports linear frequency sweep (freqEnd).
 function tone(freq, dur, type = 'sine', vol = 0.18, freqEnd = null) {
   if (!audioReady) return;
   const t = audioCtx.currentTime;
@@ -288,7 +156,6 @@ function tone(freq, dur, type = 'sine', vol = 0.18, freqEnd = null) {
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t);
   if (freqEnd !== null) osc.frequency.linearRampToValueAtTime(freqEnd, t + dur);
-  // Tiny attack, exponential release — clicky and arcade-y
   gain.gain.setValueAtTime(0.0001, t);
   gain.gain.linearRampToValueAtTime(vol, t + 0.005);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -298,29 +165,25 @@ function tone(freq, dur, type = 'sine', vol = 0.18, freqEnd = null) {
 }
 
 const snd = {
-  // Launch: low whoosh, sweeps down (180 -> 90 Hz over 180ms). Like a putter hit.
-  putt: () => tone(180, 0.18, 'triangle', 0.22, 90),
-
-  // Wall bounce: short ping. Pitch scales with impact speed so hard bounces
-  // are sharper. Speed is the magnitude of the ball's velocity vector.
-  bounce: (speed) => {
-    const intensity = Math.min(1, speed / 700);
-    tone(540 + intensity * 520, 0.07, 'sine', 0.12 + intensity * 0.08);
+  putt: (power) => {
+    const p = Math.max(0.2, Math.min(1, power));
+    tone(120 + p * 90, 0.18, 'triangle', 0.18 + p * 0.10, 60 + p * 30);
   },
-
-  // Ball-in-hole: descending triplet. Reads as "drop in." Last note is longer.
+  bounce: (speed) => {
+    const intensity = Math.min(1, speed / 800);
+    tone(540 + intensity * 520, 0.07, 'sine', 0.10 + intensity * 0.08);
+  },
   sink: () => {
     tone(620, 0.10, 'sine', 0.18);
     setTimeout(() => tone(440, 0.10, 'sine', 0.18), 90);
     setTimeout(() => tone(280, 0.30, 'sine', 0.20), 180);
   },
-
-  // Round complete: triumphant arpeggio (C-E-G major chord). Triangle wave for
-  // a slightly chiptune feel matching the rest of the site.
+  tubeDown: () => tone(800, 0.30, 'sine', 0.20, 180),
+  tubeUp:   () => tone(180, 0.30, 'sine', 0.20, 800),
   chime: () => {
-    tone(523, 0.30, 'triangle', 0.14); // C5
-    setTimeout(() => tone(659, 0.30, 'triangle', 0.14), 90);  // E5
-    setTimeout(() => tone(784, 0.50, 'triangle', 0.14), 180); // G5
+    tone(523, 0.30, 'triangle', 0.14);
+    setTimeout(() => tone(659, 0.30, 'triangle', 0.14), 90);
+    setTimeout(() => tone(784, 0.50, 'triangle', 0.14), 180);
   },
 };
 
@@ -332,348 +195,37 @@ const ctx = canvas.getContext('2d');
 const W = canvas.width;
 const H = canvas.height;
 
-const BALL_R = 8;
-const HOLE_R = 16;
-const LAUNCH_SPEED = 720; // px/sec
-const FRICTION = 0.992;    // per frame (60fps reference)
-const MIN_VEL = 6;         // below this, ball is considered stopped
-const MAX_AIM_DRAG = 120;  // visual cap on aim line length
+const BALL_R = 9;
+const HOLE_R = 18;
+const TUBE_R = 22;
 
-// Hole-in-one detection: ball is "in" the moment it overlaps the hole center
-// within HOLE_R - BALL_R/2. Pass-through detection (any speed counts) so a fast
-// arcade ball doesn't roll over the hole and out the other side.
+const MIN_LAUNCH = 200;
+const MAX_LAUNCH = 1100;
+const POWER_DRAG_MAX = 150;
+const FRICTION = 0.992;
+const MIN_VEL = 8;
+
 const HOLE_CATCH_R = HOLE_R - BALL_R / 2;
+const TUBE_CATCH_R = TUBE_R - BALL_R / 2;
 
 const COLORS = {
-  bg:       '#050810',
-  wall:     '#7dffd6',
-  wallGlow: 'rgba(125, 255, 214, 0.35)',
-  ball:     '#cfeaff',
-  ballGlow: 'rgba(140, 200, 255, 0.6)',
-  hole:     '#0a0d18',
-  holeRim:  '#ffe864',
-  holeGlow: 'rgba(255, 232, 100, 0.45)',
-  tee:      'rgba(255, 255, 255, 0.18)',
-  aim:      '#ffe864',
-  aimDim:   'rgba(255, 232, 100, 0.25)',
-  trail:    'rgba(207, 234, 255, 0.18)',
+  bg: '#050810',
+  wall: '#7dffd6', wallGlow: 'rgba(125, 255, 214, 0.35)',
+  ball: '#cfeaff', ballGlow: 'rgba(140, 200, 255, 0.6)',
+  hole: '#0a0d18', holeRim: '#ffe864', holeGlow: 'rgba(255, 232, 100, 0.45)',
+  tee: 'rgba(255, 255, 255, 0.18)',
+  tube: '#a47dff', tubeRim: '#c8a8ff', tubeGlow: 'rgba(164, 125, 255, 0.5)',
+  pillar: '#ff64b4', pillarFill: 'rgba(255, 100, 180, 0.22)',
+  aimPower: ['#6effc8', '#ffe864', '#ff8c5c', '#ff6b9d'],
 };
 
 // ============================================================================
-// COURSE BUILDERS
+// HELPERS
 // ============================================================================
-// Each course is { name, walls, tee, hole }. Walls is a flat array of
-// {x1,y1,x2,y2} line segments. Tee and hole are {x,y} points; both placed at
-// the foci of whatever conic we're using so any angle aces.
-
-// Build an ellipse approximated as N line segments. cx,cy = center,
-// a = semi-major (x-radius), b = semi-minor (y-radius).
-function ellipseWalls(cx, cy, a, b, segments = 96) {
-  const w = [];
-  let prevX = cx + a, prevY = cy;
-  for (let i = 1; i <= segments; i++) {
-    const t = (i / segments) * Math.PI * 2;
-    const x = cx + a * Math.cos(t);
-    const y = cy + b * Math.sin(t);
-    w.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-    prevX = x; prevY = y;
-  }
-  return w;
-}
-
-// Build a circular arc as line segments from angle a0 to angle a1 (radians).
-function arcWalls(cx, cy, r, a0, a1, segments = 48) {
-  const w = [];
-  let prevX = cx + r * Math.cos(a0);
-  let prevY = cy + r * Math.sin(a0);
-  for (let i = 1; i <= segments; i++) {
-    const t = a0 + (a1 - a0) * (i / segments);
-    const x = cx + r * Math.cos(t);
-    const y = cy + r * Math.sin(t);
-    w.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-    prevX = x; prevY = y;
-  }
-  return w;
-}
-
-// COURSE BUILDERS support is below. Geometry helpers first.
-
-// Build a rotated ellipse approximated as line segments. Foci land on the
-// major axis after rotation.
-function rotEllipseWalls(cx, cy, a, b, rot, segments = 96) {
-  const walls = [];
-  const cs = Math.cos(rot), sn = Math.sin(rot);
-  let prevX = null, prevY = null;
-  for (let i = 0; i <= segments; i++) {
-    const t = (i / segments) * Math.PI * 2;
-    const lx = a * Math.cos(t);
-    const ly = b * Math.sin(t);
-    const x = cx + lx * cs - ly * sn;
-    const y = cy + lx * sn + ly * cs;
-    if (prevX !== null) walls.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-    prevX = x; prevY = y;
-  }
-  return walls;
-}
-
-// Build an ellipse + automatically compute its tee/hole at the foci.
-// rot is in radians. Returns { walls, tee, hole }.
-function ellipseCourseShape(cx, cy, a, b, rot) {
-  // a is treated as semi-major axis; if b > a we swap so the foci are on the
-  // longer axis (which matters geometrically).
-  let A = a, B = b, rotation = rot;
-  if (B > A) { A = b; B = a; rotation = rot + Math.PI / 2; }
-  const c = Math.sqrt(A * A - B * B);
-  const cs = Math.cos(rotation), sn = Math.sin(rotation);
-  return {
-    walls: rotEllipseWalls(cx, cy, A, B, rotation),
-    tee:  { x: cx + (-c) * cs, y: cy + (-c) * sn },
-    hole: { x: cx + ( c) * cs, y: cy + ( c) * sn },
-  };
-}
-
-// Decorations: drawn but no collision. Used for visual complexity in tier 2/3
-// where the geometry is still a pure ellipse but we render extra patterns.
-function decorEllipse(cx, cy, a, b, rot, segments = 64) {
-  const segs = [];
-  const cs = Math.cos(rot), sn = Math.sin(rot);
-  let prevX = null, prevY = null;
-  for (let i = 0; i <= segments; i++) {
-    const t = (i / segments) * Math.PI * 2;
-    const lx = a * Math.cos(t);
-    const ly = b * Math.sin(t);
-    const x = cx + lx * cs - ly * sn;
-    const y = cy + lx * sn + ly * cs;
-    if (prevX !== null) segs.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-    prevX = x; prevY = y;
-  }
-  return segs;
-}
-function decorCircle(cx, cy, r, segments = 32) {
-  return decorEllipse(cx, cy, r, r, 0, segments);
-}
-
-function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
-
-// ============================================================================
-// COURSE BUILDERS — 9 holes in three tiers
-// ============================================================================
-// Tier 1 (1-3): teach the geometry. Plain ellipses, every angle aces.
-// Tier 2 (4-6): visually busier but still pure conic — same guarantee dressed up.
-// Tier 3 (7-9): procedurally generated. Every play, fresh geometry.
-//
-// Each builder returns a course every time it's called, so the dynamic ones
-// re-randomize per play.
-
-// ---------- TIER 1 — INTRO ----------
-
-function buildCourse1() {
-  const cx = W / 2, cy = H / 2;
-  const shape = ellipseCourseShape(cx, cy, 180, 120, 0);
-  return { name: 'FOCAL POINT', tier: 1, ...shape };
-}
-
-function buildCourse2() {
-  const cx = W / 2, cy = H / 2;
-  const shape = ellipseCourseShape(cx, cy, 90, 220, 0);
-  return { name: 'LONG OVAL', tier: 1, ...shape };
-}
-
-function buildCourse3() {
-  const cx = W / 2, cy = H / 2;
-  const shape = ellipseCourseShape(cx, cy, 200, 130, -Math.PI / 6);
-  return { name: 'DIAGONAL', tier: 1, ...shape };
-}
-
-// ---------- TIER 2 — DRESSED UP ----------
-
-// Bigger, more eccentric ellipse. Same math, more dramatic path.
-function buildCourse4() {
-  const cx = W / 2, cy = H / 2;
-  const shape = ellipseCourseShape(cx, cy, 220, 95, Math.PI / 10);
-  return { name: 'WIDE BERTH', tier: 2, ...shape };
-}
-
-// Confocal layering: five inner confocal ellipses drawn over the real wall.
-// Looks like ripples emanating from the foci. Ball physics is just the outer
-// ellipse, but the eye sees a complex layered course.
-function buildCourse5() {
-  const cx = W / 2, cy = H / 2;
-  const a = 200, b = 130, rot = Math.PI / 8;
-  const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  const c = Math.sqrt(a * a - b * b);
-  const decorations = [];
-  // 4 inner confocal ellipses at varying sizes. Each one shares the foci so
-  // it visually feels like a real second wall, even though only the outer is
-  // collidable.
-  for (let i = 1; i <= 4; i++) {
-    const aD = a * (0.35 + i * 0.12);
-    const bD = Math.sqrt(Math.max(1, aD * aD - c * c));
-    decorations.push(...decorEllipse(cx, cy, aD, bD, rot));
-  }
-  return { name: 'WAVES', tier: 2, ...shape, decorations };
-}
-
-// SNAIL — outer ellipse with a spiral decoration curling inward from the tee.
-// Visually mimics the snail-shell physical course. Pure decoration; the ball
-// plays in the ellipse and the spiral has no collision. Player sees what
-// looks like a winding path.
-function buildCourse6() {
-  const cx = W / 2, cy = H / 2;
-  const a = 210, b = 130, rot = 0;
-  const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  const decorations = [];
-  // Build an inward logarithmic spiral starting near the outer ellipse and
-  // tightening toward the center. 2.5 full turns.
-  const turns = 2.5;
-  const steps = 120;
-  let prevX = null, prevY = null;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const angle = t * turns * Math.PI * 2;
-    // Shrinking radius — start near the wall, end near the foci
-    const r = a * 0.72 * (1 - t * 0.85);
-    const x = cx + r * Math.cos(angle);
-    const y = cy + r * Math.sin(angle) * 0.62; // squish vertically to match ellipse aspect
-    if (prevX !== null) decorations.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-    prevX = x; prevY = y;
-  }
-  return { name: 'SNAIL', tier: 2, ...shape, decorations };
-}
-
-// ---------- TIER 3 — DYNAMIC ----------
-
-// Random ellipse — re-rolled every time the player tees off.
-function buildCourse7() {
-  const cx = W / 2, cy = H / 2;
-  const a = rand(150, 220);
-  const b = rand(80, 160);
-  const rot = rand(-Math.PI / 3, Math.PI / 3);
-  const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  return { name: 'WILD CARD', tier: 3, ...shape };
-}
-
-// Random ellipse with random number of confocal decorations.
-function buildCourse8() {
-  const cx = W / 2, cy = H / 2;
-  const a = rand(180, 220), b = rand(90, 140);
-  const rot = rand(0, Math.PI);
-  const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  // shape may have swapped a/b internally; use the same params to draw
-  // confocal layers
-  const A = Math.max(a, b), B = Math.min(a, b);
-  const rotation = b > a ? rot + Math.PI / 2 : rot;
-  const c = Math.sqrt(A * A - B * B);
-  const layers = 2 + Math.floor(Math.random() * 2); // 2 or 3 layers
-  const decorations = [];
-  for (let i = 1; i <= layers; i++) {
-    const t = i / (layers + 1);
-    const a2 = A * (0.4 + t * 0.45);
-    const b2 = Math.sqrt(Math.max(1, a2 * a2 - c * c));
-    decorations.push(...decorEllipse(cx, cy, a2, b2, rotation));
-  }
-  return { name: 'TWISTED', tier: 3, ...shape, decorations };
-}
-
-// Maximum chaos — random ellipse with REAL solid pillars. Player must thread
-// the geometry. The course is always solvable: we generate candidate
-// configurations and only ship one where a single-stroke ace exists from the
-// tee. Pillars far away from tee/hole, with bounded count and radius, so the
-// puzzle is plausibly findable rather than maze-like.
-function buildCourse9() {
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const cx = W / 2, cy = H / 2;
-    const a = rand(180, 230), b = rand(95, 150);
-    const rot = rand(0, Math.PI * 2);
-    const shape = ellipseCourseShape(cx, cy, a, b, rot);
-    const pillarCount = 2 + Math.floor(Math.random() * 3); // 2-4 pillars
-    const pillars = [];
-    const minSep = 50; // minimum distance from tee/hole and each other
-    let tries = 0;
-    while (pillars.length < pillarCount && tries < 30) {
-      tries++;
-      const px = cx + rand(-Math.min(a, b) * 0.55, Math.min(a, b) * 0.55);
-      const py = cy + rand(-Math.min(a, b) * 0.45, Math.min(a, b) * 0.45);
-      const pr = rand(10, 18);
-      // Reject if too close to tee or hole
-      if (length(px - shape.tee.x,  py - shape.tee.y)  < minSep + pr) continue;
-      if (length(px - shape.hole.x, py - shape.hole.y) < minSep + pr) continue;
-      // Reject if too close to another pillar
-      let collides = false;
-      for (const q of pillars) {
-        if (length(px - q.x, py - q.y) < pr + q.r + 20) { collides = true; break; }
-      }
-      if (collides) continue;
-      pillars.push({ x: px, y: py, r: pr });
-    }
-
-    const candidate = { name: 'CHAOS', tier: 3, ...shape, pillars };
-    if (isCourseSolvable(candidate)) return candidate;
-  }
-  // Fallback: pillar-free CHAOS if 30 attempts somehow couldn't find a solvable
-  // arrangement. Shouldn't happen with these parameters, but never let the
-  // player land on a hole they can't solve.
-  const cx = W / 2, cy = H / 2;
-  const a = rand(170, 230), b = rand(85, 150);
-  const rot = rand(0, Math.PI * 2);
-  const shape = ellipseCourseShape(cx, cy, a, b, rot);
-  return { name: 'CHAOS', tier: 3, ...shape };
-}
-
-const courseBuilders = [
-  buildCourse1, buildCourse2, buildCourse3,
-  buildCourse4, buildCourse5, buildCourse6,
-  buildCourse7, buildCourse8, buildCourse9,
-];
-
-// ============================================================================
-// GAME STATE
-// ============================================================================
-let state = 'TITLE';        // TITLE | AIMING | ROLLING | HOLE_DONE | ROUND_DONE
-let currentHole = 0;
-let course = courseBuilders[0]();
-
-const ball = {
-  x: 0, y: 0,
-  vx: 0, vy: 0,
-  trail: [],   // recent positions for rendering motion trail
-};
-
-let aimStart = null;        // {x, y} pointer-down origin (ball position)
-let aimNow   = null;        // {x, y} current pointer position
-let aimActive = false;
-
-// Per-hole stats
-let bounces = 0;
-let distance = 0;
-let strokes = 0;
-let holeStartTime = 0;
-let holeTime = 0;
-
-// Cumulative round stats
-let totalScore = 0;
-let totalStrokes = 0;
-let totalBounces = 0;
-let totalTime = 0;
-
-// Score formula: longer travel + more bounces = better path. Capped so that
-// any specific course has roughly the same max contribution.
-function scoreForHole() {
-  // Base score from path spectacle (distance + bounces). Multiplier rewards
-  // low stroke count — ace = full credit, 2 strokes = half, then quickly down.
-  const spectacle = Math.round(distance * 0.5 + bounces * 200);
-  const strokeMult = strokes <= 0 ? 0 : 1 / strokes;
-  return Math.round(spectacle * strokeMult);
-}
-
-// ============================================================================
-// MATH HELPERS
-// ============================================================================
-function dot(ax, ay, bx, by) { return ax * bx + ay * by; }
 function length(x, y) { return Math.hypot(x, y); }
+function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-// Project point P onto segment AB. Returns the closest point on the segment
-// and the parametric value t in [0,1].
 function closestPointOnSegment(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   const len2 = dx * dx + dy * dy;
@@ -683,27 +235,289 @@ function closestPointOnSegment(px, py, ax, ay, bx, by) {
   return { x: ax + t * dx, y: ay + t * dy, t };
 }
 
-// Reflect velocity vector across a wall whose unit normal is (nx, ny).
 function reflect(vx, vy, nx, ny) {
   const d = 2 * (vx * nx + vy * ny);
   return { vx: vx - d * nx, vy: vy - d * ny };
 }
 
+function polyToSegs(points, closed = true) {
+  const segs = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    segs.push({ x1: points[i].x, y1: points[i].y, x2: points[i+1].x, y2: points[i+1].y });
+  }
+  if (closed && points.length > 1) {
+    segs.push({ x1: points[points.length-1].x, y1: points[points.length-1].y, x2: points[0].x, y2: points[0].y });
+  }
+  return segs;
+}
+
+function ellipseSegs(cx, cy, a, b, rot = 0, segments = 80) {
+  const pts = [];
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  for (let i = 0; i <= segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    const lx = a * Math.cos(t), ly = b * Math.sin(t);
+    pts.push({ x: cx + lx * cs - ly * sn, y: cy + lx * sn + ly * cs });
+  }
+  return polyToSegs(pts, false);
+}
+
+function roundRectSegs(x, y, w, h, r, segments = 8) {
+  r = Math.min(r, w/2, h/2);
+  const pts = [];
+  pts.push({ x: x + r, y: y });
+  pts.push({ x: x + w - r, y: y });
+  for (let i = 1; i < segments; i++) {
+    const a = -Math.PI/2 + (i / segments) * (Math.PI/2);
+    pts.push({ x: x + w - r + Math.cos(a) * r, y: y + r + Math.sin(a) * r });
+  }
+  pts.push({ x: x + w, y: y + r });
+  pts.push({ x: x + w, y: y + h - r });
+  for (let i = 1; i < segments; i++) {
+    const a = 0 + (i / segments) * (Math.PI/2);
+    pts.push({ x: x + w - r + Math.cos(a) * r, y: y + h - r + Math.sin(a) * r });
+  }
+  pts.push({ x: x + w - r, y: y + h });
+  pts.push({ x: x + r, y: y + h });
+  for (let i = 1; i < segments; i++) {
+    const a = Math.PI/2 + (i / segments) * (Math.PI/2);
+    pts.push({ x: x + r + Math.cos(a) * r, y: y + h - r + Math.sin(a) * r });
+  }
+  pts.push({ x: x, y: y + h - r });
+  pts.push({ x: x, y: y + r });
+  for (let i = 1; i < segments; i++) {
+    const a = Math.PI + (i / segments) * (Math.PI/2);
+    pts.push({ x: x + r + Math.cos(a) * r, y: y + r + Math.sin(a) * r });
+  }
+  return polyToSegs(pts, true);
+}
+
 // ============================================================================
-// PHYSICS
+// COURSES
 // ============================================================================
-// Find the deepest collision at position (nx, ny). Returns null if no
-// collision, or { nrmX, nrmY, pushX, pushY } where (pushX, pushY) is where the
-// ball center should be placed just outside the obstacle.
-//
-// Both walls and pillars are considered. Whichever has greater penetration
-// "wins" — important when a ball is wedged between two obstacles.
-function findCollision(nx, ny, course) {
+const CX = W / 2;
+const CY = H / 2;
+
+function buildOpener() {
+  const a = 280, b = 200;
+  const c = Math.sqrt(a*a - b*b);
+  return { name: 'OPENER', par: 1, greens: [{
+    walls: ellipseSegs(CX, CY, a, b),
+    pillars: [],
+    tee: { x: CX - c, y: CY },
+    hole: { x: CX + c, y: CY },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildDogleg() {
+  const pts = [
+    { x: CX - 280, y: CY - 80 },
+    { x: CX + 60,  y: CY - 80 },
+    { x: CX + 60,  y: CY - 280 },
+    { x: CX + 280, y: CY - 280 },
+    { x: CX + 280, y: CY + 280 },
+    { x: CX + 60,  y: CY + 280 },
+    { x: CX + 60,  y: CY + 80 },
+    { x: CX - 280, y: CY + 80 },
+  ];
+  return { name: 'DOGLEG', par: 2, greens: [{
+    walls: polyToSegs(pts, true),
+    pillars: [{ x: CX + 60, y: CY, r: 30 }],
+    tee: { x: CX - 230, y: CY },
+    hole: { x: CX + 230, y: CY - 230 },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildBumperMaze() {
+  return { name: 'BUMPER MAZE', par: 3, greens: [{
+    walls: roundRectSegs(CX - 320, CY - 320, 640, 640, 50),
+    pillars: [
+      { x: CX - 120, y: CY - 120, r: 32 },
+      { x: CX + 120, y: CY - 80,  r: 28 },
+      { x: CX,       y: CY + 40,  r: 36 },
+      { x: CX - 160, y: CY + 160, r: 26 },
+      { x: CX + 180, y: CY + 180, r: 30 },
+    ],
+    tee: { x: CX - 260, y: CY + 250 },
+    hole: { x: CX + 260, y: CY - 250 },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildTheDrop() {
+  const greenA = {
+    walls: roundRectSegs(CX - 280, CY - 380, 560, 280, 40),
+    pillars: [
+      { x: CX - 120, y: CY - 200, r: 30 },
+      { x: CX + 120, y: CY - 200, r: 30 },
+    ],
+    tee: { x: CX, y: CY - 320 },
+    hole: null,
+    tubes: [{ x: CX, y: CY - 160, r: TUBE_R, destGreen: 1, destX: CX, destY: CY + 280 }],
+  };
+  const greenB = {
+    walls: ellipseSegs(CX, CY + 280, 280, 130),
+    pillars: [],
+    tee: null,
+    hole: { x: CX + 200, y: CY + 280 },
+    tubes: [],
+  };
+  return { name: 'THE DROP', par: 2, greens: [greenA, greenB], startGreen: 0 };
+}
+
+function buildLoop() {
+  return { name: 'LOOP', par: 2, greens: [{
+    walls: ellipseSegs(CX, CY, 320, 260),
+    pillars: [{ x: CX, y: CY, r: 100 }],
+    tee: { x: CX - 240, y: CY },
+    hole: { x: CX + 240, y: CY },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildCrossfire() {
+  return { name: 'CROSSFIRE', par: 2, greens: [{
+    walls: roundRectSegs(CX - 320, CY - 320, 640, 640, 60),
+    pillars: [
+      { x: CX,       y: CY - 100, r: 26 },
+      { x: CX - 100, y: CY,       r: 26 },
+      { x: CX + 100, y: CY,       r: 26 },
+      { x: CX,       y: CY + 100, r: 26 },
+      { x: CX - 200, y: CY - 200, r: 22 },
+      { x: CX + 200, y: CY - 200, r: 22 },
+      { x: CX - 200, y: CY + 200, r: 22 },
+      { x: CX + 200, y: CY + 200, r: 22 },
+    ],
+    tee: { x: CX, y: CY + 270 },
+    hole: { x: CX, y: CY - 270 },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildTheLift() {
+  const aPts = [
+    { x: CX - 320, y: CY - 280 },
+    { x: CX + 320, y: CY - 280 },
+    { x: CX + 320, y: CY + 280 },
+    { x: CX - 320, y: CY + 280 },
+  ];
+  const innerWall = [
+    { x: CX + 60, y: CY - 280 },
+    { x: CX + 60, y: CY - 40 },
+    { x: CX - 60, y: CY - 40 },
+    { x: CX - 60, y: CY + 280 },
+  ];
+  const greenA = {
+    walls: [...polyToSegs(aPts, true), ...polyToSegs(innerWall, false)],
+    pillars: [],
+    tee: { x: CX - 220, y: CY - 200 },
+    hole: { x: CX + 220, y: CY - 200 },
+    tubes: [{ x: CX - 220, y: CY + 200, r: TUBE_R, destGreen: 1, destX: 150, destY: 150 }],
+  };
+  const greenB = {
+    walls: ellipseSegs(150, 150, 100, 80),
+    pillars: [],
+    tee: null,
+    hole: null,
+    tubes: [{ x: 150, y: 150, r: TUBE_R, destGreen: 0, destX: CX + 220, destY: CY + 200 }],
+  };
+  return { name: 'THE LIFT', par: 3, greens: [greenA, greenB], startGreen: 0 };
+}
+
+function buildSwitchback() {
+  const sPts = [
+    { x: CX - 320, y: CY - 320 },
+    { x: CX + 320, y: CY - 320 },
+    { x: CX + 320, y: CY - 140 },
+    { x: CX - 220, y: CY - 140 },
+    { x: CX - 220, y: CY + 40 },
+    { x: CX + 320, y: CY + 40 },
+    { x: CX + 320, y: CY + 220 },
+    { x: CX - 320, y: CY + 220 },
+  ];
+  return { name: 'SWITCHBACK', par: 3, greens: [{
+    walls: polyToSegs(sPts, true),
+    pillars: [],
+    tee: { x: CX - 260, y: CY - 230 },
+    hole: { x: CX - 260, y: CY + 130 },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+function buildBedlam() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const w = rand(540, 640), h = rand(540, 640);
+    const x = CX - w/2, y = CY - h/2;
+    const walls = roundRectSegs(x, y, w, h, rand(30, 80));
+    const pillarCount = 4 + Math.floor(Math.random() * 4);
+    const pillars = [];
+    const tee = { x: x + rand(40, 80), y: y + rand(40, h - 40) };
+    const hole = { x: x + w - rand(40, 80), y: y + rand(40, h - 40) };
+    let tries = 0;
+    while (pillars.length < pillarCount && tries < 50) {
+      tries++;
+      const px = x + rand(80, w - 80);
+      const py = y + rand(80, h - 80);
+      const pr = rand(18, 32);
+      if (length(px - tee.x, py - tee.y) < 80 + pr) continue;
+      if (length(px - hole.x, py - hole.y) < 80 + pr) continue;
+      let bad = false;
+      for (const q of pillars) {
+        if (length(px - q.x, py - q.y) < pr + q.r + 30) { bad = true; break; }
+      }
+      if (bad) continue;
+      pillars.push({ x: px, y: py, r: pr });
+    }
+    const candidate = { name: 'BEDLAM', par: 3, greens: [{ walls, pillars, tee, hole, tubes: [] }], startGreen: 0 };
+    if (isCourseSolvable(candidate)) return candidate;
+  }
+  return { name: 'BEDLAM', par: 2, greens: [{
+    walls: roundRectSegs(CX - 280, CY - 280, 560, 560, 50),
+    pillars: [],
+    tee: { x: CX - 220, y: CY },
+    hole: { x: CX + 220, y: CY },
+    tubes: [],
+  }], startGreen: 0 };
+}
+
+const courseBuilders = [
+  buildOpener, buildDogleg, buildBumperMaze,
+  buildTheDrop, buildLoop, buildCrossfire,
+  buildTheLift, buildSwitchback, buildBedlam,
+];
+
+// ============================================================================
+// STATE
+// ============================================================================
+let state = 'TITLE';
+let currentHole = 0;
+let course = courseBuilders[0]();
+let activeGreenIdx = 0;
+let activeGreen = course.greens[0];
+
+const ball = {
+  x: 0, y: 0, vx: 0, vy: 0,
+  trail: [],
+  tubeT: 0, tubeFrom: null, tubeTo: null, sinkT: 0,
+};
+
+let aimStart = null, aimNow = null, aimActive = false;
+let strokes = 0;
+let strokesPerHole = [];
+let parsPerHole = [];
+let totalPar = 0;
+
+// ============================================================================
+// COLLISION + PHYSICS
+// ============================================================================
+function findCollision(nx, ny, green) {
   let best = null;
   let bestDepth = 0;
 
-  for (let i = 0; i < course.walls.length; i++) {
-    const seg = course.walls[i];
+  for (let i = 0; i < green.walls.length; i++) {
+    const seg = green.walls[i];
     const cp = closestPointOnSegment(nx, ny, seg.x1, seg.y1, seg.x2, seg.y2);
     const d = length(nx - cp.x, ny - cp.y);
     const depth = BALL_R - d;
@@ -712,24 +526,19 @@ function findCollision(nx, ny, course) {
       let nrmX = nx - cp.x, nrmY = ny - cp.y;
       let nlen = length(nrmX, nrmY);
       if (nlen < 0.0001) {
-        // Tangent contact — fall back to segment perpendicular
         const sdx = seg.x2 - seg.x1, sdy = seg.y2 - seg.y1;
         const slen = length(sdx, sdy) || 1;
         nrmX = -sdy / slen; nrmY = sdx / slen;
       } else {
         nrmX /= nlen; nrmY /= nlen;
       }
-      best = {
-        nrmX, nrmY,
-        pushX: cp.x + nrmX * (BALL_R + 0.5),
-        pushY: cp.y + nrmY * (BALL_R + 0.5),
-      };
+      best = { nrmX, nrmY, pushX: cp.x + nrmX * (BALL_R + 0.5), pushY: cp.y + nrmY * (BALL_R + 0.5) };
     }
   }
 
-  if (course.pillars) {
-    for (let i = 0; i < course.pillars.length; i++) {
-      const p = course.pillars[i];
+  if (green.pillars) {
+    for (let i = 0; i < green.pillars.length; i++) {
+      const p = green.pillars[i];
       const d = length(nx - p.x, ny - p.y);
       const collisionDist = BALL_R + p.r;
       const depth = collisionDist - d;
@@ -739,29 +548,20 @@ function findCollision(nx, ny, course) {
         let nlen = length(nrmX, nrmY);
         if (nlen < 0.0001) { nrmX = 1; nrmY = 0; }
         else { nrmX /= nlen; nrmY /= nlen; }
-        best = {
-          nrmX, nrmY,
-          pushX: p.x + nrmX * (BALL_R + p.r + 0.5),
-          pushY: p.y + nrmY * (BALL_R + p.r + 0.5),
-        };
+        best = { nrmX, nrmY, pushX: p.x + nrmX * (BALL_R + p.r + 0.5), pushY: p.y + nrmY * (BALL_R + p.r + 0.5) };
       }
     }
   }
-
   return best;
 }
 
 function stepPhysics(dt) {
   if (state !== 'ROLLING') return;
 
-  // Light friction. Per-frame multiplier scaled to dt so behavior is
-  // independent of framerate.
-  const fricPerSec = Math.pow(FRICTION, 60);
-  const fricStep   = Math.pow(fricPerSec, dt);
+  const fricStep = Math.pow(Math.pow(FRICTION, 60), dt);
   ball.vx *= fricStep;
   ball.vy *= fricStep;
 
-  // Substep so a fast ball can't tunnel through a wall in one frame.
   const speed = length(ball.vx, ball.vy);
   const steps = Math.max(1, Math.ceil((speed * dt) / (BALL_R * 0.4)));
   const sub = dt / steps;
@@ -769,71 +569,73 @@ function stepPhysics(dt) {
   for (let s = 0; s < steps; s++) {
     const nx = ball.x + ball.vx * sub;
     const ny = ball.y + ball.vy * sub;
-
-    const hit = findCollision(nx, ny, course);
+    const hit = findCollision(nx, ny, activeGreen);
     if (hit) {
-      ball.x = hit.pushX;
-      ball.y = hit.pushY;
+      ball.x = hit.pushX; ball.y = hit.pushY;
       const r = reflect(ball.vx, ball.vy, hit.nrmX, hit.nrmY);
-      ball.vx = r.vx;
-      ball.vy = r.vy;
-      bounces++;
+      ball.vx = r.vx; ball.vy = r.vy;
       snd.bounce(length(ball.vx, ball.vy));
     } else {
-      distance += length(ball.vx * sub, ball.vy * sub);
-      ball.x = nx;
-      ball.y = ny;
+      ball.x = nx; ball.y = ny;
     }
-
-    // Hole capture — pass-through, any speed
-    if (course.hole) {
-      const dToHole = length(ball.x - course.hole.x, ball.y - course.hole.y);
-      if (dToHole < HOLE_CATCH_R) {
+    if (activeGreen.hole) {
+      if (length(ball.x - activeGreen.hole.x, ball.y - activeGreen.hole.y) < HOLE_CATCH_R) {
         sinkBall();
+        return;
+      }
+    }
+    for (const tube of activeGreen.tubes) {
+      if (length(ball.x - tube.x, ball.y - tube.y) < TUBE_CATCH_R) {
+        enterTube(tube);
         return;
       }
     }
   }
 
-  // Trail
   ball.trail.push({ x: ball.x, y: ball.y, life: 1 });
-  if (ball.trail.length > 60) ball.trail.shift();
+  if (ball.trail.length > 80) ball.trail.shift();
   for (const t of ball.trail) t.life -= dt * 1.5;
 
-  // Stopped check — ball comes to rest. Player puts again from rest position.
   if (length(ball.vx, ball.vy) < MIN_VEL) {
-    ball.vx = 0;
-    ball.vy = 0;
+    ball.vx = 0; ball.vy = 0;
     state = 'AIMING';
     hudHint.classList.remove('hidden');
   }
 }
 
-// Run a single-stroke simulation to verify a course is solvable: at least one
-// angle from the tee results in the ball reaching the hole within some
-// reasonable bound. Used to gate procedural courses before showing them.
-function trajectorySinks(course, angle) {
-  const b = {
-    x: course.tee.x, y: course.tee.y,
-    vx: Math.cos(angle) * LAUNCH_SPEED,
-    vy: Math.sin(angle) * LAUNCH_SPEED,
-  };
-  const dt = 0.016;
-  const maxFrames = 600; // ~10 seconds
-  const fricPerSec = Math.pow(FRICTION, 60);
-  const fricStep   = Math.pow(fricPerSec, dt);
+function sinkBall() {
+  ball.vx = 0; ball.vy = 0;
+  ball.x = activeGreen.hole.x;
+  ball.y = activeGreen.hole.y;
+  ball.sinkT = 0;
+  state = 'SINKING';
+  snd.sink();
+}
 
-  for (let frame = 0; frame < maxFrames; frame++) {
-    b.vx *= fricStep;
-    b.vy *= fricStep;
+function enterTube(tube) {
+  ball.vx = 0; ball.vy = 0;
+  ball.tubeT = 0;
+  ball.tubeFrom = { x: tube.x, y: tube.y, greenIdx: activeGreenIdx };
+  ball.tubeTo = { x: tube.destX, y: tube.destY, greenIdx: tube.destGreen };
+  state = 'TUBE_DROP';
+  snd.tubeDown();
+}
+
+function trajectorySinks(course, angle, launchSpeed) {
+  const green = course.greens[course.startGreen];
+  if (!green.tee || !green.hole) return false;
+  const b = { x: green.tee.x, y: green.tee.y, vx: Math.cos(angle) * launchSpeed, vy: Math.sin(angle) * launchSpeed };
+  const dt = 0.016;
+  const fricStep = Math.pow(Math.pow(FRICTION, 60), dt);
+  for (let frame = 0; frame < 800; frame++) {
+    b.vx *= fricStep; b.vy *= fricStep;
     const speed = length(b.vx, b.vy);
     if (speed < MIN_VEL) return false;
     const steps = Math.max(1, Math.ceil((speed * dt) / (BALL_R * 0.4)));
     const sub = dt / steps;
     for (let s = 0; s < steps; s++) {
-      const nx = b.x + b.vx * sub;
-      const ny = b.y + b.vy * sub;
-      const hit = findCollision(nx, ny, course);
+      const nx = b.x + b.vx * sub, ny = b.y + b.vy * sub;
+      const hit = findCollision(nx, ny, green);
       if (hit) {
         b.x = hit.pushX; b.y = hit.pushY;
         const r = reflect(b.vx, b.vy, hit.nrmX, hit.nrmY);
@@ -841,96 +643,56 @@ function trajectorySinks(course, angle) {
       } else {
         b.x = nx; b.y = ny;
       }
-      if (length(b.x - course.hole.x, b.y - course.hole.y) < HOLE_CATCH_R) return true;
+      if (length(b.x - green.hole.x, b.y - green.hole.y) < HOLE_CATCH_R) return true;
     }
   }
   return false;
 }
 
 function isCourseSolvable(course, samples = 36) {
-  for (let i = 0; i < samples; i++) {
-    const angle = (i / samples) * Math.PI * 2;
-    if (trajectorySinks(course, angle)) return true;
+  const powers = [600, 850, 1050];
+  for (const power of powers) {
+    for (let i = 0; i < samples; i++) {
+      const angle = (i / samples) * Math.PI * 2;
+      if (trajectorySinks(course, angle, power)) return true;
+    }
   }
   return false;
 }
 
-function sinkBall() {
-  ball.vx = 0;
-  ball.vy = 0;
-  // Snap ball to hole center for the drop animation
-  ball.x = course.hole.x;
-  ball.y = course.hole.y;
-  ball.sinkT = 0;
-  state = 'SINKING';
-  holeTime = (performance.now() - holeStartTime) / 1000;
-  snd.sink();
-}
-
-// Called after the sink animation completes — record stats, show overlay.
-function showHoleComplete() {
-  const score = scoreForHole();
-  totalScore   += score;
-  totalStrokes += strokes;
-  totalBounces += bounces;
-  totalTime    += holeTime;
-
-  // Stroke-based headline. Bounces still factor into scoring but the player's
-  // primary metric is now strokes.
-  document.getElementById('holeMsg').textContent =
-    strokes === 1 ? 'HOLE-IN-ONE!' :
-    strokes === 2 ? 'BIRDIE-STYLE TWO!' :
-    strokes === 3 ? 'THREE PUTTS!' :
-                    'SUNK IT!';
-  document.getElementById('finalStrokesEl').textContent = strokes;
-  document.getElementById('finalBouncesEl').textContent = bounces;
-  document.getElementById('finalDistEl').textContent    = Math.round(distance);
-  document.getElementById('finalTimeEl').textContent    = holeTime.toFixed(1) + 's';
-  document.getElementById('finalScoreEl').textContent   = score;
-  document.getElementById('holeScreen').classList.remove('hidden');
-}
-
 // ============================================================================
-// RENDERING
+// RENDER
 // ============================================================================
 function render() {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Faint grid
   ctx.strokeStyle = 'rgba(125, 255, 214, 0.04)';
   ctx.lineWidth = 1;
-  for (let x = 0; x < W; x += 30) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-  }
-  for (let y = 0; y < H; y += 30) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-  // Tee marker (subtle ring at spawn point)
-  if (course.tee) {
+  if (activeGreen.tee) {
     ctx.strokeStyle = COLORS.tee;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(course.tee.x, course.tee.y, BALL_R + 3, 0, Math.PI * 2);
+    ctx.arc(activeGreen.tee.x, activeGreen.tee.y, BALL_R + 4, 0, Math.PI * 2);
     ctx.stroke();
-    // tiny cross
     ctx.beginPath();
-    ctx.moveTo(course.tee.x - 3, course.tee.y);
-    ctx.lineTo(course.tee.x + 3, course.tee.y);
-    ctx.moveTo(course.tee.x, course.tee.y - 3);
-    ctx.lineTo(course.tee.x, course.tee.y + 3);
+    ctx.moveTo(activeGreen.tee.x - 4, activeGreen.tee.y);
+    ctx.lineTo(activeGreen.tee.x + 4, activeGreen.tee.y);
+    ctx.moveTo(activeGreen.tee.x, activeGreen.tee.y - 4);
+    ctx.lineTo(activeGreen.tee.x, activeGreen.tee.y + 4);
     ctx.stroke();
   }
 
-  // Hole — dark disc with glowing rim
-  if (course.hole) {
+  if (activeGreen.hole) {
     ctx.save();
     ctx.shadowColor = COLORS.holeGlow;
     ctx.shadowBlur = 18;
     ctx.fillStyle = COLORS.hole;
     ctx.beginPath();
-    ctx.arc(course.hole.x, course.hole.y, HOLE_R, 0, Math.PI * 2);
+    ctx.arc(activeGreen.hole.x, activeGreen.hole.y, HOLE_R, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = COLORS.holeRim;
     ctx.lineWidth = 2;
@@ -938,57 +700,58 @@ function render() {
     ctx.restore();
   }
 
-  // Decorations — drawn behind the walls, dimmer so player reads them as
-  // backdrop pattern rather than collidable geometry. Used in tier 2/3.
-  if (course.decorations && course.decorations.length) {
+  for (const tube of activeGreen.tubes) {
     ctx.save();
-    ctx.shadowColor = 'rgba(255, 77, 166, 0.25)';
-    ctx.shadowBlur = 6;
-    ctx.strokeStyle = 'rgba(255, 77, 166, 0.35)';
-    ctx.lineWidth = 1.2;
+    ctx.shadowColor = COLORS.tubeGlow;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(40, 20, 70, 0.85)';
     ctx.beginPath();
-    for (const seg of course.decorations) {
-      ctx.moveTo(seg.x1, seg.y1);
-      ctx.lineTo(seg.x2, seg.y2);
-    }
+    ctx.arc(tube.x, tube.y, tube.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = COLORS.tubeRim;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
+    const now = performance.now() / 1000;
+    ctx.strokeStyle = COLORS.tube;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
+    ctx.lineDashOffset = now * -20;
+    ctx.beginPath();
+    ctx.arc(tube.x, tube.y, tube.r * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
-  // Pillars — REAL collision obstacles. Drawn as filled discs with a bright
-  // rim and inner glow so the player can read them as bumpers, distinct from
-  // line decorations which are pure backdrop.
-  if (course.pillars && course.pillars.length) {
+  if (activeGreen.pillars && activeGreen.pillars.length) {
     ctx.save();
     ctx.shadowColor = 'rgba(255, 100, 180, 0.6)';
     ctx.shadowBlur = 12;
-    for (const p of course.pillars) {
-      ctx.fillStyle = 'rgba(255, 100, 180, 0.22)';
+    for (const p of activeGreen.pillars) {
+      ctx.fillStyle = COLORS.pillarFill;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#ff64b4';
+      ctx.strokeStyle = COLORS.pillar;
       ctx.lineWidth = 2;
       ctx.stroke();
     }
     ctx.restore();
   }
 
-  // Walls — glowing strokes
   ctx.save();
   ctx.shadowColor = COLORS.wallGlow;
   ctx.shadowBlur = 8;
   ctx.strokeStyle = COLORS.wall;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  for (const seg of course.walls) {
+  for (const seg of activeGreen.walls) {
     ctx.moveTo(seg.x1, seg.y1);
     ctx.lineTo(seg.x2, seg.y2);
   }
   ctx.stroke();
   ctx.restore();
 
-  // Trail
   for (let i = 0; i < ball.trail.length; i++) {
     const t = ball.trail[i];
     if (t.life <= 0) continue;
@@ -998,50 +761,61 @@ function render() {
     ctx.fill();
   }
 
-  // Aim line (while aiming)
   if (state === 'AIMING' && aimActive && aimStart && aimNow) {
-    const dx = aimStart.x - aimNow.x; // pull-back: shoot the OPPOSITE direction
+    const dx = aimStart.x - aimNow.x;
     const dy = aimStart.y - aimNow.y;
-    const mag = Math.min(MAX_AIM_DRAG, length(dx, dy));
-    if (mag > 2) {
-      const ux = dx / length(dx, dy);
-      const uy = dy / length(dx, dy);
+    const dragMag = length(dx, dy);
+    if (dragMag > 2) {
+      const power = Math.min(1, dragMag / POWER_DRAG_MAX);
+      const visMag = power * POWER_DRAG_MAX;
+      const ux = dx / dragMag, uy = dy / dragMag;
+      const tierIdx = Math.min(3, Math.floor(power * 4));
+      const color = COLORS.aimPower[tierIdx];
       ctx.save();
-      ctx.strokeStyle = COLORS.aim;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
-      ctx.shadowColor = COLORS.aimDim;
-      ctx.shadowBlur = 8;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([7, 5]);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
       ctx.beginPath();
       ctx.moveTo(ball.x, ball.y);
-      ctx.lineTo(ball.x + ux * mag, ball.y + uy * mag);
+      ctx.lineTo(ball.x + ux * visMag, ball.y + uy * visMag);
       ctx.stroke();
-      // tiny arrowhead
       ctx.setLineDash([]);
-      const ax = ball.x + ux * mag;
-      const ay = ball.y + uy * mag;
+      const ax = ball.x + ux * visMag;
+      const ay = ball.y + uy * visMag;
       const pa = Math.atan2(uy, ux);
       ctx.beginPath();
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - 8 * Math.cos(pa - 0.45), ay - 8 * Math.sin(pa - 0.45));
+      ctx.lineTo(ax - 10 * Math.cos(pa - 0.45), ay - 10 * Math.sin(pa - 0.45));
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - 8 * Math.cos(pa + 0.45), ay - 8 * Math.sin(pa + 0.45));
+      ctx.lineTo(ax - 10 * Math.cos(pa + 0.45), ay - 10 * Math.sin(pa + 0.45));
       ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = '11px "Courier New", monospace';
+      ctx.fillText(Math.round(power * 100) + '%', ball.x + 14, ball.y - 12);
       ctx.restore();
     }
   }
 
-  // Ball
   if (state !== 'TITLE') {
-    let bR = BALL_R;
-    let bAlpha = 1;
+    let bR = BALL_R, bAlpha = 1;
+    let drawX = ball.x, drawY = ball.y;
     if (state === 'SINKING') {
-      const SINK_MS = 0.55;
-      const t = Math.min(1, (ball.sinkT || 0) / SINK_MS);
-      // Ease-in: ball drops faster as it goes
-      const k = t * t;
-      bR = BALL_R * (1 - k);
-      bAlpha = 1 - k * 0.6;
+      const t = clamp((ball.sinkT || 0) / 0.55, 0, 1);
+      bR = BALL_R * (1 - t * t);
+      bAlpha = 1 - t * t * 0.6;
+    } else if (state === 'TUBE_DROP') {
+      const t = clamp((ball.tubeT || 0) / 0.45, 0, 1);
+      bR = BALL_R * (1 - t * t);
+      bAlpha = 1 - t * t * 0.6;
+      drawX = ball.tubeFrom.x; drawY = ball.tubeFrom.y;
+    } else if (state === 'TUBE_RISE') {
+      const t = clamp((ball.tubeT || 0) / 0.45, 0, 1);
+      const k = 1 - (1 - t) * (1 - t);
+      bR = BALL_R * k;
+      bAlpha = k;
+      drawX = ball.tubeTo.x; drawY = ball.tubeTo.y;
     }
     if (bR > 0.5) {
       ctx.save();
@@ -1050,7 +824,7 @@ function render() {
       ctx.shadowBlur = 12 * bAlpha;
       ctx.fillStyle = COLORS.ball;
       ctx.beginPath();
-      ctx.arc(ball.x, ball.y, bR, 0, Math.PI * 2);
+      ctx.arc(drawX, drawY, bR, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1058,129 +832,184 @@ function render() {
 }
 
 // ============================================================================
-// HOLE SETUP
+// LIFECYCLE
 // ============================================================================
 function setupHole(idx) {
   currentHole = idx;
   course = courseBuilders[idx]();
-  ball.x = course.tee.x;
-  ball.y = course.tee.y;
-  ball.vx = 0;
-  ball.vy = 0;
+  parsPerHole[idx] = course.par;
+  activeGreenIdx = course.startGreen;
+  activeGreen = course.greens[activeGreenIdx];
+  ball.x = activeGreen.tee.x;
+  ball.y = activeGreen.tee.y;
+  ball.vx = 0; ball.vy = 0;
   ball.trail.length = 0;
-  bounces = 0;
-  distance = 0;
   strokes = 0;
-  holeStartTime = performance.now();
 
-  hudHole.textContent = (idx + 1) + ' / ' + courseBuilders.length;
-  hudCourse.textContent = course.name;
+  hudHole.textContent    = (idx + 1) + ' / ' + courseBuilders.length;
+  hudCourse.textContent  = course.name;
+  hudPar.textContent     = course.par;
   hudStrokes.textContent = '0';
-  hudScore.textContent = '0';
   hudHint.classList.remove('hidden');
-
   state = 'AIMING';
 }
 
+function showHoleComplete() {
+  strokesPerHole[currentHole] = strokes;
+  const vs = strokes - course.par;
+  hcHoleEl.textContent    = currentHole + 1;
+  hcParEl.textContent     = course.par;
+  hcStrokesEl.textContent = strokes;
+  hcVsParEl.textContent   = vs > 0 ? '+' + vs : (vs < 0 ? '' + vs : 'E');
+  hcVsParEl.className     = 'v ' + (vs < 0 ? 'under' : vs > 0 ? 'over' : '');
+  holeMsgEl.textContent =
+    strokes === 1 ? 'HOLE-IN-ONE!' :
+    strokes <= course.par ? 'NICE!' :
+    strokes === course.par + 1 ? 'BOGEY' :
+    'PICK YOUR LINE';
+  holeScreen.classList.remove('hidden');
+}
+
+function showRoundComplete() {
+  let total = 0;
+  let par = 0;
+  for (let i = 0; i < courseBuilders.length; i++) {
+    total += strokesPerHole[i] || 0;
+    par   += parsPerHole[i]   || 0;
+  }
+  const vs = total - par;
+  rcTotalEl.textContent = total;
+  rcParEl.textContent   = par;
+  rcVsParEl.textContent = vs > 0 ? '+' + vs : (vs < 0 ? '' + vs : 'E');
+  rcVsParEl.className   = 'v ' + (vs < 0 ? 'under' : vs > 0 ? 'over' : '');
+
+  let html = '';
+  html += '<div class="cell header">HOLE</div>';
+  for (let i = 1; i <= courseBuilders.length; i++) html += `<div class="cell header">${i}</div>`;
+  html += '<div class="cell header">TOT</div>';
+  html += '<div class="cell header">PUTTS</div>';
+  for (let i = 0; i < courseBuilders.length; i++) {
+    html += `<div class="cell">${strokesPerHole[i] || 0}</div>`;
+  }
+  html += `<div class="cell total">${total}</div>`;
+  scorecardEl.innerHTML = html;
+
+  roundScreen.classList.remove('hidden');
+  state = 'ROUND_DONE';
+  snd.chime();
+}
+
 // ============================================================================
-// INPUT — pointer events handle both mouse and touch
+// INPUT
 // ============================================================================
 function canvasPos(ev) {
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
-  return {
-    x: (ev.clientX - rect.left) * scaleX,
-    y: (ev.clientY - rect.top)  * scaleY,
-  };
+  return { x: (ev.clientX - rect.left) * scaleX, y: (ev.clientY - rect.top) * scaleY };
 }
 
 canvas.addEventListener('pointerdown', (ev) => {
   if (state !== 'AIMING') return;
   const p = canvasPos(ev);
-  // Only start aim if pointer is near the ball
-  if (length(p.x - ball.x, p.y - ball.y) > BALL_R * 4) return;
+  if (length(p.x - ball.x, p.y - ball.y) > BALL_R * 5) return;
   aimActive = true;
   aimStart = { x: ball.x, y: ball.y };
   aimNow = p;
   canvas.setPointerCapture(ev.pointerId);
   hudHint.classList.add('hidden');
 });
-
 canvas.addEventListener('pointermove', (ev) => {
   if (!aimActive) return;
   aimNow = canvasPos(ev);
 });
-
 canvas.addEventListener('pointerup', (ev) => {
   if (!aimActive) return;
   aimActive = false;
   canvas.releasePointerCapture(ev.pointerId);
-
-  // Compute launch direction (pull-back: shoot opposite the drag)
   const dx = aimStart.x - aimNow.x;
   const dy = aimStart.y - aimNow.y;
-  const mag = length(dx, dy);
-  if (mag < 10) {
-    // Aborted aim — too short. Keep aiming.
-    return;
-  }
-  const ux = dx / mag;
-  const uy = dy / mag;
-  ball.vx = ux * LAUNCH_SPEED;
-  ball.vy = uy * LAUNCH_SPEED;
+  const dragMag = length(dx, dy);
+  if (dragMag < 10) return;
+  const power = Math.min(1, dragMag / POWER_DRAG_MAX);
+  const launchSpeed = MIN_LAUNCH + power * (MAX_LAUNCH - MIN_LAUNCH);
+  const ux = dx / dragMag, uy = dy / dragMag;
+  ball.vx = ux * launchSpeed;
+  ball.vy = uy * launchSpeed;
   state = 'ROLLING';
   strokes++;
   hudStrokes.textContent = strokes;
-  if (strokes === 1) holeStartTime = performance.now(); // start timer on first putt only
-  snd.putt();
+  snd.putt(power);
 });
-
-canvas.addEventListener('pointercancel', () => {
-  aimActive = false;
-});
+canvas.addEventListener('pointercancel', () => { aimActive = false; });
 
 // ============================================================================
-// BUTTONS
+// HUD REFS / BUTTONS
 // ============================================================================
 const hudHole    = document.getElementById('holeEl');
-const hudScore   = document.getElementById('scoreEl');
+const hudPar     = document.getElementById('parEl');
 const hudStrokes = document.getElementById('strokesEl');
+const hudTotal   = document.getElementById('totalEl');
+const hudVsPar   = document.getElementById('vsParEl');
 const hudCourse  = document.getElementById('courseLabel');
 const hudHint    = document.getElementById('hint');
+const titleScreen = document.getElementById('titleScreen');
+const holeScreen  = document.getElementById('holeScreen');
+const roundScreen = document.getElementById('roundScreen');
+const holeMsgEl   = document.getElementById('holeMsg');
+const hcHoleEl    = document.getElementById('hcHoleEl');
+const hcParEl     = document.getElementById('hcParEl');
+const hcStrokesEl = document.getElementById('hcStrokesEl');
+const hcVsParEl   = document.getElementById('hcVsParEl');
+const rcTotalEl   = document.getElementById('rcTotalEl');
+const rcParEl     = document.getElementById('rcParEl');
+const rcVsParEl   = document.getElementById('rcVsParEl');
+const scorecardEl = document.getElementById('scorecardEl');
+
+function updateRunningTotal() {
+  let total = 0, par = 0;
+  for (let i = 0; i < strokesPerHole.length; i++) {
+    total += strokesPerHole[i] || 0;
+    par   += parsPerHole[i]    || 0;
+  }
+  hudTotal.textContent = total;
+  const vs = total - par;
+  hudVsPar.textContent = vs > 0 ? '+' + vs : (vs < 0 ? '' + vs : 'E');
+}
 
 document.getElementById('startBtn').addEventListener('click', () => {
-  document.getElementById('titleScreen').classList.add('hidden');
-  totalScore = 0; totalStrokes = 0; totalBounces = 0; totalTime = 0;
+  titleScreen.classList.add('hidden');
+  strokesPerHole = [];
+  parsPerHole = [];
+  hudTotal.textContent = '0';
+  hudVsPar.textContent = 'E';
   setupHole(0);
 });
 
 document.getElementById('nextBtn').addEventListener('click', () => {
-  document.getElementById('holeScreen').classList.add('hidden');
+  holeScreen.classList.add('hidden');
+  updateRunningTotal();
   const next = currentHole + 1;
   if (next >= courseBuilders.length) {
-    document.getElementById('totalStrokesEl').textContent = totalStrokes;
-    document.getElementById('totalScoreEl').textContent   = totalScore;
-    document.getElementById('totalBouncesEl').textContent = totalBounces;
-    document.getElementById('totalTimeEl').textContent    = totalTime.toFixed(1) + 's';
-    document.getElementById('roundScreen').classList.remove('hidden');
-    state = 'ROUND_DONE';
-    snd.chime();
+    showRoundComplete();
   } else {
     setupHole(next);
   }
 });
 
 document.getElementById('playAgainBtn').addEventListener('click', () => {
-  document.getElementById('roundScreen').classList.add('hidden');
-  totalScore = 0; totalStrokes = 0; totalBounces = 0; totalTime = 0;
+  roundScreen.classList.add('hidden');
+  strokesPerHole = [];
+  parsPerHole = [];
+  hudTotal.textContent = '0';
+  hudVsPar.textContent = 'E';
   setupHole(0);
 });
 
 document.getElementById('year').textContent = new Date().getFullYear();
 
 // ============================================================================
-// GAME LOOP
+// LOOP
 // ============================================================================
 let lastT = performance.now();
 function loop(now) {
@@ -1189,16 +1018,33 @@ function loop(now) {
 
   if (state === 'ROLLING') {
     stepPhysics(dt);
-    hudScore.textContent = scoreForHole();
   } else if (state === 'SINKING') {
-    // Ball-drop animation: shrink to nothing over SINK_MS, then reveal overlay.
     ball.sinkT += dt;
-    const SINK_MS = 0.55;
-    if (ball.sinkT >= SINK_MS) {
+    if (ball.sinkT >= 0.55) {
       state = 'HOLE_DONE';
       showHoleComplete();
     }
+  } else if (state === 'TUBE_DROP') {
+    ball.tubeT += dt;
+    if (ball.tubeT >= 0.45) {
+      activeGreenIdx = ball.tubeTo.greenIdx;
+      activeGreen = course.greens[activeGreenIdx];
+      ball.tubeT = 0;
+      state = 'TUBE_RISE';
+      snd.tubeUp();
+    }
+  } else if (state === 'TUBE_RISE') {
+    ball.tubeT += dt;
+    if (ball.tubeT >= 0.45) {
+      ball.x = ball.tubeTo.x;
+      ball.y = ball.tubeTo.y;
+      ball.vx = 0; ball.vy = 0;
+      ball.trail.length = 0;
+      state = 'AIMING';
+      hudHint.classList.remove('hidden');
+    }
   }
+
   render();
   requestAnimationFrame(loop);
 }
