@@ -321,10 +321,10 @@ body {
 
 .ar-plus-logo {
     display: block;
-    height: 64px;
+    height: clamp(100px, 14vw, 180px);
     width: auto;
-    margin: 4px 0 14px;
-    filter: drop-shadow(0 0 18px rgba(255, 77, 166, 0.25));
+    margin: -8px 0 16px -10px; /* negative left to compensate for transparent padding in the PNG */
+    filter: drop-shadow(0 0 24px rgba(255, 77, 166, 0.3));
 }
 
 .ar-plus-tag {
