@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.1 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.2 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -85,14 +85,23 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(5, 8, 16, 0.85);
-    backdrop-filter: blur(4px);
+    background: rgba(5, 8, 16, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: 10;
     text-align: center;
     padding: 24px;
     gap: 18px;
   }
   .overlay.hidden { display: none; }
+
+  /* Hole-complete overlay shows the course through more — it's a celebration,
+     not a takeover. The title and round-complete overlays use the default. */
+  .overlay.glass {
+    background: rgba(5, 8, 16, 0.4);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
 
   .overlay h1 {
     font-size: 32px;
@@ -218,7 +227,7 @@
     </div>
 
     <!-- HOLE COMPLETE -->
-    <div class="overlay hidden" id="holeScreen">
+    <div class="overlay glass hidden" id="holeScreen">
       <h2 id="holeMsg">HOLE-IN-ONE!</h2>
       <div class="stat-grid">
         <div class="k">BOUNCES</div><div class="v" id="finalBouncesEl">0</div>
@@ -240,7 +249,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.1</div>
+    <div class="version-tag" id="versionTag">v0.2</div>
   </div>
 </div>
 
@@ -359,34 +368,46 @@ function buildCourse2() {
   };
 }
 
-// COURSE 3 — DOUBLE FOCUS
-// Two ellipses kissing along a vertical line — like a peanut shape. Ball
-// spawns at the far focus of the left ellipse. The ellipses share a focus
-// (where the necks meet); a ball from one focus reflects through the shared
-// focus and into the second ellipse, then to the second ellipse's far focus.
-// Two-bounce trick shot, every angle still aces.
+// COURSE 3 — DIAGONAL
+// Same confocal-ellipse guarantee as holes 1 and 2, but rotated 30° so the
+// path angles aren't just horizontal or vertical. Slightly bigger overall for
+// more dramatic travel. Every angle still aces.
 function buildCourse3() {
-  // Left ellipse foci at FA (tee) and FS (shared/middle)
-  // Right ellipse foci at FS and FB (hole)
-  const cy = H / 2;
-  const a = 110, b = 80;
+  const cx = W / 2, cy = H / 2;
+  const a = 200, b = 130;
   const c = Math.sqrt(a * a - b * b);
-  const leftCx  = W / 2 - a;       // left ellipse centered so its right focus is at W/2
-  const rightCx = W / 2 + a;       // right ellipse centered so its left focus is at W/2
-  // Left ellipse — keep the right half (the part that bulges toward the meeting point)
-  // Right ellipse — keep the left half
-  // Actually for simplicity, full ellipses overlapping. Reflections may have
-  // edge cases at the overlap; we'll iterate if it doesn't feel right.
-  const walls = [
-    ...ellipseWalls(leftCx,  cy, a, b, 64),
-    ...ellipseWalls(rightCx, cy, a, b, 64),
-  ];
+  const angle = -Math.PI / 6; // -30° tilt (foci go up-left and down-right)
+
+  // Build an ellipse rotated around its center
+  function rotEllipseWalls(cx, cy, a, b, rot, segments = 96) {
+    const walls = [];
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    let prevX = null, prevY = null;
+    for (let i = 0; i <= segments; i++) {
+      const t = (i / segments) * Math.PI * 2;
+      const lx = a * Math.cos(t);
+      const ly = b * Math.sin(t);
+      const x = cx + lx * cs - ly * sn;
+      const y = cy + lx * sn + ly * cs;
+      if (prevX !== null) walls.push({ x1: prevX, y1: prevY, x2: x, y2: y });
+      prevX = x; prevY = y;
+    }
+    return walls;
+  }
+
+  // Foci on the major axis, rotated with the ellipse
+  const cs = Math.cos(angle), sn = Math.sin(angle);
+  const f1x = cx + (-c) * cs;
+  const f1y = cy + (-c) * sn;
+  const f2x = cx + ( c) * cs;
+  const f2y = cy + ( c) * sn;
+
   return {
-    name: 'DOUBLE FOCUS',
-    par: 2,
-    walls,
-    tee:  { x: leftCx  - c, y: cy },
-    hole: { x: rightCx + c, y: cy },
+    name: 'DIAGONAL',
+    par: 1,
+    walls: rotEllipseWalls(cx, cy, a, b, angle),
+    tee:  { x: f1x, y: f1y },
+    hole: { x: f2x, y: f2y },
   };
 }
 
@@ -555,8 +576,16 @@ function stepPhysics(dt) {
 function sinkBall() {
   ball.vx = 0;
   ball.vy = 0;
-  state = 'HOLE_DONE';
+  // Snap ball to hole center for the drop animation
+  ball.x = course.hole.x;
+  ball.y = course.hole.y;
+  ball.sinkT = 0;
+  state = 'SINKING';
   holeTime = (performance.now() - holeStartTime) / 1000;
+}
+
+// Called after the sink animation completes — record stats, show overlay.
+function showHoleComplete() {
   const score = scoreForHole();
   totalScore   += score;
   totalBounces += bounces;
@@ -679,14 +708,27 @@ function render() {
 
   // Ball
   if (state !== 'TITLE') {
-    ctx.save();
-    ctx.shadowColor = COLORS.ballGlow;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = COLORS.ball;
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    let bR = BALL_R;
+    let bAlpha = 1;
+    if (state === 'SINKING') {
+      const SINK_MS = 0.55;
+      const t = Math.min(1, (ball.sinkT || 0) / SINK_MS);
+      // Ease-in: ball drops faster as it goes
+      const k = t * t;
+      bR = BALL_R * (1 - k);
+      bAlpha = 1 - k * 0.6;
+    }
+    if (bR > 0.5) {
+      ctx.save();
+      ctx.globalAlpha = bAlpha;
+      ctx.shadowColor = COLORS.ballGlow;
+      ctx.shadowBlur = 12 * bAlpha;
+      ctx.fillStyle = COLORS.ball;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, bR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 }
 
@@ -813,9 +855,18 @@ let lastT = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
-  stepPhysics(dt);
+
   if (state === 'ROLLING') {
+    stepPhysics(dt);
     hudScore.textContent = scoreForHole();
+  } else if (state === 'SINKING') {
+    // Ball-drop animation: shrink to nothing over SINK_MS, then reveal overlay.
+    ball.sinkT += dt;
+    const SINK_MS = 0.55;
+    if (ball.sinkT >= SINK_MS) {
+      state = 'HOLE_DONE';
+      showHoleComplete();
+    }
   }
   render();
   requestAnimationFrame(loop);
