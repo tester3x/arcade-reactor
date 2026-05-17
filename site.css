@@ -291,3 +291,124 @@ body {
     }
     .board-col-game, .board-game { display: none; }
 }
+
+/* ============================================================== */
+/*  AR+ (Arcade Reactor Plus) — experimental wing                 */
+/* ============================================================== */
+/*  Distinct neon-magenta theme set against the site's cyan accent */
+/*  so AR+ visually reads as a separate "wing" without looking     */
+/*  like a different site. Cards carry an AR+ badge.               */
+
+.nav-ar-plus {
+    color: #ff4da6 !important;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-shadow: 0 0 8px rgba(255, 77, 166, 0.4);
+}
+.nav-ar-plus:hover { color: #ff6fb8 !important; }
+
+.ar-plus-section {
+    position: relative;
+    background:
+        radial-gradient(circle at 20% 0%, rgba(255, 77, 166, 0.06), transparent 50%),
+        radial-gradient(circle at 80% 100%, rgba(34, 211, 238, 0.05), transparent 50%);
+}
+
+.ar-plus-eyebrow {
+    color: #ff4da6;
+    text-shadow: 0 0 8px rgba(255, 77, 166, 0.35);
+}
+
+.ar-plus-logo {
+    display: block;
+    height: 64px;
+    width: auto;
+    margin: 4px 0 14px;
+    filter: drop-shadow(0 0 18px rgba(255, 77, 166, 0.25));
+}
+
+.ar-plus-tag {
+    color: #ff4da6;
+    border-color: rgba(255, 77, 166, 0.35);
+}
+
+.ar-plus-card {
+    border-color: rgba(255, 77, 166, 0.22);
+    background: linear-gradient(180deg, rgba(255, 77, 166, 0.04), var(--bg-elev) 35%);
+    position: relative;
+}
+.ar-plus-card::before {
+    content: 'AR+';
+    position: absolute;
+    top: 12px; right: 12px;
+    z-index: 2;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    color: #ff4da6;
+    background: rgba(10, 14, 20, 0.85);
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 77, 166, 0.4);
+    letter-spacing: 0.18em;
+    text-shadow: 0 0 6px rgba(255, 77, 166, 0.3);
+    box-shadow: 0 0 10px rgba(255, 77, 166, 0.18);
+    pointer-events: none;
+}
+.ar-plus-card:hover:not(.game-card-placeholder) {
+    border-color: rgba(255, 77, 166, 0.5);
+    box-shadow: 0 8px 32px -8px rgba(255, 77, 166, 0.35);
+}
+
+.game-art-mini-golf {
+    background:
+        radial-gradient(circle at center, rgba(255, 232, 100, 0.08), transparent 55%),
+        #080b10;
+}
+
+/* AR+ suggestion CTA */
+.ar-plus-cta {
+    margin-top: 40px;
+    padding: 36px 32px;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 77, 166, 0.08),
+        rgba(255, 232, 100, 0.03) 50%,
+        rgba(34, 211, 238, 0.08)
+    );
+    border: 1px solid rgba(255, 77, 166, 0.22);
+    border-radius: var(--radius-lg);
+    text-align: center;
+}
+.ar-plus-cta h3 {
+    font-size: clamp(22px, 3vw, 28px);
+    margin: 0 0 6px;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+.ar-plus-cta-tagline {
+    font-family: var(--mono);
+    color: #ff4da6;
+    letter-spacing: 0.22em;
+    font-size: 12px;
+    margin: 0 0 16px;
+    text-transform: uppercase;
+    text-shadow: 0 0 8px rgba(255, 77, 166, 0.35);
+}
+.ar-plus-cta p {
+    color: var(--text-muted);
+    margin: 0 auto 22px;
+    max-width: 540px;
+}
+.btn-coming-soon {
+    background: rgba(255, 77, 166, 0.08);
+    border: 1px solid rgba(255, 77, 166, 0.35);
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    padding: 10px 24px;
+    border-radius: 6px;
+    cursor: not-allowed;
+    text-transform: uppercase;
+}
