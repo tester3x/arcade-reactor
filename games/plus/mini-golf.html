@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.2 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.3 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -249,7 +249,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.2</div>
+    <div class="version-tag" id="versionTag">v0.3</div>
   </div>
 </div>
 
@@ -335,90 +335,204 @@ function arcWalls(cx, cy, r, a0, a1, segments = 48) {
   return w;
 }
 
-// COURSE 1 — FOCAL POINT
-// Pure ellipse. Tee at one focus, hole at the other. Confocal property of an
-// ellipse means any ray from one focus reflects off the wall to the other.
-// So any angle the player picks results in a one-bounce hole-in-one.
+// COURSE BUILDERS support is below. Geometry helpers first.
+
+// Build a rotated ellipse approximated as line segments. Foci land on the
+// major axis after rotation.
+function rotEllipseWalls(cx, cy, a, b, rot, segments = 96) {
+  const walls = [];
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  let prevX = null, prevY = null;
+  for (let i = 0; i <= segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    const lx = a * Math.cos(t);
+    const ly = b * Math.sin(t);
+    const x = cx + lx * cs - ly * sn;
+    const y = cy + lx * sn + ly * cs;
+    if (prevX !== null) walls.push({ x1: prevX, y1: prevY, x2: x, y2: y });
+    prevX = x; prevY = y;
+  }
+  return walls;
+}
+
+// Build an ellipse + automatically compute its tee/hole at the foci.
+// rot is in radians. Returns { walls, tee, hole }.
+function ellipseCourseShape(cx, cy, a, b, rot) {
+  // a is treated as semi-major axis; if b > a we swap so the foci are on the
+  // longer axis (which matters geometrically).
+  let A = a, B = b, rotation = rot;
+  if (B > A) { A = b; B = a; rotation = rot + Math.PI / 2; }
+  const c = Math.sqrt(A * A - B * B);
+  const cs = Math.cos(rotation), sn = Math.sin(rotation);
+  return {
+    walls: rotEllipseWalls(cx, cy, A, B, rotation),
+    tee:  { x: cx + (-c) * cs, y: cy + (-c) * sn },
+    hole: { x: cx + ( c) * cs, y: cy + ( c) * sn },
+  };
+}
+
+// Decorations: drawn but no collision. Used for visual complexity in tier 2/3
+// where the geometry is still a pure ellipse but we render extra patterns.
+function decorEllipse(cx, cy, a, b, rot, segments = 64) {
+  const segs = [];
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  let prevX = null, prevY = null;
+  for (let i = 0; i <= segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    const lx = a * Math.cos(t);
+    const ly = b * Math.sin(t);
+    const x = cx + lx * cs - ly * sn;
+    const y = cy + lx * sn + ly * cs;
+    if (prevX !== null) segs.push({ x1: prevX, y1: prevY, x2: x, y2: y });
+    prevX = x; prevY = y;
+  }
+  return segs;
+}
+function decorCircle(cx, cy, r, segments = 32) {
+  return decorEllipse(cx, cy, r, r, 0, segments);
+}
+
+function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
+
+// ============================================================================
+// COURSE BUILDERS — 9 holes in three tiers
+// ============================================================================
+// Tier 1 (1-3): teach the geometry. Plain ellipses, every angle aces.
+// Tier 2 (4-6): visually busier but still pure conic — same guarantee dressed up.
+// Tier 3 (7-9): procedurally generated. Every play, fresh geometry.
+//
+// Each builder returns a course every time it's called, so the dynamic ones
+// re-randomize per play.
+
+// ---------- TIER 1 — INTRO ----------
+
 function buildCourse1() {
   const cx = W / 2, cy = H / 2;
-  const a = 180, b = 120;
-  const c = Math.sqrt(a * a - b * b); // focus offset from center
-  return {
-    name: 'FOCAL POINT',
-    par: 1,
-    walls: ellipseWalls(cx, cy, a, b),
-    tee:  { x: cx - c, y: cy },
-    hole: { x: cx + c, y: cy },
-  };
+  const shape = ellipseCourseShape(cx, cy, 180, 120, 0);
+  return { name: 'FOCAL POINT', tier: 1, ...shape };
 }
 
-// COURSE 2 — LONG OVAL
-// Same idea, more dramatic. Tall narrow ellipse — ball travels farther between
-// reflections, paths look longer and more elegant.
 function buildCourse2() {
   const cx = W / 2, cy = H / 2;
-  const a = 90, b = 220;
-  const c = Math.sqrt(b * b - a * a); // foci on the y-axis since b > a
-  return {
-    name: 'LONG OVAL',
-    par: 1,
-    walls: ellipseWalls(cx, cy, a, b),
-    tee:  { x: cx, y: cy - c },
-    hole: { x: cx, y: cy + c },
-  };
+  const shape = ellipseCourseShape(cx, cy, 90, 220, 0);
+  return { name: 'LONG OVAL', tier: 1, ...shape };
 }
 
-// COURSE 3 — DIAGONAL
-// Same confocal-ellipse guarantee as holes 1 and 2, but rotated 30° so the
-// path angles aren't just horizontal or vertical. Slightly bigger overall for
-// more dramatic travel. Every angle still aces.
 function buildCourse3() {
   const cx = W / 2, cy = H / 2;
-  const a = 200, b = 130;
+  const shape = ellipseCourseShape(cx, cy, 200, 130, -Math.PI / 6);
+  return { name: 'DIAGONAL', tier: 1, ...shape };
+}
+
+// ---------- TIER 2 — DRESSED UP ----------
+
+// Bigger, more eccentric ellipse. Same math, more dramatic path.
+function buildCourse4() {
+  const cx = W / 2, cy = H / 2;
+  const shape = ellipseCourseShape(cx, cy, 220, 95, Math.PI / 10);
+  return { name: 'WIDE BERTH', tier: 2, ...shape };
+}
+
+// Confocal layering: inner ellipse drawn as decoration on top of the real
+// collision wall. Looks like two layers; ball still uses the outer ellipse.
+function buildCourse5() {
+  const cx = W / 2, cy = H / 2;
+  const a = 200, b = 130, rot = Math.PI / 8;
+  const shape = ellipseCourseShape(cx, cy, a, b, rot);
+  // Inner confocal ellipse: same foci, smaller. For confocal ellipses with
+  // foci distance c, all (a, b) pairs share c so a² - b² = c² stays constant.
   const c = Math.sqrt(a * a - b * b);
-  const angle = -Math.PI / 6; // -30° tilt (foci go up-left and down-right)
-
-  // Build an ellipse rotated around its center
-  function rotEllipseWalls(cx, cy, a, b, rot, segments = 96) {
-    const walls = [];
-    const cs = Math.cos(rot), sn = Math.sin(rot);
-    let prevX = null, prevY = null;
-    for (let i = 0; i <= segments; i++) {
-      const t = (i / segments) * Math.PI * 2;
-      const lx = a * Math.cos(t);
-      const ly = b * Math.sin(t);
-      const x = cx + lx * cs - ly * sn;
-      const y = cy + lx * sn + ly * cs;
-      if (prevX !== null) walls.push({ x1: prevX, y1: prevY, x2: x, y2: y });
-      prevX = x; prevY = y;
-    }
-    return walls;
-  }
-
-  // Foci on the major axis, rotated with the ellipse
-  const cs = Math.cos(angle), sn = Math.sin(angle);
-  const f1x = cx + (-c) * cs;
-  const f1y = cy + (-c) * sn;
-  const f2x = cx + ( c) * cs;
-  const f2y = cy + ( c) * sn;
-
+  const a2 = a * 0.62, b2 = Math.sqrt(a2 * a2 - c * c);
   return {
-    name: 'DIAGONAL',
-    par: 1,
-    walls: rotEllipseWalls(cx, cy, a, b, angle),
-    tee:  { x: f1x, y: f1y },
-    hole: { x: f2x, y: f2y },
+    name: 'TWIN WALLS',
+    tier: 2,
+    ...shape,
+    decorations: decorEllipse(cx, cy, a2, b2, rot),
   };
 }
 
-const courses = [buildCourse1(), buildCourse2(), buildCourse3()];
+// Decorative "pillars" — circles drawn inside the ellipse. Pure visual; ball
+// passes right through (decorations have no collision). Reads as "navigate
+// the obstacles," but the geometry's still a pure ellipse.
+function buildCourse6() {
+  const cx = W / 2, cy = H / 2;
+  const a = 210, b = 110, rot = 0;
+  const shape = ellipseCourseShape(cx, cy, a, b, rot);
+  // A few small circles arrayed between the foci, offset above and below the
+  // major axis so the player sees them as "in the way"
+  const decorations = [
+    ...decorCircle(cx,           cy - 50, 18),
+    ...decorCircle(cx - 60,      cy + 35, 14),
+    ...decorCircle(cx + 60,      cy + 35, 14),
+    ...decorCircle(cx,           cy + 30, 10),
+  ];
+  return { name: 'PILLARED', tier: 2, ...shape, decorations };
+}
+
+// ---------- TIER 3 — DYNAMIC ----------
+
+// Random ellipse — re-rolled every time the player tees off.
+function buildCourse7() {
+  const cx = W / 2, cy = H / 2;
+  const a = rand(150, 220);
+  const b = rand(80, 160);
+  const rot = rand(-Math.PI / 3, Math.PI / 3);
+  const shape = ellipseCourseShape(cx, cy, a, b, rot);
+  return { name: 'WILD CARD', tier: 3, ...shape };
+}
+
+// Random ellipse with random number of confocal decorations.
+function buildCourse8() {
+  const cx = W / 2, cy = H / 2;
+  const a = rand(180, 220), b = rand(90, 140);
+  const rot = rand(0, Math.PI);
+  const shape = ellipseCourseShape(cx, cy, a, b, rot);
+  // shape may have swapped a/b internally; use the same params to draw
+  // confocal layers
+  const A = Math.max(a, b), B = Math.min(a, b);
+  const rotation = b > a ? rot + Math.PI / 2 : rot;
+  const c = Math.sqrt(A * A - B * B);
+  const layers = 2 + Math.floor(Math.random() * 2); // 2 or 3 layers
+  const decorations = [];
+  for (let i = 1; i <= layers; i++) {
+    const t = i / (layers + 1);
+    const a2 = A * (0.4 + t * 0.45);
+    const b2 = Math.sqrt(Math.max(1, a2 * a2 - c * c));
+    decorations.push(...decorEllipse(cx, cy, a2, b2, rotation));
+  }
+  return { name: 'TWISTED', tier: 3, ...shape, decorations };
+}
+
+// Maximum chaos — random ellipse, random pillars, random rotation. Different
+// every single play.
+function buildCourse9() {
+  const cx = W / 2, cy = H / 2;
+  const a = rand(170, 230), b = rand(85, 150);
+  const rot = rand(0, Math.PI * 2);
+  const shape = ellipseCourseShape(cx, cy, a, b, rot);
+  // Random scatter of decorative pillars
+  const pillars = 3 + Math.floor(Math.random() * 4); // 3 to 6
+  const decorations = [];
+  for (let i = 0; i < pillars; i++) {
+    const px = cx + rand(-Math.min(a, b) * 0.55, Math.min(a, b) * 0.55);
+    const py = cy + rand(-Math.min(a, b) * 0.4,  Math.min(a, b) * 0.4);
+    decorations.push(...decorCircle(px, py, rand(8, 18)));
+  }
+  return { name: 'CHAOS', tier: 3, ...shape, decorations };
+}
+
+const courseBuilders = [
+  buildCourse1, buildCourse2, buildCourse3,
+  buildCourse4, buildCourse5, buildCourse6,
+  buildCourse7, buildCourse8, buildCourse9,
+];
 
 // ============================================================================
 // GAME STATE
 // ============================================================================
 let state = 'TITLE';        // TITLE | AIMING | ROLLING | HOLE_DONE | ROUND_DONE
 let currentHole = 0;
-let course = courses[0];
+let course = courseBuilders[0]();
 
 const ball = {
   x: 0, y: 0,
@@ -649,6 +763,23 @@ function render() {
     ctx.restore();
   }
 
+  // Decorations — drawn behind the walls, dimmer so player reads them as
+  // backdrop pattern rather than collidable geometry. Used in tier 2/3.
+  if (course.decorations && course.decorations.length) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(255, 77, 166, 0.25)';
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = 'rgba(255, 77, 166, 0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (const seg of course.decorations) {
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Walls — glowing strokes
   ctx.save();
   ctx.shadowColor = COLORS.wallGlow;
@@ -737,7 +868,7 @@ function render() {
 // ============================================================================
 function setupHole(idx) {
   currentHole = idx;
-  course = courses[idx];
+  course = courseBuilders[idx]();
   ball.x = course.tee.x;
   ball.y = course.tee.y;
   ball.vx = 0;
@@ -747,7 +878,7 @@ function setupHole(idx) {
   distance = 0;
   holeStartTime = performance.now();
 
-  hudHole.textContent = (idx + 1) + ' / ' + courses.length;
+  hudHole.textContent = (idx + 1) + ' / ' + courseBuilders.length;
   hudCourse.textContent = course.name;
   hudBounces.textContent = '0';
   hudScore.textContent = '0';
@@ -829,7 +960,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
 document.getElementById('nextBtn').addEventListener('click', () => {
   document.getElementById('holeScreen').classList.add('hidden');
   const next = currentHole + 1;
-  if (next >= courses.length) {
+  if (next >= courseBuilders.length) {
     document.getElementById('totalScoreEl').textContent   = totalScore;
     document.getElementById('totalBouncesEl').textContent = totalBounces;
     document.getElementById('totalTimeEl').textContent    = totalTime.toFixed(1) + 's';
