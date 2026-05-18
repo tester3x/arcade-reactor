@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.7 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.7.1 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.7</div>
+    <div class="version-tag" id="versionTag">v0.7.1</div>
   </div>
 </div>
 
@@ -208,6 +208,7 @@ const PILLAR_COR = 0.72;       // Pillars (rubber bumpers) lose a bit more energ
 const TUBE_DROP_RETAIN = 0.50; // Fraction of speed preserved when ball drops out of a tube
 const TUBE_DROP_JITTER = Math.PI / 3; // ±60° random direction kick on tube exit (simulates landing chaos)
 const MIN_VEL = 8;
+const SINK_MAX_SPEED = 500;   // px/sec — above this, ball "skips" over the hole instead of dropping in
 
 const HOLE_CATCH_R = HOLE_R - BALL_R / 2;
 const TUBE_CATCH_R = TUBE_R - BALL_R / 2;
@@ -438,21 +439,24 @@ function buildTheLift() {
 }
 
 function buildSwitchback() {
-  const sPts = [
-    { x: CX - 320, y: CY - 320 },
-    { x: CX + 320, y: CY - 320 },
+  // True S-shape: outer rectangle plus two internal dividers with openings on
+  // alternating sides. Top corridor opens to middle on the LEFT; middle opens
+  // to bottom on the RIGHT. Tee in upper-right, hole in lower-left, so the
+  // player must actually traverse the S.
+  const outer = roundRectSegs(CX - 320, CY - 320, 640, 540, 24);
+  const divider1 = polyToSegs([
+    { x: CX - 100, y: CY - 140 },
     { x: CX + 320, y: CY - 140 },
-    { x: CX - 220, y: CY - 140 },
-    { x: CX - 220, y: CY + 40 },
-    { x: CX + 320, y: CY + 40 },
-    { x: CX + 320, y: CY + 220 },
-    { x: CX - 320, y: CY + 220 },
-  ];
+  ], false); // top→middle wall, opening on LEFT (from CX-320 to CX-100)
+  const divider2 = polyToSegs([
+    { x: CX - 320, y: CY + 40 },
+    { x: CX + 100, y: CY + 40 },
+  ], false); // middle→bottom wall, opening on RIGHT (from CX+100 to CX+320)
   return { name: 'SWITCHBACK', par: 3, greens: [{
-    walls: polyToSegs(sPts, true),
+    walls: [...outer, ...divider1, ...divider2],
     pillars: [],
-    tee: { x: CX - 260, y: CY - 230 },
-    hole: { x: CX - 260, y: CY + 130 },
+    tee: { x: CX + 240, y: CY - 230 },
+    hole: { x: CX - 240, y: CY + 130 },
     tubes: [],
   }], startGreen: 0 };
 }
@@ -591,8 +595,12 @@ function stepPhysics(dt) {
     }
     if (activeGreen.hole) {
       if (length(ball.x - activeGreen.hole.x, ball.y - activeGreen.hole.y) < HOLE_CATCH_R) {
-        sinkBall();
-        return;
+        // Speed gate — ball must be slow enough to drop. Hot putts skip over.
+        if (length(ball.vx, ball.vy) < SINK_MAX_SPEED) {
+          sinkBall();
+          return;
+        }
+        // Else: ball is too fast; passes over the cup. No deflection, just keeps rolling.
       }
     }
     for (const tube of activeGreen.tubes) {
@@ -657,7 +665,9 @@ function trajectorySinks(course, angle, launchSpeed) {
       } else {
         b.x = nx; b.y = ny;
       }
-      if (length(b.x - green.hole.x, b.y - green.hole.y) < HOLE_CATCH_R) return true;
+      if (length(b.x - green.hole.x, b.y - green.hole.y) < HOLE_CATCH_R) {
+        if (length(b.vx, b.vy) < SINK_MAX_SPEED) return true;
+      }
     }
   }
   return false;
