@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.7.3 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.7.4 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.7.3</div>
+    <div class="version-tag" id="versionTag">v0.7.4</div>
   </div>
 </div>
 
@@ -184,7 +184,7 @@ function clap() {
   // Sharp attack, exponential decay
   const gain = audioCtx.createGain();
   gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(0.16, t + 0.002);
+  gain.gain.linearRampToValueAtTime(0.24, t + 0.002);
   gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
   source.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
   source.start(t);
@@ -192,10 +192,12 @@ function clap() {
 }
 
 function whoop() {
-  // Short rising sweep, voice-shaped
-  const startF = 280 + Math.random() * 80;
-  const endF   = 700 + Math.random() * 250;
-  tone(startF, 0.32, 'sine', 0.10, endF);
+  // Voice-shaped rising sweep + 2nd harmonic for body, louder than v0.7.4.
+  if (!audioReady) return;
+  const startF = 260 + Math.random() * 100;
+  const endF   = 680 + Math.random() * 300;
+  tone(startF,     0.34, 'sawtooth', 0.20, endF);
+  tone(startF * 2, 0.34, 'sine',     0.10, endF * 2);
 }
 
 const snd = {
@@ -215,26 +217,34 @@ const snd = {
   tubeDown: () => tone(800, 0.30, 'sine', 0.20, 180),
   tubeUp:   () => tone(180, 0.30, 'sine', 0.20, 800),
   applause: () => {
-    // Crowd clapping for an under-par hole. ~14 claps over a second, then sparser.
-    for (let i = 0; i < 14; i++) {
-      setTimeout(clap, i * 60 + Math.random() * 60);
+    // Polite hand-clap pattern — slower buildup, no voice elements. Reads as
+    // "nice shot, good job" rather than "OMG holy crap".
+    for (let i = 0; i < 16; i++) {
+      setTimeout(clap, i * 90 + Math.random() * 70);
     }
-    for (let i = 0; i < 8; i++) {
-      setTimeout(clap, 900 + Math.random() * 1300);
+    for (let i = 0; i < 10; i++) {
+      setTimeout(clap, 1600 + Math.random() * 2100);
     }
   },
   cheer: () => {
-    // Hole-in-one celebration. Denser claps + scattered whoops.
-    for (let i = 0; i < 28; i++) {
-      setTimeout(clap, i * 30 + Math.random() * 50);
+    // Hole-in-one celebration: fast roar of claps + many overlapping whoops.
+    // Differentiation from applause comes from density (faster), volume,
+    // and voice content (whoops layered throughout).
+    for (let i = 0; i < 40; i++) {
+      setTimeout(clap, i * 22 + Math.random() * 40);
     }
-    for (let i = 0; i < 16; i++) {
-      setTimeout(clap, 1000 + Math.random() * 2200);
+    for (let i = 0; i < 20; i++) {
+      setTimeout(clap, 1100 + Math.random() * 2500);
     }
-    setTimeout(whoop, 80);
-    setTimeout(whoop, 360);
-    setTimeout(whoop, 680);
-    setTimeout(whoop, 1050);
+    // Whoops at varied times — overlapping so they sound like multiple voices
+    setTimeout(whoop, 50);
+    setTimeout(whoop, 180);
+    setTimeout(whoop, 320);
+    setTimeout(whoop, 560);
+    setTimeout(whoop, 780);
+    setTimeout(whoop, 1100);
+    setTimeout(whoop, 1450);
+    setTimeout(whoop, 1900);
   },
   chime: () => {
     tone(523, 0.30, 'triangle', 0.14);
@@ -264,8 +274,9 @@ const PILLAR_COR = 0.72;       // Pillars (rubber bumpers) lose a bit more energ
 const TUBE_DROP_RETAIN = 0.50; // Fraction of speed preserved when ball drops out of a tube
 const TUBE_DROP_JITTER = Math.PI / 3; // ±60° random direction kick on tube exit (simulates landing chaos)
 const MIN_VEL = 8;
-const SINK_MAX_SPEED = 500;   // px/sec — above this, ball "skips" over the hole instead of dropping in
+const SINK_MAX_SPEED = 500;   // px/sec — above this, ball "skips" or lips out instead of dropping
 const SAND_FRICTION_MULT = 5; // sand traps apply 5x normal friction loss per frame
+const SWING_DURATION = 0.09;  // seconds — putter swing forward animation length
 
 const HOLE_CATCH_R = HOLE_R - BALL_R / 2;
 const TUBE_CATCH_R = TUBE_R - BALL_R / 2;
@@ -451,22 +462,29 @@ function buildLoop() {
 }
 
 function buildCrossfire() {
-  return { name: 'CROSSFIRE', par: 2, greens: [{
-    walls: roundRectSegs(CX - 320, CY - 320, 640, 640, 60),
-    pillars: [
-      { x: CX,       y: CY - 100, r: 26 },
-      { x: CX - 100, y: CY,       r: 26 },
-      { x: CX + 100, y: CY,       r: 26 },
-      { x: CX,       y: CY + 100, r: 26 },
-      { x: CX - 200, y: CY - 200, r: 22 },
-      { x: CX + 200, y: CY - 200, r: 22 },
-      { x: CX - 200, y: CY + 200, r: 22 },
-      { x: CX + 200, y: CY + 200, r: 22 },
-    ],
-    tee: { x: CX, y: CY + 270 },
-    hole: { x: CX, y: CY - 270 },
-    tubes: [],
-  }], startGreen: 0 };
+  // Random wind per play — direction and magnitude vary, max ~35 px/sec²
+  const windAngle = Math.random() * Math.PI * 2;
+  const windMag = 20 + Math.random() * 15;
+  return {
+    name: 'CROSSFIRE', par: 2,
+    wind: { x: Math.cos(windAngle) * windMag, y: Math.sin(windAngle) * windMag },
+    greens: [{
+      walls: roundRectSegs(CX - 320, CY - 320, 640, 640, 60),
+      pillars: [
+        { x: CX,       y: CY - 100, r: 26 },
+        { x: CX - 100, y: CY,       r: 26 },
+        { x: CX + 100, y: CY,       r: 26 },
+        { x: CX,       y: CY + 100, r: 26 },
+        { x: CX - 200, y: CY - 200, r: 22 },
+        { x: CX + 200, y: CY - 200, r: 22 },
+        { x: CX - 200, y: CY + 200, r: 22 },
+        { x: CX + 200, y: CY + 200, r: 22 },
+      ],
+      tee: { x: CX, y: CY + 270 },
+      hole: { x: CX, y: CY - 270 },
+      tubes: [],
+    }], startGreen: 0
+  };
 }
 
 function buildTheLift() {
@@ -593,6 +611,9 @@ const ball = {
   x: 0, y: 0, vx: 0, vy: 0,
   trail: [],
   tubeT: 0, tubeFrom: null, tubeTo: null, sinkT: 0,
+  // Swing animation state (used between AIMING release and ROLLING)
+  swingT: 0, swingFromX: 0, swingFromY: 0, swingToX: 0, swingToY: 0,
+  swingAngle: 0, swingPower: 0, launchVx: 0, launchVy: 0,
 };
 
 let aimStart = null, aimNow = null, aimActive = false;
@@ -671,6 +692,12 @@ function stepPhysics(dt) {
   ball.vx *= fricStep;
   ball.vy *= fricStep;
 
+  // Wind — constant acceleration applied to ball velocity each frame
+  if (course.wind) {
+    ball.vx += course.wind.x * dt;
+    ball.vy += course.wind.y * dt;
+  }
+
   const speed = length(ball.vx, ball.vy);
   const steps = Math.max(1, Math.ceil((speed * dt) / (BALL_R * 0.4)));
   const sub = dt / steps;
@@ -688,13 +715,38 @@ function stepPhysics(dt) {
       ball.x = nx; ball.y = ny;
     }
     if (activeGreen.hole) {
-      if (length(ball.x - activeGreen.hole.x, ball.y - activeGreen.hole.y) < HOLE_CATCH_R) {
-        // Speed gate — ball must be slow enough to drop. Hot putts skip over.
-        if (length(ball.vx, ball.vy) < SINK_MAX_SPEED) {
+      const hx = activeGreen.hole.x;
+      const hy = activeGreen.hole.y;
+      const d = length(ball.x - hx, ball.y - hy);
+      const speed = length(ball.vx, ball.vy);
+      const rimOuterR = HOLE_R + BALL_R / 2; // outer reach where ball still touches the rim
+
+      if (d < HOLE_CATCH_R) {
+        // Ball center is over the cup
+        if (speed < SINK_MAX_SPEED) {
           sinkBall();
           return;
         }
-        // Else: ball is too fast; passes over the cup. No deflection, just keeps rolling.
+        // LIP-OUT: ball was too hot — pops back out chaotically. Real golf
+        // physics: ball clips far lip, ejected at some random angle with
+        // most of its energy gone.
+        if (d > 0.5) {
+          const ux = (ball.x - hx) / d;
+          const uy = (ball.y - hy) / d;
+          const dirAngle = Math.atan2(ball.vy, ball.vx);
+          // Kick back-and-randomized from the approach direction
+          const newAngle = dirAngle + Math.PI + (Math.random() - 0.5) * Math.PI * 0.8;
+          const newSpeed = speed * 0.55;
+          ball.vx = Math.cos(newAngle) * newSpeed;
+          ball.vy = Math.sin(newAngle) * newSpeed;
+          ball.x = hx + ux * (HOLE_CATCH_R + 2);
+          ball.y = hy + uy * (HOLE_CATCH_R + 2);
+          snd.bounce(speed * 0.4);
+        }
+      } else if (d < rimOuterR && speed < SINK_MAX_SPEED / 2.5) {
+        // RIM-DROP: ball is half-on the lip and slow — gravity wins, drops in
+        sinkBall();
+        return;
       }
     }
     for (const tube of activeGreen.tubes) {
@@ -791,6 +843,24 @@ function isCourseSolvable(course, samples = 36) {
 // ============================================================================
 // RENDER
 // ============================================================================
+// Draw a putter head at (cx, cy) rotated to `angle`. The "face" is perpendicular
+// to the angle (so the wide side meets the ball). Used during aim AND during
+// the swing animation.
+function drawPutterHead(cx, cy, angle, power) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  const faceW = 7;
+  const faceH = 22 + power * 6;
+  ctx.shadowColor = 'rgba(207, 234, 255, 0.5)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#cfeaff';
+  ctx.fillRect(-faceW / 2, -faceH / 2, faceW, faceH);
+  ctx.fillStyle = 'rgba(207, 234, 255, 0.6)';
+  ctx.fillRect(-faceW / 2 - 18, -1.5, 18, 3);
+  ctx.restore();
+}
+
 function render() {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, W, H);
@@ -801,17 +871,32 @@ function render() {
   for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
   if (activeGreen.tee) {
-    ctx.strokeStyle = COLORS.tee;
+    // Small putter-head silhouette marks the tee position. Reads as "this is
+    // where you started" without being a glowing crosshair.
+    ctx.save();
+    ctx.translate(activeGreen.tee.x, activeGreen.tee.y);
+    ctx.fillStyle = 'rgba(207, 234, 255, 0.22)';
+    ctx.strokeStyle = 'rgba(207, 234, 255, 0.45)';
     ctx.lineWidth = 1;
+    // Putter head — rounded rect, 18x7
     ctx.beginPath();
-    ctx.arc(activeGreen.tee.x, activeGreen.tee.y, BALL_R + 4, 0, Math.PI * 2);
+    const hw = 9, hh = 3.5, hr = 2;
+    ctx.moveTo(-hw + hr, -hh);
+    ctx.lineTo(hw - hr, -hh);
+    ctx.quadraticCurveTo(hw, -hh, hw, -hh + hr);
+    ctx.lineTo(hw, hh - hr);
+    ctx.quadraticCurveTo(hw, hh, hw - hr, hh);
+    ctx.lineTo(-hw + hr, hh);
+    ctx.quadraticCurveTo(-hw, hh, -hw, hh - hr);
+    ctx.lineTo(-hw, -hh + hr);
+    ctx.quadraticCurveTo(-hw, -hh, -hw + hr, -hh);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(activeGreen.tee.x - 4, activeGreen.tee.y);
-    ctx.lineTo(activeGreen.tee.x + 4, activeGreen.tee.y);
-    ctx.moveTo(activeGreen.tee.x, activeGreen.tee.y - 4);
-    ctx.lineTo(activeGreen.tee.x, activeGreen.tee.y + 4);
-    ctx.stroke();
+    // Short shaft stub
+    ctx.fillStyle = 'rgba(207, 234, 255, 0.4)';
+    ctx.fillRect(hw - 1, -1, 8, 2);
+    ctx.restore();
   }
 
   if (activeGreen.hole) {
@@ -825,6 +910,42 @@ function render() {
     ctx.strokeStyle = COLORS.holeRim;
     ctx.lineWidth = 2;
     ctx.stroke();
+    ctx.restore();
+
+    // Flag pole + flag. Flag tilts in the wind. The wind is a 2D vector but
+    // visually we map its X component to flag tilt (positive = right-leaning),
+    // which is the most legible read for top-down.
+    const hx = activeGreen.hole.x;
+    const hy = activeGreen.hole.y;
+    const wind = course.wind || { x: 0, y: 0 };
+    const windMag = length(wind.x, wind.y);
+    const poleH = 34;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(220, 220, 220, 0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy - 2);
+    ctx.lineTo(hx, hy - poleH);
+    ctx.stroke();
+    // Triangular flag. Base of triangle at top of pole, tip pointing in wind
+    // direction (or right if no wind). Add a small breathing wiggle so it
+    // looks alive even when wind is calm.
+    const t = performance.now() / 1000;
+    const baseAngle = windMag > 0.5 ? Math.atan2(wind.y, wind.x) : 0;
+    const wave = Math.sin(t * (2 + windMag * 0.06)) * (windMag > 0.5 ? 0.12 : 0.18);
+    const flagAngle = baseAngle + wave;
+    const flagLen = 14 + Math.min(8, windMag * 0.15);
+    const tipX = hx + Math.cos(flagAngle) * flagLen;
+    const tipY = hy - poleH + Math.sin(flagAngle) * flagLen * 0.7;
+    ctx.fillStyle = '#ff6b9d';
+    ctx.shadowColor = 'rgba(255, 107, 157, 0.6)';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy - poleH);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(hx, hy - poleH + 9);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -958,26 +1079,23 @@ function render() {
       ctx.fillText(Math.round(power * 100) + '%', ball.x + 14, ball.y - 12);
       ctx.restore();
 
-      // Putter head: small rectangle sitting BEHIND the ball, perpendicular
-      // to the aim direction. Looks like a club face ready to strike.
-      const putterDist = BALL_R + 6 + power * 4;
+      // Putter head — pulls back with the cursor. Distance from ball matches
+      // drag distance (capped) so the head visually tracks the mouse during aim.
+      const visualDrag = Math.min(dragMag, POWER_DRAG_MAX * 1.4);
+      const putterDist = Math.max(BALL_R + 4, visualDrag);
       const px0 = ball.x - ux * putterDist;
       const py0 = ball.y - uy * putterDist;
-      ctx.save();
-      ctx.translate(px0, py0);
-      ctx.rotate(Math.atan2(uy, ux));
-      // Face: perpendicular to aim (long axis is "up-down" in local frame)
-      const faceW = 7;          // along aim
-      const faceH = 22 + power * 6;  // perpendicular to aim
-      ctx.shadowColor = 'rgba(207, 234, 255, 0.5)';
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = '#cfeaff';
-      ctx.fillRect(-faceW / 2, -faceH / 2, faceW, faceH);
-      // Thin shaft sticking back
-      ctx.fillStyle = 'rgba(207, 234, 255, 0.6)';
-      ctx.fillRect(-faceW / 2 - 18, -1.5, 18, 3);
-      ctx.restore();
+      drawPutterHead(px0, py0, Math.atan2(uy, ux), power);
     }
+  }
+
+  // Render putter mid-swing (after release, before ball launches)
+  if (state === 'SWINGING') {
+    const t = Math.min(1, ball.swingT / SWING_DURATION);
+    const eased = t * t; // ease-in — slow start, fast finish, like a real downswing
+    const cx = ball.swingFromX + (ball.swingToX - ball.swingFromX) * eased;
+    const cy = ball.swingFromY + (ball.swingToY - ball.swingFromY) * eased;
+    drawPutterHead(cx, cy, ball.swingAngle, ball.swingPower);
   }
 
   if (state !== 'TITLE') {
@@ -1116,9 +1234,21 @@ canvas.addEventListener('pointerup', (ev) => {
   const power = Math.min(1, dragMag / POWER_DRAG_MAX);
   const launchSpeed = MIN_LAUNCH + power * (MAX_LAUNCH - MIN_LAUNCH);
   const ux = dx / dragMag, uy = dy / dragMag;
-  ball.vx = ux * launchSpeed;
-  ball.vy = uy * launchSpeed;
-  state = 'ROLLING';
+
+  // Enter SWINGING state — putter animates forward from pulled-back position to
+  // the ball. Ball doesn't launch until the swing completes (~90ms).
+  const visualDrag = Math.min(dragMag, POWER_DRAG_MAX * 1.4);
+  const putterDist = Math.max(BALL_R + 4, visualDrag);
+  ball.swingT = 0;
+  ball.swingFromX = ball.x - ux * putterDist;
+  ball.swingFromY = ball.y - uy * putterDist;
+  ball.swingToX = ball.x;
+  ball.swingToY = ball.y;
+  ball.swingAngle = Math.atan2(uy, ux);
+  ball.swingPower = power;
+  ball.launchVx = ux * launchSpeed;
+  ball.launchVy = uy * launchSpeed;
+  state = 'SWINGING';
   strokes++;
   hudStrokes.textContent = strokes;
   snd.putt(power);
@@ -1200,6 +1330,14 @@ function loop(now) {
 
   if (state === 'ROLLING') {
     stepPhysics(dt);
+  } else if (state === 'SWINGING') {
+    ball.swingT += dt;
+    if (ball.swingT >= SWING_DURATION) {
+      // Impact — release the ball with stored launch velocity
+      ball.vx = ball.launchVx;
+      ball.vy = ball.launchVy;
+      state = 'ROLLING';
+    }
   } else if (state === 'SINKING') {
     ball.sinkT += dt;
     if (ball.sinkT >= 0.55) {
