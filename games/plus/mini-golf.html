@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.6 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.6.2 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.6</div>
+    <div class="version-tag" id="versionTag">v0.6.2</div>
   </div>
 </div>
 
@@ -368,11 +368,17 @@ function buildTheDrop() {
 }
 
 function buildLoop() {
+  // Ellipse with central island pillar. Tee and hole at the actual foci so the
+  // ellipse's focal-reflection geometry is available — but the central pillar
+  // blocks the direct (low-angle) chord between the foci. To ace, aim steep
+  // enough that the reflected path goes over (or under) the pillar.
+  const a = 320, b = 260;
+  const c = Math.sqrt(a*a - b*b); // ≈ 187 — actual focus offset
   return { name: 'LOOP', par: 2, greens: [{
-    walls: ellipseSegs(CX, CY, 320, 260),
-    pillars: [{ x: CX, y: CY, r: 100 }],
-    tee: { x: CX - 240, y: CY },
-    hole: { x: CX + 240, y: CY },
+    walls: ellipseSegs(CX, CY, a, b),
+    pillars: [{ x: CX, y: CY, r: 90 }],
+    tee: { x: CX - c, y: CY },
+    hole: { x: CX + c, y: CY },
     tubes: [],
   }], startGreen: 0 };
 }
@@ -613,10 +619,13 @@ function sinkBall() {
 }
 
 function enterTube(tube) {
-  ball.vx = 0; ball.vy = 0;
+  // Stash velocity to restore on the other side — tubes preserve momentum.
   ball.tubeT = 0;
   ball.tubeFrom = { x: tube.x, y: tube.y, greenIdx: activeGreenIdx };
   ball.tubeTo = { x: tube.destX, y: tube.destY, greenIdx: tube.destGreen };
+  ball.tubeVx = ball.vx;
+  ball.tubeVy = ball.vy;
+  ball.vx = 0; ball.vy = 0;
   state = 'TUBE_DROP';
   snd.tubeDown();
 }
@@ -1038,10 +1047,11 @@ function loop(now) {
     if (ball.tubeT >= 0.45) {
       ball.x = ball.tubeTo.x;
       ball.y = ball.tubeTo.y;
-      ball.vx = 0; ball.vy = 0;
+      ball.vx = ball.tubeVx;
+      ball.vy = ball.tubeVy;
       ball.trail.length = 0;
-      state = 'AIMING';
-      hudHint.classList.remove('hidden');
+      // Ball keeps rolling — no stroke charged for transit, momentum is preserved.
+      state = 'ROLLING';
     }
   }
 
