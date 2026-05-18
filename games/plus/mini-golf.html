@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.7.1 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.7.2 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.7.1</div>
+    <div class="version-tag" id="versionTag">v0.7.2</div>
   </div>
 </div>
 
@@ -209,6 +209,7 @@ const TUBE_DROP_RETAIN = 0.50; // Fraction of speed preserved when ball drops ou
 const TUBE_DROP_JITTER = Math.PI / 3; // ±60° random direction kick on tube exit (simulates landing chaos)
 const MIN_VEL = 8;
 const SINK_MAX_SPEED = 500;   // px/sec — above this, ball "skips" over the hole instead of dropping in
+const SAND_FRICTION_MULT = 5; // sand traps apply 5x normal friction loss per frame
 
 const HOLE_CATCH_R = HOLE_R - BALL_R / 2;
 const TUBE_CATCH_R = TUBE_R - BALL_R / 2;
@@ -356,18 +357,22 @@ function buildTheDrop() {
   const greenA = {
     walls: roundRectSegs(CX - 280, CY - 380, 560, 280, 40),
     pillars: [
-      { x: CX - 120, y: CY - 200, r: 30 },
-      { x: CX + 120, y: CY - 200, r: 30 },
+      // Pillar in the diagonal path from tee to tube — forces a bank shot
+      { x: CX - 80, y: CY - 240, r: 30 },
+      { x: CX + 60, y: CY - 280, r: 26 },
     ],
-    tee: { x: CX, y: CY - 320 },
+    tee: { x: CX - 220, y: CY - 340 },
     hole: null,
-    tubes: [{ x: CX, y: CY - 160, r: TUBE_R, destGreen: 1, destX: CX, destY: CY + 280 }],
+    tubes: [{ x: CX + 180, y: CY - 160, r: TUBE_R, destGreen: 1, destX: CX, destY: CY + 280 }],
   };
   const greenB = {
     walls: ellipseSegs(CX, CY + 280, 280, 130),
-    pillars: [],
+    pillars: [
+      // Pillar between tube exit (CX, CY+280) and the cup (CX+200, CY+280)
+      { x: CX + 110, y: CY + 280, r: 22 },
+    ],
     tee: null,
-    hole: { x: CX + 200, y: CY + 280 },
+    hole: { x: CX + 220, y: CY + 280 },
     tubes: [],
   };
   return { name: 'THE DROP', par: 2, greens: [greenA, greenB], startGreen: 0 };
@@ -423,14 +428,30 @@ function buildTheLift() {
   ];
   const greenA = {
     walls: [...polyToSegs(aPts, true), ...polyToSegs(innerWall, false)],
-    pillars: [],
+    pillars: [
+      // LEFT SECTION: pillar in the straight-down path from tee to tube —
+      // prevents the "just aim down" trivial putt
+      { x: CX - 220, y: CY - 20, r: 26 },
+      // RIGHT SECTION: pillar near the cup, making approach angles matter
+      { x: CX + 140, y: CY - 120, r: 24 },
+    ],
+    zones: [
+      // RIGHT SECTION: sand trap between the tube exit (CX+220, CY+200) and the
+      // cup (CX+220, CY-200). Ball must either thread around it or push hard
+      // enough through to maintain useful speed.
+      { type: 'sand', x: CX + 200, y: CY + 40, r: 55 },
+    ],
     tee: { x: CX - 220, y: CY - 200 },
     hole: { x: CX + 220, y: CY - 200 },
     tubes: [{ x: CX - 220, y: CY + 200, r: TUBE_R, destGreen: 1, destX: 150, destY: 150 }],
   };
   const greenB = {
-    walls: ellipseSegs(150, 150, 100, 80),
-    pillars: [],
+    walls: ellipseSegs(150, 150, 120, 90),
+    pillars: [
+      // Pillar on green B — ball ricochets here before hitting the return tube,
+      // adding more randomness to where (and how fast) it emerges on green A
+      { x: 200, y: 120, r: 16 },
+    ],
     tee: null,
     hole: null,
     tubes: [{ x: 150, y: 150, r: TUBE_R, destGreen: 0, destX: CX + 220, destY: CY + 200 }],
@@ -527,6 +548,19 @@ let totalPar = 0;
 // ============================================================================
 // COLLISION + PHYSICS
 // ============================================================================
+// Return the per-frame friction multiplier where the ball currently is.
+// 1.0 = grass (default). >1 = sand-like (faster decel). <1 = ice-like (slower
+// decel). Future zone types (slope, water) can extend this.
+function zoneFrictionMult(x, y, green) {
+  if (!green.zones) return 1;
+  for (const z of green.zones) {
+    if (z.type === 'sand') {
+      if (length(x - z.x, y - z.y) < z.r) return SAND_FRICTION_MULT;
+    }
+  }
+  return 1;
+}
+
 function findCollision(nx, ny, green) {
   let best = null;
   let bestDepth = 0;
@@ -573,7 +607,11 @@ function findCollision(nx, ny, green) {
 function stepPhysics(dt) {
   if (state !== 'ROLLING') return;
 
-  const fricStep = Math.pow(Math.pow(FRICTION, 60), dt);
+  const surfaceMult = zoneFrictionMult(ball.x, ball.y, activeGreen);
+  // Apply friction with surface modifier — sand applies more loss per frame.
+  const lossPerFrame = (1 - FRICTION) * surfaceMult;
+  const fricPerFrame = Math.max(0, 1 - lossPerFrame);
+  const fricStep = Math.pow(Math.pow(fricPerFrame, 60), dt);
   ball.vx *= fricStep;
   ball.vy *= fricStep;
 
@@ -648,8 +686,11 @@ function trajectorySinks(course, angle, launchSpeed) {
   if (!green.tee || !green.hole) return false;
   const b = { x: green.tee.x, y: green.tee.y, vx: Math.cos(angle) * launchSpeed, vy: Math.sin(angle) * launchSpeed };
   const dt = 0.016;
-  const fricStep = Math.pow(Math.pow(FRICTION, 60), dt);
   for (let frame = 0; frame < 800; frame++) {
+    const surfaceMult = zoneFrictionMult(b.x, b.y, green);
+    const lossPerFrame = (1 - FRICTION) * surfaceMult;
+    const fricPerFrame = Math.max(0, 1 - lossPerFrame);
+    const fricStep = Math.pow(Math.pow(fricPerFrame, 60), dt);
     b.vx *= fricStep; b.vy *= fricStep;
     const speed = length(b.vx, b.vy);
     if (speed < MIN_VEL) return false;
@@ -747,6 +788,40 @@ function render() {
     ctx.restore();
   }
 
+  // Zones — surface variations (sand, etc.) drawn below pillars and walls
+  if (activeGreen.zones && activeGreen.zones.length) {
+    for (const z of activeGreen.zones) {
+      if (z.type === 'sand') {
+        ctx.save();
+        ctx.fillStyle = 'rgba(218, 192, 120, 0.18)';
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(218, 192, 120, 0.6)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Speckled sand texture: a few light dots
+        ctx.fillStyle = 'rgba(255, 220, 140, 0.55)';
+        const seed = Math.floor(z.x * 17 + z.y * 31);
+        for (let i = 0; i < 14; i++) {
+          // Deterministic pseudo-random so sand doesn't shimmer each frame
+          const ax = ((seed + i * 47) % 1000) / 1000;
+          const ay = ((seed + i * 73 + 13) % 1000) / 1000;
+          const dx = (ax - 0.5) * 2 * z.r * 0.85;
+          const dy = (ay - 0.5) * 2 * z.r * 0.85;
+          if (dx*dx + dy*dy < (z.r * 0.85)**2) {
+            ctx.beginPath();
+            ctx.arc(z.x + dx, z.y + dy, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+    }
+  }
+
   if (activeGreen.pillars && activeGreen.pillars.length) {
     ctx.save();
     ctx.shadowColor = 'rgba(255, 100, 180, 0.6)';
@@ -818,6 +893,26 @@ function render() {
       ctx.fillStyle = color;
       ctx.font = '11px "Courier New", monospace';
       ctx.fillText(Math.round(power * 100) + '%', ball.x + 14, ball.y - 12);
+      ctx.restore();
+
+      // Putter head: small rectangle sitting BEHIND the ball, perpendicular
+      // to the aim direction. Looks like a club face ready to strike.
+      const putterDist = BALL_R + 6 + power * 4;
+      const px0 = ball.x - ux * putterDist;
+      const py0 = ball.y - uy * putterDist;
+      ctx.save();
+      ctx.translate(px0, py0);
+      ctx.rotate(Math.atan2(uy, ux));
+      // Face: perpendicular to aim (long axis is "up-down" in local frame)
+      const faceW = 7;          // along aim
+      const faceH = 22 + power * 6;  // perpendicular to aim
+      ctx.shadowColor = 'rgba(207, 234, 255, 0.5)';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = '#cfeaff';
+      ctx.fillRect(-faceW / 2, -faceH / 2, faceW, faceH);
+      // Thin shaft sticking back
+      ctx.fillStyle = 'rgba(207, 234, 255, 0.6)';
+      ctx.fillRect(-faceW / 2 - 18, -1.5, 18, 3);
       ctx.restore();
     }
   }
