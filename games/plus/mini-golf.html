@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.7.4 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.7.4.2 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.7.4</div>
+    <div class="version-tag" id="versionTag">v0.7.4.2</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ function clap() {
 }
 
 function whoop() {
-  // Voice-shaped rising sweep + 2nd harmonic for body, louder than v0.7.4.
+  // Voice-shaped rising sweep + 2nd harmonic for body, louder than v0.7.4.2.
   if (!audioReady) return;
   const startF = 260 + Math.random() * 100;
   const endF   = 680 + Math.random() * 300;
@@ -462,9 +462,9 @@ function buildLoop() {
 }
 
 function buildCrossfire() {
-  // Random wind per play — direction and magnitude vary, max ~35 px/sec²
+  // Gentle random wind per play — subtle nudge, not a hurricane.
   const windAngle = Math.random() * Math.PI * 2;
-  const windMag = 20 + Math.random() * 15;
+  const windMag = 8 + Math.random() * 10; // 8-18 mph, readable on the gauge
   return {
     name: 'CROSSFIRE', par: 2,
     wind: { x: Math.cos(windAngle) * windMag, y: Math.sin(windAngle) * windMag },
@@ -692,8 +692,10 @@ function stepPhysics(dt) {
   ball.vx *= fricStep;
   ball.vy *= fricStep;
 
-  // Wind — constant acceleration applied to ball velocity each frame
-  if (course.wind) {
+  // Wind — gentle constant nudge. Only applies while the ball still has its
+  // own motion (we don't want a stopped ball blowing across the green), and the
+  // velocity contribution from wind is bounded.
+  if (course.wind && length(ball.vx, ball.vy) > 40) {
     ball.vx += course.wind.x * dt;
     ball.vy += course.wind.y * dt;
   }
@@ -947,6 +949,37 @@ function render() {
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+
+    // Wind gauge — arrow + mph label, drawn beside the flag pole. Direction is
+    // unambiguous regardless of how subtly the flag is tilting.
+    if (windMag > 0.5) {
+      const gx = hx + 26;            // anchor point right of pole
+      const gy = hy - poleH + 2;     // near top of pole
+      const windAngle = Math.atan2(wind.y, wind.x);
+      const arrowLen = 10 + Math.min(14, windMag * 0.8);
+      const tipAX = gx + Math.cos(windAngle) * arrowLen;
+      const tipAY = gy + Math.sin(windAngle) * arrowLen;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(207, 234, 255, 0.85)';
+      ctx.fillStyle   = 'rgba(207, 234, 255, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(tipAX, tipAY);
+      ctx.stroke();
+      // Arrowhead
+      ctx.beginPath();
+      ctx.moveTo(tipAX, tipAY);
+      ctx.lineTo(tipAX - Math.cos(windAngle - 0.45) * 5, tipAY - Math.sin(windAngle - 0.45) * 5);
+      ctx.lineTo(tipAX - Math.cos(windAngle + 0.45) * 5, tipAY - Math.sin(windAngle + 0.45) * 5);
+      ctx.closePath();
+      ctx.fill();
+      // mph label — 1:1 with px/sec² magnitude for simplicity
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = 'rgba(207, 234, 255, 0.85)';
+      ctx.fillText(Math.round(windMag) + ' MPH', gx - 2, gy - 8);
+      ctx.restore();
+    }
   }
 
   for (const tube of activeGreen.tubes) {
