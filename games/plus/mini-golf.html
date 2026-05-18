@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>MINI GOLF v0.6.2 — Arcade Reactor Plus</title>
+<title>MINI GOLF v0.7 — Arcade Reactor Plus</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../../assets/favicon.png">
@@ -122,7 +122,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.6.2</div>
+    <div class="version-tag" id="versionTag">v0.7</div>
   </div>
 </div>
 
@@ -202,7 +202,11 @@ const TUBE_R = 22;
 const MIN_LAUNCH = 200;
 const MAX_LAUNCH = 1100;
 const POWER_DRAG_MAX = 150;
-const FRICTION = 0.992;
+const FRICTION = 0.991;        // per-frame at 60fps. Slightly slower greens than v0.6.
+const WALL_COR = 0.78;         // Coefficient of restitution against ellipse / wall segments
+const PILLAR_COR = 0.72;       // Pillars (rubber bumpers) lose a bit more energy
+const TUBE_DROP_RETAIN = 0.50; // Fraction of speed preserved when ball drops out of a tube
+const TUBE_DROP_JITTER = Math.PI / 3; // ±60° random direction kick on tube exit (simulates landing chaos)
 const MIN_VEL = 8;
 
 const HOLE_CATCH_R = HOLE_R - BALL_R / 2;
@@ -235,9 +239,10 @@ function closestPointOnSegment(px, py, ax, ay, bx, by) {
   return { x: ax + t * dx, y: ay + t * dy, t };
 }
 
-function reflect(vx, vy, nx, ny) {
+function reflect(vx, vy, nx, ny, cor = 1) {
+  // Standard reflection with energy loss: r = (v - 2(v·n)n) * cor
   const d = 2 * (vx * nx + vy * ny);
-  return { vx: vx - d * nx, vy: vy - d * ny };
+  return { vx: (vx - d * nx) * cor, vy: (vy - d * ny) * cor };
 }
 
 function polyToSegs(points, closed = true) {
@@ -538,7 +543,7 @@ function findCollision(nx, ny, green) {
       } else {
         nrmX /= nlen; nrmY /= nlen;
       }
-      best = { nrmX, nrmY, pushX: cp.x + nrmX * (BALL_R + 0.5), pushY: cp.y + nrmY * (BALL_R + 0.5) };
+      best = { type: 'wall', cor: WALL_COR, nrmX, nrmY, pushX: cp.x + nrmX * (BALL_R + 0.5), pushY: cp.y + nrmY * (BALL_R + 0.5) };
     }
   }
 
@@ -554,7 +559,7 @@ function findCollision(nx, ny, green) {
         let nlen = length(nrmX, nrmY);
         if (nlen < 0.0001) { nrmX = 1; nrmY = 0; }
         else { nrmX /= nlen; nrmY /= nlen; }
-        best = { nrmX, nrmY, pushX: p.x + nrmX * (BALL_R + p.r + 0.5), pushY: p.y + nrmY * (BALL_R + p.r + 0.5) };
+        best = { type: 'pillar', cor: PILLAR_COR, nrmX, nrmY, pushX: p.x + nrmX * (BALL_R + p.r + 0.5), pushY: p.y + nrmY * (BALL_R + p.r + 0.5) };
       }
     }
   }
@@ -578,7 +583,7 @@ function stepPhysics(dt) {
     const hit = findCollision(nx, ny, activeGreen);
     if (hit) {
       ball.x = hit.pushX; ball.y = hit.pushY;
-      const r = reflect(ball.vx, ball.vy, hit.nrmX, hit.nrmY);
+      const r = reflect(ball.vx, ball.vy, hit.nrmX, hit.nrmY, hit.cor);
       ball.vx = r.vx; ball.vy = r.vy;
       snd.bounce(length(ball.vx, ball.vy));
     } else {
@@ -647,7 +652,7 @@ function trajectorySinks(course, angle, launchSpeed) {
       const hit = findCollision(nx, ny, green);
       if (hit) {
         b.x = hit.pushX; b.y = hit.pushY;
-        const r = reflect(b.vx, b.vy, hit.nrmX, hit.nrmY);
+        const r = reflect(b.vx, b.vy, hit.nrmX, hit.nrmY, hit.cor);
         b.vx = r.vx; b.vy = r.vy;
       } else {
         b.x = nx; b.y = ny;
@@ -1047,10 +1052,17 @@ function loop(now) {
     if (ball.tubeT >= 0.45) {
       ball.x = ball.tubeTo.x;
       ball.y = ball.tubeTo.y;
-      ball.vx = ball.tubeVx;
-      ball.vy = ball.tubeVy;
+      // Drop physics: ball lands on turf, bounces a few times in a near-random
+      // direction, loses ~50% of its energy in the process. Real golf ball
+      // dropped from height behaves the same — chaotic first bounce, then
+      // rolls in a new direction.
+      const incomingSpeed = length(ball.tubeVx, ball.tubeVy);
+      const incomingAngle = Math.atan2(ball.tubeVy, ball.tubeVx);
+      const exitSpeed = incomingSpeed * TUBE_DROP_RETAIN;
+      const exitAngle = incomingAngle + (Math.random() - 0.5) * 2 * TUBE_DROP_JITTER;
+      ball.vx = Math.cos(exitAngle) * exitSpeed;
+      ball.vy = Math.sin(exitAngle) * exitSpeed;
       ball.trail.length = 0;
-      // Ball keeps rolling — no stroke charged for transit, momentum is preserved.
       state = 'ROLLING';
     }
   }
