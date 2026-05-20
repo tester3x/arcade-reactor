@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>BREAKOUT v0.2 — Arcade Reactor</title>
+<title>BREAKOUT v0.3 — Arcade Reactor</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -174,7 +174,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.2</div>
+    <div class="version-tag" id="versionTag">v0.3</div>
   </div>
 </div>
 
@@ -299,10 +299,9 @@ const BALL_SPEEDUP_FACTOR = 1.18; // each speedup multiplies by this
 // Lives
 const STARTING_LIVES = 3;
 
-// Launch angle range: always at least LAUNCH_OFF_MIN degrees off vertical
-// (so the ball never appears to go "straight up"), up to LAUNCH_OFF_MAX.
-const LAUNCH_OFF_MIN = 20;
-const LAUNCH_OFF_MAX = 45;
+// Launch angle spread: ±this many degrees from vertical. Atari original was
+// roughly ±22.5°. Smaller = more predictable launches.
+const LAUNCH_SPREAD_DEG = 22.5;
 
 // ============================================================================
 // HELPERS
@@ -399,12 +398,10 @@ function startNewGame() {
 // PHYSICS / UPDATE
 // ============================================================================
 function launchBall() {
-  // Always launch at a visibly angled trajectory. Picks a side randomly,
-  // then an angle between LAUNCH_OFF_MIN and LAUNCH_OFF_MAX degrees off
-  // vertical. Ball never appears to go straight up.
-  const side = Math.random() < 0.5 ? -1 : 1;
-  const offsetDeg = LAUNCH_OFF_MIN + Math.random() * (LAUNCH_OFF_MAX - LAUNCH_OFF_MIN);
-  const angle = -Math.PI / 2 + side * offsetDeg * Math.PI / 180;
+  // Atari original: small random spread (±22.5°) from straight up.
+  // Most launches feel vertical-ish; occasional ones lean noticeably.
+  const offsetDeg = (Math.random() - 0.5) * 2 * LAUNCH_SPREAD_DEG;
+  const angle = -Math.PI / 2 + offsetDeg * Math.PI / 180;
   ball.vx = Math.cos(angle) * BALL_BASE_SPEED;
   ball.vy = Math.sin(angle) * BALL_BASE_SPEED;
   ball.stuckToPaddle = false;
