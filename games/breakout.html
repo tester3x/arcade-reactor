@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>BREAKOUT v0.4 — Arcade Reactor</title>
+<title>BREAKOUT v0.5 — Arcade Reactor</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -174,7 +174,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.4</div>
+    <div class="version-tag" id="versionTag">v0.5</div>
   </div>
 </div>
 
@@ -403,8 +403,12 @@ function launchBall() {
   // Most launches feel vertical-ish; occasional ones lean noticeably.
   const offsetDeg = (Math.random() - 0.5) * 2 * LAUNCH_SPREAD_DEG;
   const angle = -Math.PI / 2 + offsetDeg * Math.PI / 180;
-  ball.vx = Math.cos(angle) * BALL_BASE_SPEED;
-  ball.vy = Math.sin(angle) * BALL_BASE_SPEED;
+  // Launch at the speed the ball SHOULD be at (factoring level + current
+  // speed tier). After a death, the earned speed carries over — no slow
+  // re-launch that "catches up" on the first paddle hit.
+  const speed = currentBallSpeed();
+  ball.vx = Math.cos(angle) * speed;
+  ball.vy = Math.sin(angle) * speed;
   ball.stuckToPaddle = false;
   snd.launch();
 }
