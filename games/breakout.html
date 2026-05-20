@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>BREAKOUT v0.2 — Arcade Reactor</title>
+
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+
+<link rel="stylesheet" href="../site.css">
+<style>
+  html, body {
+    background: #050810;
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+    color: #fff;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+    font-family: 'Courier New', monospace;
+  }
+  body > .site-header, body > .site-footer { font-family: var(--font-sans, 'Inter', sans-serif); }
+
+  #stage { display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: 64px; padding: 16px 0 48px; }
+  #game-wrap {
+    position: relative;
+    width: 600px;
+    max-width: 100%;
+    aspect-ratio: 600 / 760;
+    background: #050810;
+    box-shadow: 0 0 40px rgba(0, 255, 200, 0.08);
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; cursor: none; background: #050810; }
+
+  /* HUD */
+  .hud {
+    position: absolute; inset: 0 0 auto 0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 12px 16px 0;
+    pointer-events: none;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    font-size: 11px; z-index: 5;
+  }
+  .hud-stat .label { color: rgba(255, 255, 255, 0.5); font-size: 9px; }
+  .hud-stat .value {
+    font-size: 18px; font-weight: 700; color: #cfeaff;
+    text-shadow: 0 0 6px rgba(140, 200, 255, 0.5);
+  }
+  .hud-stat.center { text-align: center; flex: 1; }
+  .hud-stat.right  { text-align: right; }
+
+  /* Overlays */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: rgba(5, 8, 16, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10;
+    text-align: center; padding: 24px; gap: 16px;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    font-size: 40px; font-weight: 800; color: #ffe864;
+    text-shadow: 0 0 18px rgba(255, 232, 100, 0.55);
+    letter-spacing: 0.12em;
+  }
+  .overlay h2 {
+    font-size: 24px; color: #b6ffe5;
+    text-shadow: 0 0 12px rgba(110, 255, 200, 0.55);
+    letter-spacing: 0.1em;
+  }
+  .overlay p {
+    color: rgba(255, 255, 255, 0.75); font-size: 13px;
+    max-width: 420px; line-height: 1.5; letter-spacing: 0.04em;
+  }
+
+  .btn {
+    border: 2px solid #6effc8;
+    background: rgba(110, 255, 200, 0.08);
+    color: #b6ffe5;
+    font-family: 'Courier New', monospace; font-weight: 700;
+    letter-spacing: 0.18em; font-size: 14px;
+    padding: 10px 24px; cursor: pointer;
+    text-shadow: 0 0 6px rgba(110, 255, 200, 0.6);
+    transition: background 0.15s, transform 0.05s;
+  }
+  .btn:hover { background: rgba(110, 255, 200, 0.18); }
+  .btn:active { transform: translateY(1px); }
+
+  .stat-grid {
+    display: grid; grid-template-columns: auto auto;
+    gap: 8px 24px; color: rgba(255, 255, 255, 0.85);
+    font-size: 13px; letter-spacing: 0.06em;
+  }
+  .stat-grid .k { color: rgba(255, 255, 255, 0.5); text-align: right; }
+  .stat-grid .v { color: #cfeaff; font-weight: 700; }
+
+  .version-tag {
+    position: absolute; bottom: 6px; right: 10px;
+    font-family: 'Courier New', monospace; font-size: 10px;
+    color: rgba(110, 255, 200, 0.55);
+    pointer-events: none; z-index: 4;
+    letter-spacing: 0.06em;
+  }
+  .hint {
+    position: absolute; bottom: 8px; left: 0; right: 0;
+    text-align: center; font-size: 10px;
+    letter-spacing: 0.18em; color: rgba(255, 255, 255, 0.4);
+    z-index: 4; pointer-events: none; text-transform: uppercase;
+  }
+  .hint.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="../index.html" class="brand" aria-label="Arcade Reactor home">
+      <img src="../assets/favicon.png" alt="Arcade Reactor" class="brand-logo">
+    </a>
+    <nav class="site-nav">
+      <a href="../index.html#vector-vault">Collections</a>
+      <a href="../index.html#leaderboard">Leaderboard</a>
+    </nav>
+  </div>
+</header>
+
+<div id="stage">
+  <div id="game-wrap">
+    <canvas id="game" width="600" height="760"></canvas>
+
+    <div class="hud">
+      <div class="hud-stat">
+        <div class="label">SCORE</div>
+        <div class="value" id="scoreEl">0</div>
+      </div>
+      <div class="hud-stat center">
+        <div class="label">LEVEL</div>
+        <div class="value" id="levelEl">1</div>
+      </div>
+      <div class="hud-stat right">
+        <div class="label">LIVES</div>
+        <div class="value" id="livesEl">3</div>
+      </div>
+    </div>
+
+    <div class="hint" id="hint">Move mouse to control paddle · Click to launch</div>
+
+    <!-- TITLE -->
+    <div class="overlay" id="titleScreen">
+      <h1>BREAKOUT</h1>
+      <p>Knock down the wall. Don't drop the ball.<br>
+         Where you hit the paddle controls the angle —<br>
+         center for straight, edges for sharp.</p>
+      <div class="stat-grid">
+        <div class="k">HIGH SCORE</div><div class="v" id="titleHighEl">0</div>
+      </div>
+      <button class="btn" id="startBtn">START</button>
+    </div>
+
+    <!-- GAME OVER -->
+    <div class="overlay hidden" id="gameOverScreen">
+      <h2 id="gameOverMsg">GAME OVER</h2>
+      <div class="stat-grid">
+        <div class="k">SCORE</div><div class="v" id="finalScoreEl">0</div>
+        <div class="k">LEVEL</div><div class="v" id="finalLevelEl">1</div>
+        <div class="k">HIGH SCORE</div><div class="v" id="finalHighEl">0</div>
+      </div>
+      <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
+    </div>
+
+    <div class="version-tag" id="versionTag">v0.2</div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <span class="footer-brand">ARCADE<span class="brand-accent">REACTOR</span></span>
+    <span class="footer-meta">© <span id="year"></span> Arcade Reactor · Built for play.</span>
+  </div>
+</footer>
+
+<script>
+'use strict';
+
+// ============================================================================
+// SOUND — Web Audio, no asset files
+// ============================================================================
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioReady = false;
+function unlockAudio() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  audioReady = true;
+}
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown',     unlockAudio, { once: true });
+
+function tone(freq, dur, type = 'sine', vol = 0.18, freqEnd = null) {
+  if (!audioReady) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  if (freqEnd !== null) osc.frequency.linearRampToValueAtTime(freqEnd, t + dur);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+const snd = {
+  // Wall bounce — short, high
+  wall: () => tone(880, 0.04, 'square', 0.10),
+  // Paddle bounce — lower thunk
+  paddle: () => tone(220, 0.06, 'square', 0.14),
+  // Brick break — pitch scales with row (top row = highest, bottom = lowest)
+  // The original Atari used the same trick: each row had a different pitch.
+  brick: (row) => {
+    // row 0 = top (red, 7pts). Pitch goes UP for higher rows (harder bricks).
+    const pitch = 440 + (7 - row) * 80;
+    tone(pitch, 0.05, 'square', 0.12);
+  },
+  // Ball lost — descending warble
+  ballLost: () => {
+    tone(400, 0.15, 'sawtooth', 0.16, 100);
+    setTimeout(() => tone(200, 0.20, 'sawtooth', 0.16, 50), 100);
+  },
+  // Level cleared — triumphant arpeggio
+  levelClear: () => {
+    tone(523, 0.20, 'triangle', 0.14);                                  // C5
+    setTimeout(() => tone(659, 0.20, 'triangle', 0.14), 100);           // E5
+    setTimeout(() => tone(784, 0.20, 'triangle', 0.14), 200);           // G5
+    setTimeout(() => tone(1047, 0.30, 'triangle', 0.14), 300);          // C6
+  },
+  // Launch ball — small whoosh
+  launch: () => tone(150, 0.10, 'triangle', 0.18, 300),
+};
+
+// ============================================================================
+// CANVAS / CONSTANTS
+// ============================================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width;   // 600
+const H = canvas.height;  // 760
+
+// Playfield: roughly Atari proportions. Top inset for HUD, side walls.
+const PLAY_TOP    = 60;
+const PLAY_LEFT   = 20;
+const PLAY_RIGHT  = W - 20;
+const PLAY_BOTTOM = H - 20;
+const PLAY_W      = PLAY_RIGHT - PLAY_LEFT;
+
+// Bricks
+const BRICK_ROWS    = 8;
+const BRICK_COLS    = 14;
+const BRICK_TOP     = 130;           // first row Y
+const BRICK_GAP     = 2;
+const BRICK_AREA_W  = PLAY_W - 8;    // small inset
+const BRICK_W       = (BRICK_AREA_W - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS;
+const BRICK_H       = 18;
+const BRICK_AREA_L  = PLAY_LEFT + 4;
+
+// Brick color/points per row (top = row 0 = red = 7pts, classic Atari pattern)
+const BRICK_ROWS_SPEC = [
+  { color: '#ff5050', glow: 'rgba(255, 80, 80, 0.6)',  pts: 7 }, // red
+  { color: '#ff5050', glow: 'rgba(255, 80, 80, 0.6)',  pts: 7 }, // red
+  { color: '#ff9650', glow: 'rgba(255, 150, 80, 0.5)', pts: 5 }, // orange
+  { color: '#ff9650', glow: 'rgba(255, 150, 80, 0.5)', pts: 5 }, // orange
+  { color: '#ffe864', glow: 'rgba(255, 232, 100, 0.5)',pts: 3 }, // yellow
+  { color: '#ffe864', glow: 'rgba(255, 232, 100, 0.5)',pts: 3 }, // yellow
+  { color: '#6effc8', glow: 'rgba(110, 255, 200, 0.5)',pts: 1 }, // green
+  { color: '#6effc8', glow: 'rgba(110, 255, 200, 0.5)',pts: 1 }, // green
+];
+
+// Paddle
+const PADDLE_W       = 90;
+const PADDLE_H       = 14;
+const PADDLE_Y       = PLAY_BOTTOM - 40;
+const PADDLE_COLOR   = '#7dffd6';
+const PADDLE_GLOW    = 'rgba(125, 255, 214, 0.4)';
+
+// Ball
+const BALL_R         = 7;
+const BALL_COLOR     = '#cfeaff';
+const BALL_GLOW      = 'rgba(140, 200, 255, 0.6)';
+const BALL_BASE_SPEED = 320;     // px/sec at game start
+const BALL_MAX_SPEED  = 720;     // hard cap
+const BALL_SPEEDUP_FACTOR = 1.18; // each speedup multiplies by this
+
+// Lives
+const STARTING_LIVES = 3;
+
+// Launch angle range: always at least LAUNCH_OFF_MIN degrees off vertical
+// (so the ball never appears to go "straight up"), up to LAUNCH_OFF_MAX.
+const LAUNCH_OFF_MIN = 20;
+const LAUNCH_OFF_MAX = 45;
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// localStorage high-score persistence (single-player, session-persistent)
+const HS_KEY = 'arcadeReactor.breakout.highScore';
+function loadHighScore() {
+  try {
+    const v = parseInt(localStorage.getItem(HS_KEY), 10);
+    return Number.isFinite(v) && v >= 0 ? v : 0;
+  } catch (e) { return 0; }
+}
+function saveHighScore(v) {
+  try { localStorage.setItem(HS_KEY, String(v)); } catch (e) {}
+}
+
+// ============================================================================
+// GAME STATE
+// ============================================================================
+let state = 'TITLE'; // TITLE | READY | PLAYING | LEVEL_CLEARED | GAME_OVER
+let score = 0;
+let highScore = loadHighScore();
+let lives = STARTING_LIVES;
+let level = 1;
+
+const paddle = { x: (W - PADDLE_W) / 2, vx: 0, lastMouseX: W / 2 };
+const ball = { x: W/2, y: 0, vx: 0, vy: 0, trail: [], stuckToPaddle: true };
+
+let bricks = []; // array of { x, y, w, h, row, alive, color, glow, pts }
+let bricksRemaining = 0;
+
+// Speed-up bookkeeping: original Atari speeds up the ball
+// 1) After 4 hits
+// 2) After 12 hits
+// 3) On the first time it hits an orange or red brick
+// We track hit-count + a flag per row tier
+let paddleHits = 0;
+let speedTier = 0;       // 0=normal, 1=after 4 hits, 2=after 12 hits, 3=after orange, 4=after red
+let hitOrange = false;
+let hitRed    = false;
+
+// ============================================================================
+// LEVEL SETUP
+// ============================================================================
+function buildBricks() {
+  bricks.length = 0;
+  for (let r = 0; r < BRICK_ROWS; r++) {
+    const spec = BRICK_ROWS_SPEC[r];
+    for (let c = 0; c < BRICK_COLS; c++) {
+      const x = BRICK_AREA_L + c * (BRICK_W + BRICK_GAP);
+      const y = BRICK_TOP   + r * (BRICK_H + BRICK_GAP);
+      bricks.push({
+        x, y, w: BRICK_W, h: BRICK_H, row: r,
+        alive: true, color: spec.color, glow: spec.glow, pts: spec.pts,
+      });
+    }
+  }
+  bricksRemaining = bricks.length;
+}
+
+function resetBallOnPaddle() {
+  ball.x = paddle.x + PADDLE_W / 2;
+  ball.y = PADDLE_Y - BALL_R - 1;
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.trail.length = 0;
+  ball.stuckToPaddle = true;
+}
+
+function startLevel(lvl) {
+  level = lvl;
+  hudLevel.textContent = level;
+  buildBricks();
+  resetBallOnPaddle();
+  paddleHits = 0;
+  speedTier = 0;
+  hitOrange = false;
+  hitRed = false;
+  state = 'READY';
+  hudHint.classList.remove('hidden');
+}
+
+function startNewGame() {
+  score = 0;
+  lives = STARTING_LIVES;
+  hudScore.textContent = score;
+  hudLives.textContent = lives;
+  startLevel(1);
+}
+
+// ============================================================================
+// PHYSICS / UPDATE
+// ============================================================================
+function launchBall() {
+  // Always launch at a visibly angled trajectory. Picks a side randomly,
+  // then an angle between LAUNCH_OFF_MIN and LAUNCH_OFF_MAX degrees off
+  // vertical. Ball never appears to go straight up.
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const offsetDeg = LAUNCH_OFF_MIN + Math.random() * (LAUNCH_OFF_MAX - LAUNCH_OFF_MIN);
+  const angle = -Math.PI / 2 + side * offsetDeg * Math.PI / 180;
+  ball.vx = Math.cos(angle) * BALL_BASE_SPEED;
+  ball.vy = Math.sin(angle) * BALL_BASE_SPEED;
+  ball.stuckToPaddle = false;
+  snd.launch();
+}
+
+function currentBallSpeed() {
+  // Base speed scaled by per-level + per-speedup multipliers
+  let s = BALL_BASE_SPEED * Math.pow(1.08, level - 1); // each level ~8% faster
+  for (let i = 0; i < speedTier; i++) s *= BALL_SPEEDUP_FACTOR;
+  return Math.min(s, BALL_MAX_SPEED);
+}
+
+function applyCurrentSpeed() {
+  // Renormalize velocity to current speed (preserve direction)
+  const mag = Math.hypot(ball.vx, ball.vy);
+  if (mag < 0.001) return;
+  const target = currentBallSpeed();
+  ball.vx = (ball.vx / mag) * target;
+  ball.vy = (ball.vy / mag) * target;
+}
+
+function checkSpeedUp(hitRow) {
+  // 4 hits speedup
+  if (speedTier === 0 && paddleHits >= 4) { speedTier = 1; applyCurrentSpeed(); return; }
+  // 12 hits speedup
+  if (speedTier === 1 && paddleHits >= 12) { speedTier = 2; applyCurrentSpeed(); return; }
+  // First orange hit
+  if (speedTier === 2 && hitRow === 2 && !hitOrange) {
+    hitOrange = true; speedTier = 3; applyCurrentSpeed(); return;
+  }
+  // First red hit
+  if (speedTier === 3 && hitRow === 0 && !hitRed) {
+    hitRed = true; speedTier = 4; applyCurrentSpeed(); return;
+  }
+}
+
+function update(dt) {
+  // Paddle follows mouse (smoothed slightly)
+  paddle.x = clamp(paddle.lastMouseX - PADDLE_W / 2, PLAY_LEFT, PLAY_RIGHT - PADDLE_W);
+
+  if (ball.stuckToPaddle) {
+    ball.x = paddle.x + PADDLE_W / 2;
+    ball.y = PADDLE_Y - BALL_R - 1;
+    return;
+  }
+
+  if (state !== 'PLAYING') return;
+
+  // Substep to avoid tunneling at high speeds through thin bricks
+  const speed = Math.hypot(ball.vx, ball.vy);
+  const subSteps = Math.max(1, Math.ceil((speed * dt) / (BALL_R * 0.6)));
+  const sub = dt / subSteps;
+
+  for (let s = 0; s < subSteps; s++) {
+    ball.x += ball.vx * sub;
+    ball.y += ball.vy * sub;
+
+    // Walls
+    if (ball.x - BALL_R < PLAY_LEFT) {
+      ball.x = PLAY_LEFT + BALL_R;
+      ball.vx = -ball.vx;
+      snd.wall();
+    } else if (ball.x + BALL_R > PLAY_RIGHT) {
+      ball.x = PLAY_RIGHT - BALL_R;
+      ball.vx = -ball.vx;
+      snd.wall();
+    }
+    if (ball.y - BALL_R < PLAY_TOP) {
+      ball.y = PLAY_TOP + BALL_R;
+      ball.vy = -ball.vy;
+      snd.wall();
+    }
+
+    // Ball lost (bottom)
+    if (ball.y - BALL_R > PLAY_BOTTOM) {
+      loseBall();
+      return;
+    }
+
+    // Paddle collision — only when ball is moving downward
+    if (ball.vy > 0 &&
+        ball.y + BALL_R >= PADDLE_Y && ball.y - BALL_R <= PADDLE_Y + PADDLE_H &&
+        ball.x >= paddle.x && ball.x <= paddle.x + PADDLE_W) {
+      // Reflection angle depends on WHERE on the paddle the ball hit.
+      // -1 = far left, 0 = center, +1 = far right
+      const hitPos = (ball.x - (paddle.x + PADDLE_W / 2)) / (PADDLE_W / 2);
+      const clampedHit = clamp(hitPos, -1, 1);
+      // Bounce angle: maps -1..1 → -75°..+75° above horizontal
+      const bounceAngle = -Math.PI / 2 + clampedHit * (Math.PI / 180) * 75;
+      const sp = currentBallSpeed();
+      ball.vx = Math.cos(bounceAngle) * sp;
+      ball.vy = Math.sin(bounceAngle) * sp;
+      ball.y = PADDLE_Y - BALL_R - 1;
+      paddleHits++;
+      checkSpeedUp(-1);
+      snd.paddle();
+    }
+
+    // Brick collisions
+    for (const b of bricks) {
+      if (!b.alive) continue;
+      if (ball.x + BALL_R < b.x || ball.x - BALL_R > b.x + b.w) continue;
+      if (ball.y + BALL_R < b.y || ball.y - BALL_R > b.y + b.h) continue;
+
+      // Determine collision side by comparing penetration depths
+      const overlapL = (ball.x + BALL_R) - b.x;
+      const overlapR = (b.x + b.w) - (ball.x - BALL_R);
+      const overlapT = (ball.y + BALL_R) - b.y;
+      const overlapB = (b.y + b.h) - (ball.y - BALL_R);
+      const minH = Math.min(overlapL, overlapR);
+      const minV = Math.min(overlapT, overlapB);
+
+      if (minH < minV) {
+        // Horizontal collision
+        ball.vx = -ball.vx;
+        if (overlapL < overlapR) ball.x = b.x - BALL_R - 0.1;
+        else                     ball.x = b.x + b.w + BALL_R + 0.1;
+      } else {
+        ball.vy = -ball.vy;
+        if (overlapT < overlapB) ball.y = b.y - BALL_R - 0.1;
+        else                     ball.y = b.y + b.h + BALL_R + 0.1;
+      }
+
+      b.alive = false;
+      bricksRemaining--;
+      score += b.pts;
+      hudScore.textContent = score;
+      snd.brick(b.row);
+      checkSpeedUp(b.row);
+
+      if (bricksRemaining === 0) {
+        levelCleared();
+        return;
+      }
+      break; // one brick per substep — avoids weird multi-hit cascades
+    }
+  }
+
+  // Trail
+  ball.trail.push({ x: ball.x, y: ball.y, life: 1 });
+  if (ball.trail.length > 18) ball.trail.shift();
+  for (const t of ball.trail) t.life -= dt * 3.5;
+}
+
+function loseBall() {
+  ball.stuckToPaddle = true;
+  lives--;
+  hudLives.textContent = lives;
+  snd.ballLost();
+  if (lives <= 0) {
+    gameOver();
+  } else {
+    resetBallOnPaddle();
+    state = 'READY';
+    hudHint.classList.remove('hidden');
+  }
+}
+
+function levelCleared() {
+  state = 'LEVEL_CLEARED';
+  snd.levelClear();
+  // Brief pause then next level
+  setTimeout(() => {
+    startLevel(level + 1);
+  }, 1500);
+}
+
+function gameOver() {
+  state = 'GAME_OVER';
+  if (score > highScore) {
+    highScore = score;
+    saveHighScore(highScore);
+  }
+  finalScoreEl.textContent = score;
+  finalLevelEl.textContent = level;
+  finalHighEl.textContent = highScore;
+  gameOverScreen.classList.remove('hidden');
+}
+
+// ============================================================================
+// RENDER
+// ============================================================================
+function render() {
+  ctx.fillStyle = '#050810';
+  ctx.fillRect(0, 0, W, H);
+
+  // Faint grid
+  ctx.strokeStyle = 'rgba(125, 255, 214, 0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Play area borders (top, left, right)
+  ctx.strokeStyle = 'rgba(125, 255, 214, 0.22)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(PLAY_LEFT, PLAY_TOP);
+  ctx.lineTo(PLAY_RIGHT, PLAY_TOP);
+  ctx.moveTo(PLAY_LEFT, PLAY_TOP);
+  ctx.lineTo(PLAY_LEFT, PLAY_BOTTOM);
+  ctx.moveTo(PLAY_RIGHT, PLAY_TOP);
+  ctx.lineTo(PLAY_RIGHT, PLAY_BOTTOM);
+  ctx.stroke();
+
+  // Bricks
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    ctx.save();
+    ctx.shadowColor = b.glow;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.restore();
+  }
+
+  // Paddle
+  ctx.save();
+  ctx.shadowColor = PADDLE_GLOW;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = PADDLE_COLOR;
+  ctx.fillRect(paddle.x, PADDLE_Y, PADDLE_W, PADDLE_H);
+  ctx.restore();
+
+  // Ball trail
+  for (let i = 0; i < ball.trail.length; i++) {
+    const t = ball.trail[i];
+    if (t.life <= 0) continue;
+    ctx.fillStyle = 'rgba(207, 234, 255, ' + (t.life * 0.3).toFixed(3) + ')';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, BALL_R * t.life * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Ball
+  ctx.save();
+  ctx.shadowColor = BALL_GLOW;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = BALL_COLOR;
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ============================================================================
+// INPUT
+// ============================================================================
+function pointerXFromEv(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  return (ev.clientX - rect.left) * scaleX;
+}
+
+canvas.addEventListener('mousemove', (ev) => {
+  paddle.lastMouseX = pointerXFromEv(ev);
+});
+canvas.addEventListener('touchmove', (ev) => {
+  if (ev.touches.length > 0) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    paddle.lastMouseX = (ev.touches[0].clientX - rect.left) * scaleX;
+  }
+  ev.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('click', () => {
+  if (state === 'READY' && ball.stuckToPaddle) {
+    state = 'PLAYING';
+    hudHint.classList.add('hidden');
+    launchBall();
+  }
+});
+canvas.addEventListener('touchstart', (ev) => {
+  if (state === 'READY' && ball.stuckToPaddle) {
+    state = 'PLAYING';
+    hudHint.classList.add('hidden');
+    launchBall();
+  }
+  ev.preventDefault();
+}, { passive: false });
+
+// ============================================================================
+// HUD / BUTTONS
+// ============================================================================
+const hudScore = document.getElementById('scoreEl');
+const hudLives = document.getElementById('livesEl');
+const hudLevel = document.getElementById('levelEl');
+const hudHint  = document.getElementById('hint');
+const titleScreen     = document.getElementById('titleScreen');
+const gameOverScreen  = document.getElementById('gameOverScreen');
+const titleHighEl     = document.getElementById('titleHighEl');
+const finalScoreEl    = document.getElementById('finalScoreEl');
+const finalLevelEl    = document.getElementById('finalLevelEl');
+const finalHighEl     = document.getElementById('finalHighEl');
+
+titleHighEl.textContent = highScore;
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  titleScreen.classList.add('hidden');
+  startNewGame();
+});
+document.getElementById('playAgainBtn').addEventListener('click', () => {
+  gameOverScreen.classList.add('hidden');
+  titleHighEl.textContent = highScore;
+  startNewGame();
+});
+document.getElementById('year').textContent = new Date().getFullYear();
+
+// ============================================================================
+// LOOP
+// ============================================================================
+let lastT = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
