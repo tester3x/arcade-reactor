@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>BREAKOUT v0.3 — Arcade Reactor</title>
+<title>BREAKOUT v0.4 — Arcade Reactor</title>
 
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="256x256" href="../assets/favicon.png">
@@ -33,7 +33,7 @@
     box-shadow: 0 0 40px rgba(0, 255, 200, 0.08);
     overflow: hidden;
   }
-  canvas { display: block; width: 100%; height: 100%; cursor: none; background: #050810; }
+  canvas { display: block; width: 100%; height: 100%; cursor: default; background: #050810; }
 
   /* HUD */
   .hud {
@@ -149,7 +149,7 @@
       </div>
     </div>
 
-    <div class="hint" id="hint">Move mouse to control paddle · Click to launch</div>
+    <div class="hint" id="hint">Mouse or arrow keys to move · Click or Space to launch</div>
 
     <!-- TITLE -->
     <div class="overlay" id="titleScreen">
@@ -174,7 +174,7 @@
       <button class="btn" id="playAgainBtn">PLAY AGAIN</button>
     </div>
 
-    <div class="version-tag" id="versionTag">v0.3</div>
+    <div class="version-tag" id="versionTag">v0.4</div>
   </div>
 </div>
 
@@ -287,6 +287,7 @@ const PADDLE_H       = 14;
 const PADDLE_Y       = PLAY_BOTTOM - 40;
 const PADDLE_COLOR   = '#7dffd6';
 const PADDLE_GLOW    = 'rgba(125, 255, 214, 0.4)';
+const PADDLE_KEY_SPEED = 600; // px/sec — paddle move rate under keyboard control
 
 // Ball
 const BALL_R         = 7;
@@ -440,8 +441,18 @@ function checkSpeedUp(hitRow) {
 }
 
 function update(dt) {
-  // Paddle follows mouse (smoothed slightly)
-  paddle.x = clamp(paddle.lastMouseX - PADDLE_W / 2, PLAY_LEFT, PLAY_RIGHT - PADDLE_W);
+  // Paddle position: keyboard takes priority when keys are held, otherwise
+  // the mouse drives. When the player presses a key, keyboardActive turns on
+  // and mouse is ignored until the mouse moves again.
+  if (keyboardActive && (keys.left || keys.right)) {
+    let dx = 0;
+    if (keys.left)  dx -= PADDLE_KEY_SPEED * dt;
+    if (keys.right) dx += PADDLE_KEY_SPEED * dt;
+    paddle.x = clamp(paddle.x + dx, PLAY_LEFT, PLAY_RIGHT - PADDLE_W);
+    paddle.lastMouseX = paddle.x + PADDLE_W / 2; // sync so mouse picks up here when it returns
+  } else {
+    paddle.x = clamp(paddle.lastMouseX - PADDLE_W / 2, PLAY_LEFT, PLAY_RIGHT - PADDLE_W);
+  }
 
   if (ball.stuckToPaddle) {
     ball.x = paddle.x + PADDLE_W / 2;
@@ -660,9 +671,14 @@ function pointerXFromEv(ev) {
   return (ev.clientX - rect.left) * scaleX;
 }
 
-canvas.addEventListener('mousemove', (ev) => {
-  paddle.lastMouseX = pointerXFromEv(ev);
+// Track mouse on the WINDOW (not the canvas) so the cursor can drift above/
+// below/outside the canvas and the paddle still tracks the horizontal position.
+// Clamp X to canvas range so going far off-screen pins the paddle at the wall.
+window.addEventListener('mousemove', (ev) => {
+  const x = pointerXFromEv(ev);
+  paddle.lastMouseX = clamp(x, 0, canvas.width);
 });
+
 canvas.addEventListener('touchmove', (ev) => {
   if (ev.touches.length > 0) {
     const rect = canvas.getBoundingClientRect();
@@ -687,6 +703,40 @@ canvas.addEventListener('touchstart', (ev) => {
   }
   ev.preventDefault();
 }, { passive: false });
+
+// Keyboard input — Arrow keys + A/D for paddle, Space/Enter to launch.
+// Keyboard runs in parallel with mouse; whichever is most recently active
+// wins (handled in update()).
+const keys = { left: false, right: false };
+let keyboardActive = false; // true when a paddle key was pressed more recently than the mouse
+
+window.addEventListener('keydown', (ev) => {
+  const k = ev.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') {
+    keys.left = true; keyboardActive = true;
+    ev.preventDefault();
+  } else if (k === 'ArrowRight' || k === 'd' || k === 'D') {
+    keys.right = true; keyboardActive = true;
+    ev.preventDefault();
+  } else if (k === ' ' || k === 'Enter') {
+    if (state === 'READY' && ball.stuckToPaddle) {
+      state = 'PLAYING';
+      hudHint.classList.add('hidden');
+      launchBall();
+    }
+    ev.preventDefault();
+  }
+});
+
+window.addEventListener('keyup', (ev) => {
+  const k = ev.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+});
+
+// When the mouse moves, hand control back to it (so keyboard isn't "sticky"
+// — moving the mouse always overrides).
+window.addEventListener('mousemove', () => { keyboardActive = false; });
 
 // ============================================================================
 // HUD / BUTTONS
