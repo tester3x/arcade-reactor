@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.5 — Arcade Reactor</title>
+<title>JOUST v0.6 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.5</div>
+    <div class="version-tag" id="versionTag">v0.6</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.5 — Arcade Reactor
+// JOUST v0.6 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -116,14 +116,14 @@ const W = canvas.width;   // 800
 const H = canvas.height;  // 600
 
 //── Constants ─────────────────────────────────────────────────────────────────
-const GRAVITY        = 620;    // px/sec² — moon-gravity, but speed now drives the lift
-const FLAP_IMPULSE   = -230;   // px/sec — BASE flap; horizontal speed amplifies it (see updatePlayer)
-const FLAP_SPEED_BONUS = 0.70; // at full horizontal speed, flap impulse is (1 + this) × base
-const MAX_VY_UP      = -440;   // cap upward velocity (high enough to allow speed-boosted flaps)
-const TERMINAL_VY    = 380;    // cap downward velocity
+const GRAVITY        = 280;    // px/sec² — ANTI-gravity feel; speed-boosted flaps dominate
+const FLAP_IMPULSE   = -200;   // px/sec — BASE flap; horizontal speed amplifies it (see updatePlayer)
+const FLAP_SPEED_BONUS = 0.50; // at full horizontal speed, flap impulse is (1 + this) × base
+const MAX_VY_UP      = -380;   // cap upward velocity
+const TERMINAL_VY    = 220;    // cap downward velocity — slow fall, never "like a rock"
 const HORIZ_ACCEL    = 700;    // px/sec²
 const HORIZ_MAX      = 240;    // max horizontal speed
-const AIR_FRICTION   = 0.985;  // per-frame multiplier when no input — heavy inertia for drift
+const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — long drift between flaps
 const GROUND_FRICTION= 0.86;
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
@@ -184,9 +184,14 @@ const platforms = [
 ];
 const PLATFORM_THICKNESS = 10;
 
+// Spawn position — on the LEFT end of the top platform (x=280, y=110, w=240).
+// Gives the player altitude advantage and room to run right to build speed.
+const SPAWN_X = 300;
+const SPAWN_Y = 110 - BIRD_H;
+
 //── Player ───────────────────────────────────────────────────────────────────
 const player = {
-  x: 140, y: H - 36 - BIRD_H,
+  x: SPAWN_X, y: SPAWN_Y,
   vx: 0, vy: 0,
   facingLeft: false,
   onGround: true,
@@ -195,17 +200,20 @@ const player = {
   alive: true,
   respawnTimer: 0,
   invulnTimer: 0,      // brief invulnerability after respawn
+  wasSkidding: false,  // state flag for skid sound (fires once on transition into skid)
 };
 
 //── Enemies ──────────────────────────────────────────────────────────────────
 const enemies = [];
 
 function spawnEnemy() {
-  // Spawn from one of the high platforms; come out airborne with random direction
+  // Spawn from the side edges at mid/low heights — AWAY from the top platform
+  // where the player spawns, so enemies don't materialize on the player.
   const spawnPoints = [
-    { x: 380, y: 80 },   // top center
-    { x: 150, y: 320 },  // left mid
-    { x: 600, y: 320 },  // right mid
+    { x: 50,  y: 320 },   // left side, mid height
+    { x: 720, y: 320 },   // right side, mid height
+    { x: 50,  y: 460 },   // left side, low (near ground platforms)
+    { x: 720, y: 460 },   // right side, low
   ];
   const sp = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
   enemies.push({
@@ -387,10 +395,11 @@ function startGame() {
   enemiesKilledThisWave = 0;
   enemies.length = 0;
   spawnTimer = 1.0; // first spawn after 1 sec
-  player.x = 140; player.y = H - 36 - BIRD_H;
+  player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
+  player.wasSkidding = false;
   hudScore.textContent = score;
   hudWave.textContent = wave;
   updateLivesHUD();
@@ -424,10 +433,11 @@ function loseLife() {
 }
 
 function respawnPlayer() {
-  player.x = 140; player.y = H - 36 - BIRD_H;
+  player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.invulnTimer = 1.5;
+  player.wasSkidding = false;
 }
 
 function advanceWave() {
@@ -474,11 +484,6 @@ function update(dt) {
     }
     player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
 
-    // Track state from before this frame's physics, so we can detect transitions
-    // (was airborne → now landed) and (was holding direction → now released).
-    const prevOnGround = player.onGround;
-    const prevKeysHeld = keys.left || keys.right;
-
     // Gravity
     player.vy += GRAVITY * dt;
     player.vy = Math.min(player.vy, TERMINAL_VY);
@@ -497,13 +502,18 @@ function update(dt) {
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
 
-    // Skid sound — fires when you release direction keys while moving on
-    // the ground (the slide-to-a-stop beat, like a car braking).
-    const SKID_VX_THRESHOLD = 80;
-    if (prevOnGround && player.onGround && prevKeysHeld &&
-        !(keys.left || keys.right) && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
+    // Skid sound — state-based. Fires once when the bird ENTERS the "actively
+    // decelerating on ground" state. Catches both running-and-release (key
+    // was just released) and land-while-moving (just touched down with speed).
+    // Doesn't fire while you're driving (keys held), because that's not braking.
+    const SKID_VX_THRESHOLD = 60;
+    const skiddingNow = player.onGround &&
+                        !(keys.left || keys.right) &&
+                        Math.abs(player.vx) > SKID_VX_THRESHOLD;
+    if (skiddingNow && !player.wasSkidding) {
       snd.skid(Math.abs(player.vx) / HORIZ_MAX);
     }
+    player.wasSkidding = skiddingNow;
 
     // Lava
     if (player.y + BIRD_H > LAVA_TOP && !player.onGround) {
