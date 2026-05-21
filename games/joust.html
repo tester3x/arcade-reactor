@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.1 — Arcade Reactor</title>
+<title>JOUST v0.2 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.1</div>
+    <div class="version-tag" id="versionTag">v0.2</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.1 — Arcade Reactor
+// JOUST v0.2 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -116,13 +116,13 @@ const W = canvas.width;   // 800
 const H = canvas.height;  // 600
 
 //── Constants ─────────────────────────────────────────────────────────────────
-const GRAVITY        = 1400;   // px/sec²
-const FLAP_IMPULSE   = -380;   // px/sec — velocity added on flap (negative = up)
-const MAX_VY_UP      = -500;   // cap upward velocity
-const TERMINAL_VY    = 700;    // cap downward velocity
+const GRAVITY        = 720;    // px/sec² — Joust's "moon gravity" feel: floaty fall
+const FLAP_IMPULSE   = -270;   // px/sec — smaller flap impulse, but lighter gravity makes it feel bigger
+const MAX_VY_UP      = -360;   // cap upward velocity
+const TERMINAL_VY    = 420;    // cap downward velocity — slow fall = long hang time
 const HORIZ_ACCEL    = 700;    // px/sec²
 const HORIZ_MAX      = 240;    // max horizontal speed
-const AIR_FRICTION   = 0.96;   // per-frame multiplier when no input
+const AIR_FRICTION   = 0.97;   // per-frame multiplier when no input (slightly more drift)
 const GROUND_FRICTION= 0.86;
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
