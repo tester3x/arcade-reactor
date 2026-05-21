@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.2 — Arcade Reactor</title>
+<title>JOUST v0.3 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.2</div>
+    <div class="version-tag" id="versionTag">v0.3</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.2 — Arcade Reactor
+// JOUST v0.3 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -305,6 +305,45 @@ function updateLivesHUD() {
   }
 }
 
+// Resolve horizontal collisions for a bird against all platforms.
+// Call AFTER updating b.x with vx * dt. Pushes the bird back out the
+// side it came from.
+function resolveHorizontalPlatformCollisions(b) {
+  for (const p of platforms) {
+    const bb = birdBox(b);
+    const pb = { x: p.x, y: p.y, w: p.w, h: PLATFORM_THICKNESS };
+    if (rectOverlap(bb, pb)) {
+      if (b.vx > 0)       b.x = p.x - BIRD_W;       // moving right → hit left side
+      else if (b.vx < 0)  b.x = p.x + p.w;          // moving left  → hit right side
+      b.vx = 0;
+    }
+  }
+}
+
+// Resolve vertical collisions for a bird against all platforms.
+// Call AFTER updating b.y with vy * dt. Returns true if the bird is
+// now standing on top of a platform (used for onGround tracking).
+function resolveVerticalPlatformCollisions(b) {
+  let onGround = false;
+  for (const p of platforms) {
+    const bb = birdBox(b);
+    const pb = { x: p.x, y: p.y, w: p.w, h: PLATFORM_THICKNESS };
+    if (rectOverlap(bb, pb)) {
+      if (b.vy > 0) {
+        // Falling → land on top
+        b.y = p.y - BIRD_H;
+        b.vy = 0;
+        onGround = true;
+      } else if (b.vy < 0) {
+        // Flapping up into the bottom → bonk
+        b.y = p.y + PLATFORM_THICKNESS;
+        b.vy = 0;
+      }
+    }
+  }
+  return onGround;
+}
+
 //── Game flow ────────────────────────────────────────────────────────────────
 function startGame() {
   state = 'PLAYING';
@@ -401,29 +440,19 @@ function update(dt) {
     player.vy += GRAVITY * dt;
     player.vy = Math.min(player.vy, TERMINAL_VY);
 
-    // Apply
+    // Apply movement and resolve collisions axis-by-axis so platforms are
+    // solid on all four sides.
     player.x += player.vx * dt;
-    player.y += player.vy * dt;
-
-    // Horizontal wrap
+    resolveHorizontalPlatformCollisions(player);
+    // Horizontal wrap (after collision resolution)
     if (player.x + BIRD_W < 0) player.x = W;
     if (player.x > W) player.x = -BIRD_W;
 
+    player.y += player.vy * dt;
+    player.onGround = resolveVerticalPlatformCollisions(player);
+
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
-
-    // Platform collision (landing only — from above)
-    player.onGround = false;
-    for (const p of platforms) {
-      if (player.vy >= 0 &&
-          player.x + BIRD_W > p.x && player.x < p.x + p.w &&
-          player.y + BIRD_H >= p.y && player.y + BIRD_H <= p.y + PLATFORM_THICKNESS + Math.abs(player.vy * dt) + 1) {
-        player.y = p.y - BIRD_H;
-        player.vy = 0;
-        player.onGround = true;
-        break;
-      }
-    }
 
     // Lava
     if (player.y + BIRD_H > LAVA_TOP && !player.onGround) {
@@ -471,24 +500,16 @@ function update(dt) {
     e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
     e.vy += GRAVITY * dt;
     e.vy = Math.min(e.vy, TERMINAL_VY);
-    e.x += e.vx * dt;
-    e.y += e.vy * dt;
 
+    e.x += e.vx * dt;
+    resolveHorizontalPlatformCollisions(e);
     // Wrap
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
-    if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Platform collision
-    for (const p of platforms) {
-      if (e.vy >= 0 &&
-          e.x + BIRD_W > p.x && e.x < p.x + p.w &&
-          e.y + BIRD_H >= p.y && e.y + BIRD_H <= p.y + PLATFORM_THICKNESS + Math.abs(e.vy * dt) + 1) {
-        e.y = p.y - BIRD_H;
-        e.vy = 0;
-        break;
-      }
-    }
+    e.y += e.vy * dt;
+    resolveVerticalPlatformCollisions(e);
+    if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
     // Lava (enemies just die in lava)
     if (e.y + BIRD_H > LAVA_TOP) {
