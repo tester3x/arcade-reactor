@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.3 — Arcade Reactor</title>
+<title>JOUST v0.4 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.3</div>
+    <div class="version-tag" id="versionTag">v0.4</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.3 — Arcade Reactor
+// JOUST v0.4 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -116,13 +116,13 @@ const W = canvas.width;   // 800
 const H = canvas.height;  // 600
 
 //── Constants ─────────────────────────────────────────────────────────────────
-const GRAVITY        = 720;    // px/sec² — Joust's "moon gravity" feel: floaty fall
-const FLAP_IMPULSE   = -270;   // px/sec — smaller flap impulse, but lighter gravity makes it feel bigger
-const MAX_VY_UP      = -360;   // cap upward velocity
-const TERMINAL_VY    = 420;    // cap downward velocity — slow fall = long hang time
+const GRAVITY        = 480;    // px/sec² — deep moon-gravity float
+const FLAP_IMPULSE   = -250;   // px/sec — gentle flap that gets a lot of lift due to low gravity
+const MAX_VY_UP      = -340;   // cap upward velocity
+const TERMINAL_VY    = 320;    // cap downward velocity — really long hang on a fall
 const HORIZ_ACCEL    = 700;    // px/sec²
 const HORIZ_MAX      = 240;    // max horizontal speed
-const AIR_FRICTION   = 0.97;   // per-frame multiplier when no input (slightly more drift)
+const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — keeps drift between flaps
 const GROUND_FRICTION= 0.86;
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
@@ -270,11 +270,42 @@ function noiseBurst(dur, vol=0.08) {
   src.connect(g); g.connect(ac.destination); src.start();
 }
 
+// Tire-skid / rubber-on-pavement sound. Filtered white noise with a
+// descending bandpass — "skreeee" that pitches down as it fades.
+// intensity 0..1 controls duration and volume.
+function skidSound(intensity) {
+  const ac = getAudio(); if (ac._broken) return;
+  intensity = Math.max(0.25, Math.min(1.0, intensity));
+  const dur = 0.18 + intensity * 0.22;
+  const bufSize = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) {
+    const decay = 1 - i / bufSize;
+    data[i] = (Math.random() * 2 - 1) * decay;
+  }
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const filter = ac.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.Q.value = 5;
+  // Sweep filter from high to low — gives the "slowing down" feel
+  filter.frequency.setValueAtTime(2600, ac.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(700, ac.currentTime + dur);
+  const g = ac.createGain();
+  g.gain.value = 0.10 * intensity;
+  g.gain.setValueAtTime(0.10 * intensity, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+  src.connect(filter); filter.connect(g); g.connect(ac.destination);
+  src.start();
+}
+
 const snd = {
   flap:   () => { noiseBurst(0.08, 0.06); tone(280, 0.08, 'square', 0.08); },
   jousthit: () => { tone(660, 0.08, 'square', 0.14); setTimeout(() => tone(880, 0.12, 'square', 0.14), 60); },
   death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
   spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
+  skid:     (intensity) => skidSound(intensity),
   wave:     () => {
     tone(523, 0.12, 'square', 0.14);
     setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
@@ -436,6 +467,11 @@ function update(dt) {
     }
     player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
 
+    // Track state from before this frame's physics, so we can detect transitions
+    // (was airborne → now landed) and (was holding direction → now released).
+    const prevOnGround = player.onGround;
+    const prevKeysHeld = keys.left || keys.right;
+
     // Gravity
     player.vy += GRAVITY * dt;
     player.vy = Math.min(player.vy, TERMINAL_VY);
@@ -453,6 +489,16 @@ function update(dt) {
 
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
+
+    // Skid sounds — fire on landing with horizontal speed, OR on releasing
+    // direction keys while moving on ground (the "slide to a stop" beat).
+    const SKID_VX_THRESHOLD = 70;
+    if (!prevOnGround && player.onGround && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
+      snd.skid(Math.abs(player.vx) / HORIZ_MAX);
+    } else if (prevOnGround && player.onGround && prevKeysHeld &&
+               !(keys.left || keys.right) && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
+      snd.skid(Math.abs(player.vx) / HORIZ_MAX * 0.7);  // softer on release-only
+    }
 
     // Lava
     if (player.y + BIRD_H > LAVA_TOP && !player.onGround) {
