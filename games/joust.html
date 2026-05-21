@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.6 — Arcade Reactor</title>
+<title>JOUST v0.7 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.6</div>
+    <div class="version-tag" id="versionTag">v0.7</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.6 — Arcade Reactor
+// JOUST v0.7 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -132,7 +132,9 @@ const BIRD_H         = 30;
 const LANCE_OFFSET_Y = -10;    // how far above bird-top the lance sits (rider height)
 const LANCE_TOLERANCE= 6;      // pixels — if lances within this, both bounce
 
-const LAVA_TOP       = H - 36;
+const LAVA_TOP       = H - 40;
+const LAVA_LEFT_END    = 100;     // lava covers x=0..this on the left bottom
+const LAVA_RIGHT_START = W - 100; // lava covers this..W on the right bottom
 const CEILING        = 28;     // hard ceiling near top
 
 const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
@@ -161,6 +163,7 @@ let wave = 1;
 let lives = STARTING_LIVES;
 let enemiesKilledThisWave = 0;
 let spawnTimer = 0;
+let lastSkidFireTime = -10;  // for debug flash — timestamp of last skid trigger
 
 const hudScore = document.getElementById('score');
 const hudWave  = document.getElementById('wave');
@@ -170,24 +173,32 @@ const startBtn = document.getElementById('startBtn');
 
 //── Platforms ────────────────────────────────────────────────────────────────
 // y = top of platform; thickness rendered downward 10px
+// Layout matches the original Joust arcade screenshot:
+//   - Wide rocky BASE platform across the bottom middle (lava on either side)
+//   - Two small corner LEDGES at the very top
+//   - One upper-mid platform
+//   - Two mid platforms (left/right)
+//   - One lower-center platform
 const platforms = [
-  // Ground-level platforms (with lava gap in middle)
-  { x: 0,   y: H - 36, w: 220 },
-  { x: 580, y: H - 36, w: 220 },
-  // Mid platforms
-  { x: 110, y: 360, w: 180 },
-  { x: 510, y: 360, w: 180 },
-  // High center
-  { x: 320, y: 240, w: 160 },
-  // Top platform
-  { x: 280, y: 110, w: 240 },
+  // Top corner ledges (small)
+  { x: 20,  y: 90,  w: 110 },
+  { x: 670, y: 90,  w: 110 },
+  // Upper-mid (single, slightly off-center)
+  { x: 320, y: 200, w: 160 },
+  // Mid level (left and right)
+  { x: 110, y: 320, w: 170 },
+  { x: 520, y: 320, w: 170 },
+  // Lower-center (the "special" platform)
+  { x: 310, y: 440, w: 180 },
+  // BASE — wide rocky floor with lava gaps at the sides
+  { x: 100, y: H - 40, w: 600 },
 ];
 const PLATFORM_THICKNESS = 10;
 
-// Spawn position — on the LEFT end of the top platform (x=280, y=110, w=240).
-// Gives the player altitude advantage and room to run right to build speed.
-const SPAWN_X = 300;
-const SPAWN_Y = 110 - BIRD_H;
+// Spawn position — center of the BASE platform (x=100, y=H-40, w=600).
+// Materializes there with a sparkle effect at the start of each life.
+const SPAWN_X = 100 + 300 - BIRD_W / 2;  // 381
+const SPAWN_Y = (H - 40) - BIRD_H;       // 530
 
 //── Player ───────────────────────────────────────────────────────────────────
 const player = {
@@ -207,13 +218,13 @@ const player = {
 const enemies = [];
 
 function spawnEnemy() {
-  // Spawn from the side edges at mid/low heights — AWAY from the top platform
-  // where the player spawns, so enemies don't materialize on the player.
+  // Spawn from the corner ledges and mid-side areas — avoiding the base
+  // platform where the player materializes.
   const spawnPoints = [
-    { x: 50,  y: 320 },   // left side, mid height
-    { x: 720, y: 320 },   // right side, mid height
-    { x: 50,  y: 460 },   // left side, low (near ground platforms)
-    { x: 720, y: 460 },   // right side, low
+    { x: 40,  y: 60 },   // top-left ledge area
+    { x: 720, y: 60 },   // top-right ledge area
+    { x: 50,  y: 280 },  // left side, mid height
+    { x: 700, y: 280 },  // right side, mid height
   ];
   const sp = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
   enemies.push({
@@ -279,36 +290,54 @@ function noiseBurst(dur, vol=0.08) {
   src.connect(g); g.connect(ac.destination); src.start();
 }
 
-// Tire-skid / rubber-on-pavement sound. Filtered white noise with a
-// descending bandpass — "skreeee" that pitches down as it fades.
+// Cartoon-style skid — Road Runner inspired. Pitched whistle that sweeps
+// low → high → low, with a roughness from sawtooth wave for cartoony character.
 // intensity 0..1 controls duration and volume.
 function skidSound(intensity) {
   const ac = getAudio(); if (ac._broken) return;
-  intensity = Math.max(0.30, Math.min(1.0, intensity));
-  // Duration tuned to roughly match the time the bird takes to stop on
-  // GROUND_FRICTION = 0.86 (about 0.5 sec from full speed at 60fps).
-  const dur = 0.32 + intensity * 0.32;
-  const bufSize = Math.floor(ac.sampleRate * dur);
-  const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) {
-    const decay = 1 - i / bufSize;
-    data[i] = (Math.random() * 2 - 1) * decay;
-  }
-  const src = ac.createBufferSource();
-  src.buffer = buf;
+  intensity = Math.max(0.40, Math.min(1.0, intensity));
+  const dur = 0.35 + intensity * 0.20;  // 0.35-0.55 sec
+  const t0 = ac.currentTime;
+
+  // Main whistle oscillator — sawtooth for cartoon roughness
+  const osc = ac.createOscillator();
+  osc.type = 'sawtooth';
+  // Frequency sweep: starts at 400Hz, peaks at 2400Hz, falls to 250Hz
+  osc.frequency.setValueAtTime(400, t0);
+  osc.frequency.exponentialRampToValueAtTime(2400, t0 + dur * 0.25);
+  osc.frequency.exponentialRampToValueAtTime(2200, t0 + dur * 0.55);  // brief hold
+  osc.frequency.exponentialRampToValueAtTime(250, t0 + dur);
+
+  // Lowpass filter to soften the sawtooth edge a bit
   const filter = ac.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.Q.value = 5;
-  // Sweep filter from high to low — gives the "slowing down" feel
-  filter.frequency.setValueAtTime(2600, ac.currentTime);
-  filter.frequency.exponentialRampToValueAtTime(700, ac.currentTime + dur);
+  filter.type = 'lowpass';
+  filter.frequency.value = 3500;
+  filter.Q.value = 2;
+
+  // Volume envelope — fast attack, hold, decay
   const g = ac.createGain();
-  const peak = 0.20 * intensity;
-  g.gain.setValueAtTime(peak, ac.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
-  src.connect(filter); filter.connect(g); g.connect(ac.destination);
-  src.start();
+  const peak = 0.16 * intensity;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.02);
+  g.gain.linearRampToValueAtTime(peak, t0 + dur * 0.65);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+
+  osc.connect(filter); filter.connect(g); g.connect(ac.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur);
+
+  // Tiny "puff" thump at the end (dust settling)
+  const thumpStart = t0 + dur * 0.85;
+  const thump = ac.createOscillator();
+  thump.type = 'sine';
+  thump.frequency.setValueAtTime(140, thumpStart);
+  thump.frequency.exponentialRampToValueAtTime(60, thumpStart + 0.08);
+  const tg = ac.createGain();
+  tg.gain.setValueAtTime(0.10 * intensity, thumpStart);
+  tg.gain.exponentialRampToValueAtTime(0.001, thumpStart + 0.08);
+  thump.connect(tg); tg.connect(ac.destination);
+  thump.start(thumpStart);
+  thump.stop(thumpStart + 0.08);
 }
 
 const snd = {
@@ -386,6 +415,39 @@ function resolveVerticalPlatformCollisions(b) {
   return onGround;
 }
 
+//── Particles (for materialize / spawn effect) ───────────────────────────────
+const particles = [];
+function spawnMaterializeParticles(x, y) {
+  for (let i = 0; i < 18; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 80;
+    particles.push({
+      x: x + BIRD_W / 2, y: y + BIRD_H / 2,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 30,  // bias upward
+      life: 0.6, maxLife: 0.6,
+    });
+  }
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+  }
+}
+function drawParticles() {
+  for (const p of particles) {
+    const t = p.life / p.maxLife;
+    ctx.fillStyle = `rgba(255, 219, 74, ${t})`;
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+}
+
 //── Game flow ────────────────────────────────────────────────────────────────
 function startGame() {
   state = 'PLAYING';
@@ -400,6 +462,7 @@ function startGame() {
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
   player.wasSkidding = false;
+  spawnMaterializeParticles(player.x, player.y);
   hudScore.textContent = score;
   hudWave.textContent = wave;
   updateLivesHUD();
@@ -438,6 +501,7 @@ function respawnPlayer() {
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.invulnTimer = 1.5;
   player.wasSkidding = false;
+  spawnMaterializeParticles(player.x, player.y);
 }
 
 function advanceWave() {
@@ -512,12 +576,17 @@ function update(dt) {
                         Math.abs(player.vx) > SKID_VX_THRESHOLD;
     if (skiddingNow && !player.wasSkidding) {
       snd.skid(Math.abs(player.vx) / HORIZ_MAX);
+      lastSkidFireTime = performance.now() / 1000;  // for debug flash
     }
     player.wasSkidding = skiddingNow;
 
-    // Lava
-    if (player.y + BIRD_H > LAVA_TOP && !player.onGround) {
-      if (player.invulnTimer <= 0) {
+    // Lava — only the LEFT and RIGHT corner zones (sides of the base platform)
+    {
+      const bx = player.x;
+      const bbottom = player.y + BIRD_H;
+      const inLavaZone = bbottom > LAVA_TOP &&
+                         (bx + BIRD_W < LAVA_LEFT_END + 10 || bx > LAVA_RIGHT_START - 10);
+      if (inLavaZone && !player.onGround && player.invulnTimer <= 0) {
         loseLife();
       }
     }
@@ -574,10 +643,14 @@ function update(dt) {
     resolveVerticalPlatformCollisions(e);
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Lava (enemies just die in lava)
-    if (e.y + BIRD_H > LAVA_TOP) {
-      e.alive = false;
-      // No score for lava death
+    // Lava (only the LEFT/RIGHT corner zones — enemies just die in it)
+    {
+      const ex = e.x;
+      const ebottom = e.y + BIRD_H;
+      if (ebottom > LAVA_TOP &&
+          (ex + BIRD_W < LAVA_LEFT_END + 10 || ex > LAVA_RIGHT_START - 10)) {
+        e.alive = false;
+      }
     }
   }
 
@@ -673,13 +746,46 @@ let lavaWavePhase = 0;
 function drawLava(dt) {
   lavaWavePhase += dt * 2;
   ctx.fillStyle = COLOR_LAVA;
-  ctx.fillRect(0, LAVA_TOP, W, H - LAVA_TOP);
-  // Wavy bright top
+  // Left lava strip
+  ctx.fillRect(0, LAVA_TOP, LAVA_LEFT_END, H - LAVA_TOP);
+  // Right lava strip
+  ctx.fillRect(LAVA_RIGHT_START, LAVA_TOP, W - LAVA_RIGHT_START, H - LAVA_TOP);
+  // Wavy bright top on both strips
   ctx.fillStyle = COLOR_LAVA_HOT;
-  for (let x = 0; x < W; x += 3) {
+  for (let x = 0; x < LAVA_LEFT_END; x += 3) {
     const wave = Math.sin(x * 0.08 + lavaWavePhase) * 3 + Math.sin(x * 0.18 + lavaWavePhase * 1.7) * 1.5;
     ctx.fillRect(x, LAVA_TOP - 1 + wave, 3, 2);
   }
+  for (let x = LAVA_RIGHT_START; x < W; x += 3) {
+    const wave = Math.sin(x * 0.08 + lavaWavePhase) * 3 + Math.sin(x * 0.18 + lavaWavePhase * 1.7) * 1.5;
+    ctx.fillRect(x, LAVA_TOP - 1 + wave, 3, 2);
+  }
+  // Iconic flame columns at the inner edges of each lava pit
+  // (where the lava troll's hand will eventually reach from)
+  drawFlame(LAVA_LEFT_END - 4, LAVA_TOP);
+  drawFlame(LAVA_RIGHT_START + 4, LAVA_TOP);
+}
+
+// Small animated flame for the lava pit edges
+function drawFlame(x, baseY) {
+  const t = lavaWavePhase * 1.5;
+  const h = 26 + Math.sin(t * 3) * 4;
+  // Outer flame (orange)
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.85)';
+  ctx.beginPath();
+  ctx.moveTo(x - 5, baseY);
+  ctx.quadraticCurveTo(x - 7 + Math.sin(t * 2.5) * 2, baseY - h * 0.5, x, baseY - h);
+  ctx.quadraticCurveTo(x + 7 + Math.sin(t * 2.5 + 1.5) * 2, baseY - h * 0.5, x + 5, baseY);
+  ctx.closePath();
+  ctx.fill();
+  // Inner flame (yellow)
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.9)';
+  ctx.beginPath();
+  ctx.moveTo(x - 3, baseY - 2);
+  ctx.quadraticCurveTo(x - 4 + Math.sin(t * 3.2) * 1.5, baseY - h * 0.5, x, baseY - h * 0.85);
+  ctx.quadraticCurveTo(x + 4 + Math.sin(t * 3.2 + 2) * 1.5, baseY - h * 0.5, x + 3, baseY - 2);
+  ctx.closePath();
+  ctx.fill();
 }
 
 // Draw a bird+rider. `b` is the bird state. `bodyColor`/`riderColor` differentiate.
@@ -815,14 +921,31 @@ function frame(now) {
   if (state === 'PLAYING') {
     update(dt);
   }
+  updateParticles(dt);
 
   drawBackground();
   drawPlatforms();
   drawLava(dt);
+  drawParticles();
   drawEnemies();
   drawPlayer();
+  drawSkidDebugFlash();
 
   requestAnimationFrame(frame);
+}
+
+// Temporary debug — flashes "SKID!" on screen when the skid trigger fires.
+// Helps confirm whether the issue is the trigger logic or the audio output.
+// Remove once we've verified the skid is reliably firing.
+function drawSkidDebugFlash() {
+  const t = performance.now() / 1000;
+  const since = t - lastSkidFireTime;
+  if (since < 0.5) {
+    const alpha = 1 - (since / 0.5);
+    ctx.fillStyle = `rgba(255, 200, 60, ${alpha})`;
+    ctx.font = 'bold 14px "JetBrains Mono", monospace';
+    ctx.fillText('SKID!', 14, H - 14);
+  }
 }
 
 //── Boot ─────────────────────────────────────────────────────────────────────
