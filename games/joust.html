@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.4 — Arcade Reactor</title>
+<title>JOUST v0.5 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.4</div>
+    <div class="version-tag" id="versionTag">v0.5</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.4 — Arcade Reactor
+// JOUST v0.5 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -116,13 +116,14 @@ const W = canvas.width;   // 800
 const H = canvas.height;  // 600
 
 //── Constants ─────────────────────────────────────────────────────────────────
-const GRAVITY        = 480;    // px/sec² — deep moon-gravity float
-const FLAP_IMPULSE   = -250;   // px/sec — gentle flap that gets a lot of lift due to low gravity
-const MAX_VY_UP      = -340;   // cap upward velocity
-const TERMINAL_VY    = 320;    // cap downward velocity — really long hang on a fall
+const GRAVITY        = 620;    // px/sec² — moon-gravity, but speed now drives the lift
+const FLAP_IMPULSE   = -230;   // px/sec — BASE flap; horizontal speed amplifies it (see updatePlayer)
+const FLAP_SPEED_BONUS = 0.70; // at full horizontal speed, flap impulse is (1 + this) × base
+const MAX_VY_UP      = -440;   // cap upward velocity (high enough to allow speed-boosted flaps)
+const TERMINAL_VY    = 380;    // cap downward velocity
 const HORIZ_ACCEL    = 700;    // px/sec²
 const HORIZ_MAX      = 240;    // max horizontal speed
-const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — keeps drift between flaps
+const AIR_FRICTION   = 0.985;  // per-frame multiplier when no input — heavy inertia for drift
 const GROUND_FRICTION= 0.86;
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
@@ -275,8 +276,10 @@ function noiseBurst(dur, vol=0.08) {
 // intensity 0..1 controls duration and volume.
 function skidSound(intensity) {
   const ac = getAudio(); if (ac._broken) return;
-  intensity = Math.max(0.25, Math.min(1.0, intensity));
-  const dur = 0.18 + intensity * 0.22;
+  intensity = Math.max(0.30, Math.min(1.0, intensity));
+  // Duration tuned to roughly match the time the bird takes to stop on
+  // GROUND_FRICTION = 0.86 (about 0.5 sec from full speed at 60fps).
+  const dur = 0.32 + intensity * 0.32;
   const bufSize = Math.floor(ac.sampleRate * dur);
   const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
   const data = buf.getChannelData(0);
@@ -293,8 +296,8 @@ function skidSound(intensity) {
   filter.frequency.setValueAtTime(2600, ac.currentTime);
   filter.frequency.exponentialRampToValueAtTime(700, ac.currentTime + dur);
   const g = ac.createGain();
-  g.gain.value = 0.10 * intensity;
-  g.gain.setValueAtTime(0.10 * intensity, ac.currentTime);
+  const peak = 0.20 * intensity;
+  g.gain.setValueAtTime(peak, ac.currentTime);
   g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
   src.connect(filter); filter.connect(g); g.connect(ac.destination);
   src.start();
@@ -442,8 +445,12 @@ function update(dt) {
   // Player input + physics
   if (player.alive) {
     // Flap (edge-triggered, single impulse per press)
+    // Horizontal speed amplifies vertical lift: standing flap is gentle,
+    // running flap is powerful. This is the real Joust mechanic.
     if (keys.flapPressed && player.flapTimer <= 0) {
-      player.vy = Math.max(MAX_VY_UP, player.vy + FLAP_IMPULSE);
+      const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(player.vx) / HORIZ_MAX);
+      const impulse = FLAP_IMPULSE * speedFactor;
+      player.vy = Math.max(MAX_VY_UP, player.vy + impulse);
       player.flapTimer = FLAP_COOLDOWN;
       player.flapAnimTime = 0;
       player.onGround = false;
@@ -490,14 +497,12 @@ function update(dt) {
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
 
-    // Skid sounds — fire on landing with horizontal speed, OR on releasing
-    // direction keys while moving on ground (the "slide to a stop" beat).
-    const SKID_VX_THRESHOLD = 70;
-    if (!prevOnGround && player.onGround && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
+    // Skid sound — fires when you release direction keys while moving on
+    // the ground (the slide-to-a-stop beat, like a car braking).
+    const SKID_VX_THRESHOLD = 80;
+    if (prevOnGround && player.onGround && prevKeysHeld &&
+        !(keys.left || keys.right) && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
       snd.skid(Math.abs(player.vx) / HORIZ_MAX);
-    } else if (prevOnGround && player.onGround && prevKeysHeld &&
-               !(keys.left || keys.right) && Math.abs(player.vx) > SKID_VX_THRESHOLD) {
-      snd.skid(Math.abs(player.vx) / HORIZ_MAX * 0.7);  // softer on release-only
     }
 
     // Lava
@@ -529,7 +534,9 @@ function update(dt) {
       // Flap if we should gain altitude (below player or low)
       const wantAlt = player.alive ? player.y : H / 2;
       if (e.y > wantAlt + 30 && e.flapTimer <= 0) {
-        e.vy = Math.max(MAX_VY_UP, e.vy + FLAP_IMPULSE * 0.9);
+        const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+        const impulse = FLAP_IMPULSE * 0.9 * speedFactor;
+        e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
         e.flapTimer = FLAP_COOLDOWN * 1.2;
         e.flapAnimTime = 0;
       }
