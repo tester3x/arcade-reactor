@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.13 — Arcade Reactor</title>
+<title>JOUST v0.15 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.13</div>
+    <div class="version-tag" id="versionTag">v0.15</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.13 — Arcade Reactor
+// JOUST v0.15 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -135,7 +135,9 @@ const TERMINAL_VY    = 220;    // cap downward velocity — slow fall, never "li
 const HORIZ_ACCEL    = 700;    // px/sec²
 const HORIZ_MAX      = 240;    // max horizontal speed
 const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — long drift between flaps
-const GROUND_FRICTION= 0.86;
+const GROUND_DECEL   = 300;    // px/sec² — LINEAR deceleration on ground (not multiplicative).
+                               //   Faster speed = proportionally longer slide. From full speed (240),
+                               //   stops in 0.8 sec and slides ~96 px. Lava edges are real danger.
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
 const BIRD_W         = 56;
@@ -302,8 +304,56 @@ function noiseBurst(dur, vol=0.08) {
   src.connect(g); g.connect(ac.destination); src.start();
 }
 
-// Cartoon descending whistle skid. Triangle wave for a softer character,
-// frequency drops from 800 Hz down to 80 Hz — more "stop" than "screech".
+//── Sound file loading (WAV/MP3 → AudioBuffer cache) ─────────────────────────
+// Loaded files live here. null means not loaded yet OR failed to load —
+// either way, the corresponding snd.* function falls back to synth.
+const audioBuffers = {
+  flap: null,
+};
+
+function loadAudioBuffer(name, url) {
+  fetch(url)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.arrayBuffer();
+    })
+    .then(buf => getAudio().decodeAudioData(buf))
+    .then(decoded => {
+      audioBuffers[name] = decoded;
+      console.log('[audio] loaded "' + name + '" (' + decoded.duration.toFixed(2) + 's)');
+    })
+    .catch(err => {
+      console.log('[audio] failed to load "' + name + '": ' + err.message);
+    });
+}
+
+// Kick off loads on script start (browsers will fetch in parallel with sprites)
+loadAudioBuffer('flap', '../assets/joust/sounds/flap.wav');
+
+// Play a loaded buffer with optional pitch + volume variation. Returns true
+// if the buffer played, false if it wasn't loaded (caller can synth-fallback).
+function playBuffer(name, opts) {
+  opts = opts || {};
+  const buf = audioBuffers[name];
+  if (!buf) return false;
+  const ac = getAudio();
+  if (ac._broken) return false;
+  if (ac.state === 'suspended') ac.resume();
+
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  if (opts.playbackRate !== undefined) src.playbackRate.value = opts.playbackRate;
+
+  const g = ac.createGain();
+  g.gain.value = opts.volume !== undefined ? opts.volume : 1.0;
+
+  src.connect(g); g.connect(ac.destination);
+  src.start();
+  return true;
+}
+
+// Cartoon descending whistle skid. Triangle wave, frequency 800 Hz → 80 Hz.
+// Duration scales with intensity — fast skid = long slide = long sound.
 function skidSound(intensity) {
   console.log('[SKID] firing, intensity=' + intensity.toFixed(2));
   const ac = getAudio();
@@ -314,7 +364,9 @@ function skidSound(intensity) {
   }
 
   const t0 = ac.currentTime;
-  const dur = 0.45;
+  // Match the actual slide duration: vx / GROUND_DECEL ≈ intensity * (HORIZ_MAX / GROUND_DECEL)
+  // With HORIZ_MAX=240 and GROUND_DECEL=300, full speed gives 0.8 sec.
+  const dur = Math.max(0.18, intensity * 0.80);
 
   // Descending whistle — triangle wave is softer than square
   const osc = ac.createOscillator();
@@ -322,10 +374,11 @@ function skidSound(intensity) {
   osc.frequency.setValueAtTime(800, t0);
   osc.frequency.exponentialRampToValueAtTime(80, t0 + dur);
 
-  // Volume envelope
+  // Volume envelope — louder for stronger skid
+  const peakGain = 0.22 + 0.12 * intensity;
   const g = ac.createGain();
   g.gain.setValueAtTime(0, t0);
-  g.gain.linearRampToValueAtTime(0.32, t0 + 0.02);
+  g.gain.linearRampToValueAtTime(peakGain, t0 + 0.02);
   g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
 
   osc.connect(g); g.connect(ac.destination);
@@ -334,7 +387,18 @@ function skidSound(intensity) {
 }
 
 const snd = {
-  flap:   () => { noiseBurst(0.08, 0.06); tone(280, 0.08, 'square', 0.08); },
+  flap:   () => {
+    // Try the loaded WAV first, with subtle pitch variation so rapid flaps
+    // don't sound robotic. Fall back to synth if WAV didn't load.
+    const played = playBuffer('flap', {
+      playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
+      volume: 0.55,
+    });
+    if (!played) {
+      noiseBurst(0.08, 0.06);
+      tone(280, 0.08, 'square', 0.08);
+    }
+  },
   jousthit: () => { tone(660, 0.08, 'square', 0.14); setTimeout(() => tone(880, 0.12, 'square', 0.14), 60); },
   death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
   spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
@@ -539,7 +603,19 @@ function update(dt) {
       player.facingLeft = false;
     }
     if (!keys.left && !keys.right) {
-      player.vx *= player.onGround ? GROUND_FRICTION : AIR_FRICTION;
+      if (player.onGround) {
+        // Linear deceleration: constant force, like real friction.
+        // Slide distance scales as the SQUARE of initial speed.
+        const decelAmount = GROUND_DECEL * dt;
+        if (Math.abs(player.vx) <= decelAmount) {
+          player.vx = 0;
+        } else {
+          player.vx -= Math.sign(player.vx) * decelAmount;
+        }
+      } else {
+        // Air: gentle exponential drag (keeps drift between flaps)
+        player.vx *= AIR_FRICTION;
+      }
     }
     player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
 
