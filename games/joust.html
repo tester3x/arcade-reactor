@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.21 — Arcade Reactor</title>
+<title>JOUST v0.23 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.21</div>
+    <div class="version-tag" id="versionTag">v0.23</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.21 — Arcade Reactor
+// JOUST v0.23 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -122,13 +122,21 @@ ctx.imageSmoothingEnabled = false;
 const sprites = {
   ostrich: new Image(),
   ostrichMove: new Image(),
+  ostrichFly: new Image(),
+  ostrichFly2: new Image(),
   buzzard: new Image(),
   buzzardMove: new Image(),
+  buzzardFly: new Image(),
+  buzzardFly2: new Image(),
 };
 sprites.ostrich.src     = '../assets/joust/ostrich.png';
 sprites.ostrichMove.src = '../assets/joust/ostrichmove.png';
+sprites.ostrichFly.src  = '../assets/joust/fly.png';
+sprites.ostrichFly2.src = '../assets/joust/fly2.png';
 sprites.buzzard.src     = '../assets/joust/buzzard.png';
 sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
+sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
+sprites.buzzardFly2.src = '../assets/joust/buzzardfly2.png';
 
 //── Constants ─────────────────────────────────────────────────────────────────
 const GRAVITY        = 280;    // px/sec² — ANTI-gravity feel; speed-boosted flaps dominate
@@ -239,25 +247,26 @@ const enemies = [];
 //── Eggs ─────────────────────────────────────────────────────────────────────
 const EGG_W = 18;
 const EGG_H = 22;
-const EGG_HATCH_TIME = 5.0;     // sec on a platform before hatching back into an enemy
-const EGG_PICKUP_SCORE = 250;
-const EGG_AIR_DRAG = 0.992;     // very gentle horizontal drag — eggs glide
-const EGG_GRAVITY = 170;        // much lighter than birds (280) — eggs hang and float
-const EGG_TERMINAL_VY = 140;    // slow fall cap — eggs drift down, never plummet
+const EGG_HATCH_TIME = 10.0;    // sec on a platform before hatching — gives time to chase
+const EGG_PICKUP_BASE = 250;    // baseline score
+const EGG_PICKUP_MAX = 750;     // max score (egg about to hatch)
+const EGG_AIR_DRAG = 0.998;     // very gentle horizontal drag — eggs glide far
+const EGG_GRAVITY = 260;        // slightly less than birds — eggs arc nicely down
+const EGG_TERMINAL_VY = 200;    // fall fast enough to land in reasonable time
 
-const eggs = [];  // each: { x, y, vx, vy, state: 'falling'|'resting', timer, alive }
+const eggs = [];  // each: { x, y, vx, vy, state, timer, alive }
 
-// Spawn an egg from a dying enemy. The egg shoots AWAY from the player so
-// they can actually see it before catching it, plus a strong upward kick
-// for proper Joust-style egg arc.
+// Spawn an egg from a dying enemy. Egg shoots AWAY from player with mostly
+// horizontal velocity and a small upward bounce, so it arcs down and away —
+// you have to chase it. Player should NOT be able to grab it immediately.
 function spawnEgg(enemyX, enemyY, awayFromX) {
   const eggCenterX = enemyX + BIRD_W / 2;
   const dirAway = eggCenterX >= awayFromX ? 1 : -1;
   eggs.push({
     x: enemyX + (BIRD_W - EGG_W) / 2,
     y: enemyY + (BIRD_H - EGG_H) / 2,
-    vx: dirAway * (200 + Math.random() * 100),  // 200-300 px/sec horizontal kick
-    vy: -260 - Math.random() * 60,              // strong upward arc
+    vx: dirAway * (300 + Math.random() * 80),   // 300-380 px/sec horizontal — strong
+    vy: -100 - Math.random() * 50,              // -100 to -150 — small bounce, not big launch
     state: 'falling',
     timer: 0,
     alive: true,
@@ -276,6 +285,19 @@ function spawnEnemyAtEgg(egg) {
     flapAnimTime: 0,
     aiTimer: 0,
     alive: true,
+  });
+}
+
+//── Score popups (floating text after egg pickup, etc.) ──────────────────────
+const scorePops = [];  // each: { x, y, vy, text, age, lifetime }
+
+function spawnScorePop(x, y, text) {
+  scorePops.push({
+    x, y,
+    vy: -40,         // floats upward
+    text,
+    age: 0,
+    lifetime: 1.3,   // visible for 1.3 sec then fades out
   });
 }
 
@@ -583,6 +605,7 @@ function startGame() {
   enemiesKilledThisWave = 0;
   enemies.length = 0;
   eggs.length = 0;
+  scorePops.length = 0;
   spawnTimer = 1.0; // first spawn after 1 sec
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
@@ -851,8 +874,9 @@ function update(dt) {
     }
   }
 
-  // Player picks up eggs by touching them (no lance comparison needed —
-  // free points if you can reach them before they hatch).
+  // Player picks up eggs by touching them. Score scales with how long the
+  // egg has been resting — fresh = base, near-hatch = max. Rewards waiting.
+  // Falling eggs (caught mid-air) give base score.
   if (player.alive && player.invulnTimer <= 0) {
     const pb = birdBox(player);
     for (const egg of eggs) {
@@ -860,8 +884,17 @@ function update(dt) {
       const eb = { x: egg.x, y: egg.y, w: EGG_W, h: EGG_H };
       if (rectOverlap(pb, eb)) {
         egg.alive = false;
-        score += EGG_PICKUP_SCORE;
+        let pickupScore = EGG_PICKUP_BASE;
+        if (egg.state === 'resting') {
+          const elapsed = EGG_HATCH_TIME - egg.timer;
+          const ageRatio = Math.max(0, Math.min(1, elapsed / EGG_HATCH_TIME));
+          pickupScore = Math.round(EGG_PICKUP_BASE +
+                                   (EGG_PICKUP_MAX - EGG_PICKUP_BASE) * ageRatio);
+        }
+        score += pickupScore;
         hudScore.textContent = score;
+        // Popup just to the right of the egg so the egg sprite isn't covered
+        spawnScorePop(egg.x + EGG_W + 10, egg.y, '+' + pickupScore);
         snd.egg();
       }
     }
@@ -870,6 +903,15 @@ function update(dt) {
   // Clean up dead eggs
   for (let i = eggs.length - 1; i >= 0; i--) {
     if (!eggs[i].alive) eggs.splice(i, 1);
+  }
+
+  // Update score popups (float upward, fade out)
+  for (const pop of scorePops) {
+    pop.age += dt;
+    pop.y += pop.vy * dt;
+  }
+  for (let i = scorePops.length - 1; i >= 0; i--) {
+    if (scorePops[i].age >= scorePops[i].lifetime) scorePops.splice(i, 1);
   }
 
   // Bird-bird collisions: player vs enemies
@@ -1055,7 +1097,7 @@ function drawShadow(b) {
 
 // Draw a bird+rider using the sprite image, flipping horizontally if facing
 // left. Falls back to a simple placeholder rect if the sprite hasn't loaded.
-function drawBird(b, sprite, walkSprite) {
+function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
   // Sprite ready check
   if (!sprite || !sprite.complete || sprite.naturalWidth === 0) {
     // Fallback placeholder so the game is still playable while sprites load
@@ -1064,19 +1106,29 @@ function drawBird(b, sprite, walkSprite) {
     return;
   }
 
+  const inAir     = !b.onGround;
   const isWalking = b.onGround && Math.abs(b.vx) > 30;
 
-  // Two-frame walk cycle: swap sprites every 160ms while walking. If the
-  // walk sprite isn't loaded yet (or doesn't exist for this bird type),
-  // just use the base sprite.
+  // Pick the active sprite based on state:
+  //   In air     → cycle fly + fly2 (wings flapping)
+  //   Walking    → cycle ostrich + ostrichMove (legs stepping)
+  //   Standing   → base sprite (no animation)
   let activeSprite = sprite;
-  if (isWalking && walkSprite && walkSprite.complete && walkSprite.naturalWidth > 0) {
+  const flyReady  = flySprite  && flySprite.complete  && flySprite.naturalWidth  > 0;
+  const fly2Ready = fly2Sprite && fly2Sprite.complete && fly2Sprite.naturalWidth > 0;
+  const walkReady = walkSprite && walkSprite.complete && walkSprite.naturalWidth > 0;
+
+  if (inAir && flyReady && fly2Ready) {
+    // Wing flap cycle — ~8 fps so it reads as continuous flapping
+    const flyFrame = Math.floor(performance.now() / 120) % 2;
+    activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
+  } else if (isWalking && walkReady) {
     const walkFrame = Math.floor(performance.now() / 160) % 2;
     activeSprite = walkFrame === 0 ? sprite : walkSprite;
   }
 
-  // Walking bob: slight vertical sine wave. Combines with the leg-swap frames
-  // to sell the walking animation.
+  // Walking bob: vertical sine while on ground and moving. Combines with the
+  // leg swap to sell the walking animation. No bob in air — wings handle that.
   const bobY = isWalking ? Math.sin(performance.now() / 80) * 2 : 0;
   const drawY = b.y + bobY;
 
@@ -1097,14 +1149,31 @@ function drawPlayer() {
   // Flicker during invulnerability
   if (player.invulnTimer > 0 && Math.floor(player.invulnTimer * 12) % 2 === 0) return;
   drawShadow(player);
-  drawBird(player, sprites.ostrich, sprites.ostrichMove);
+  drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2);
+}
+
+// Render floating score popups (after egg pickups, etc.) — fade out over time
+function drawScorePops() {
+  ctx.save();
+  ctx.font = 'bold 18px "Press Start 2P", monospace';
+  ctx.textAlign = 'left';
+  for (const pop of scorePops) {
+    const alpha = 1 - (pop.age / pop.lifetime);
+    // Shadow for legibility
+    ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.7})`;
+    ctx.fillText(pop.text, pop.x + 1, pop.y + 1);
+    // Main text — golden yellow
+    ctx.fillStyle = `rgba(255, 220, 100, ${alpha})`;
+    ctx.fillText(pop.text, pop.x, pop.y);
+  }
+  ctx.restore();
 }
 
 function drawEnemies() {
   for (const e of enemies) {
     if (e.alive) {
       drawShadow(e);
-      drawBird(e, sprites.buzzard, sprites.buzzardMove);
+      drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2);
     }
   }
 }
@@ -1170,6 +1239,7 @@ function frame(now) {
   drawEggs();
   drawEnemies();
   drawPlayer();
+  drawScorePops();
   drawSkidDebugFlash();
 
   requestAnimationFrame(frame);
