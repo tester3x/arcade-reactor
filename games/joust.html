@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.30 — Arcade Reactor</title>
+<title>JOUST v0.31 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.30</div>
+    <div class="version-tag" id="versionTag">v0.31</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.30 — Arcade Reactor
+// JOUST v0.31 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -283,15 +283,19 @@ function platformX(p) {
 // flame zones (those are death zones, equivalent to lava).
 const BASE_HEIGHT_GUESS = 120;
 const BASE_TOP_Y_FALLBACK = H - BASE_HEIGHT_GUESS;
-const BASE_WALK_X_START_PCT = 0.12;  // safe walking area as fraction of width
-const BASE_WALK_X_END_PCT   = 0.88;
-const BASE_WALK_TOP_Y_INSET = 30;    // top of walkable strip below sprite top
+const BASE_DRAW_W_PCT = 0.78;        // base sprite renders at this fraction of canvas width
+const BASE_WALK_X_START_PCT = 0.18;  // safe walking area as fraction of width
+const BASE_WALK_X_END_PCT   = 0.82;
+const BASE_WALK_TOP_Y_INSET = 24;    // top of walkable strip below sprite top
 
 function getBaseCollisionRect() {
-  const baseH = (sprites.base && sprites.base.complete && sprites.base.naturalHeight > 0)
-                ? sprites.base.naturalHeight * (W / sprites.base.naturalWidth)
-                : BASE_HEIGHT_GUESS;
-  const topY = H - baseH + BASE_WALK_TOP_Y_INSET;
+  const baseS = sprites.base;
+  const drawW = W * BASE_DRAW_W_PCT;
+  let drawH = BASE_HEIGHT_GUESS;
+  if (baseS && baseS.complete && baseS.naturalWidth > 0) {
+    drawH = baseS.naturalHeight * (drawW / baseS.naturalWidth);
+  }
+  const topY = H - drawH + BASE_WALK_TOP_Y_INSET;
   return {
     x: W * BASE_WALK_X_START_PCT,
     y: topY,
@@ -784,14 +788,19 @@ function update(dt) {
     player.flapTimer -= dt;
     player.flapAnimTime += dt;
 
-    // Horizontal input
+    // Horizontal input — pressing a direction accelerates that way, but the
+    // bird only FLIPS facing once it's actually moving (or stopped) that way.
+    // On the ground, the bird commits to its current direction and only flips
+    // after braking to zero. This makes turn-arounds feel weighty, like Joust.
     if (keys.left) {
       player.vx -= HORIZ_ACCEL * dt;
-      player.facingLeft = true;
+      // Only flip facing if we're already going left OR fully stopped.
+      // In the air, more responsive — flip immediately for flying control.
+      if (!player.onGround || player.vx <= 0) player.facingLeft = true;
     }
     if (keys.right) {
       player.vx += HORIZ_ACCEL * dt;
-      player.facingLeft = false;
+      if (!player.onGround || player.vx >= 0) player.facingLeft = false;
     }
     if (!keys.left && !keys.right) {
       if (player.onGround) {
@@ -1118,20 +1127,21 @@ function drawBackground() {
 }
 
 function drawPlatforms() {
-  // First the base (rendered scaled to canvas width, bottom-anchored)
+  // First the base — rendered at BASE_DRAW_W_PCT of canvas width, centered
   const baseS = sprites.base;
   if (baseS && baseS.complete && baseS.naturalWidth > 0) {
     const baseW = baseS.naturalWidth;
     const baseH = baseS.naturalHeight;
-    const scale = W / baseW;
-    const drawH = baseH * scale;
-    ctx.drawImage(baseS, 0, H - drawH, W, drawH);
-    // Cover the placeholder "0123456789" digits with the actual score.
-    drawBaseScoreOverlay(drawH);
+    const drawW = W * BASE_DRAW_W_PCT;
+    const drawH = baseH * (drawW / baseW);
+    const drawX = (W - drawW) / 2;
+    ctx.drawImage(baseS, drawX, H - drawH, drawW, drawH);
+    drawBaseScoreOverlay(drawH, drawW, drawX);
   } else {
     // Fallback: dark slab
     ctx.fillStyle = COLOR_PLATFORM;
-    ctx.fillRect(0, H - 80, W, 80);
+    const fx = W * (1 - BASE_DRAW_W_PCT) / 2;
+    ctx.fillRect(fx, H - 80, W * BASE_DRAW_W_PCT, 80);
     ctx.fillStyle = COLOR_PLATFORM_EDGE;
     ctx.fillRect(W * BASE_WALK_X_START_PCT, H - 80,
                  W * (BASE_WALK_X_END_PCT - BASE_WALK_X_START_PCT), 2);
@@ -1157,22 +1167,19 @@ function drawPlatforms() {
 
 // Draws the score INSIDE the base's built-in score window. Covers the
 // "0123456789" placeholder digits so they don't show through.
-// drawnBaseH is the on-canvas height the base sprite is rendered at.
+// drawnBaseH = rendered base height, drawnBaseW = rendered base width,
+// drawnBaseX = base sprite's left x-coord on canvas.
 //
 // TUNE these proportions if the score doesn't sit perfectly over the
 // placeholder digits in your base.png:
-//   winX_PCT — left edge of overlay, as fraction of canvas width
-//   winW_PCT — overlay width, as fraction of canvas width
-//   winY_PCT — top edge, as fraction of drawnBaseH (from base top)
-//   winH_PCT — overlay height, as fraction of drawnBaseH
-function drawBaseScoreOverlay(drawnBaseH) {
-  const winX_PCT = 0.21;
+function drawBaseScoreOverlay(drawnBaseH, drawnBaseW, drawnBaseX) {
+  const winX_PCT = 0.21;  // fraction of BASE width (not canvas)
   const winW_PCT = 0.27;
-  const winY_PCT = 0.40;
+  const winY_PCT = 0.40;  // fraction of BASE height (from base top)
   const winH_PCT = 0.20;
 
-  const winX = W * winX_PCT;
-  const winW = W * winW_PCT;
+  const winX = drawnBaseX + drawnBaseW * winX_PCT;
+  const winW = drawnBaseW * winW_PCT;
   const winY = (H - drawnBaseH) + drawnBaseH * winY_PCT;
   const winH = drawnBaseH * winH_PCT;
 
