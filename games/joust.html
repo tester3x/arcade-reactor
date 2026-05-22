@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.26 — Arcade Reactor</title>
+<title>JOUST v0.28 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.26</div>
+    <div class="version-tag" id="versionTag">v0.28</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.26 — Arcade Reactor
+// JOUST v0.28 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -161,6 +161,17 @@ sprites.floorfourfarright.src = '../assets/joust/floorfourfarright.png';
 sprites.floorfivemiddle.src   = '../assets/joust/floorfivemiddle.png';
 sprites.floorsixleft.src      = '../assets/joust/floorsixleft.png';
 sprites.floorsixright.src     = '../assets/joust/floorsixright.png';
+
+// Diagnostic: log every sprite as it loads or fails so we can see issues
+for (const name of Object.keys(sprites)) {
+  const img = sprites[name];
+  img.addEventListener('load', () => {
+    console.log(`[sprite] loaded "${name}" (${img.naturalWidth}x${img.naturalHeight})`);
+  });
+  img.addEventListener('error', () => {
+    console.warn(`[sprite] FAILED to load "${name}" — file missing or invalid`);
+  });
+}
 
 //── Constants ─────────────────────────────────────────────────────────────────
 const GRAVITY        = 280;    // px/sec² — ANTI-gravity feel; speed-boosted flaps dominate
@@ -231,22 +242,23 @@ const startBtn = document.getElementById('startBtn');
 const PLATFORM_THICKNESS = 14;  // top "walking surface" thickness for collision
 
 const platforms = [
-  // Row 1: single top platform
-  { sprite: 'floorone',          x: 380, y:  95 },
-  // Row 2: left & right small ledges (high)
-  { sprite: 'floortwoleft',      x: 110, y: 180 },
-  { sprite: 'floortworight',     x: 620, y: 180 },
-  // Row 3: single mid platform
-  { sprite: 'floorthreemiddle',  x: 380, y: 290 },
-  // Row 4: left, right, and far-right small
-  { sprite: 'floorfourleft',     x:  60, y: 360 },
-  { sprite: 'floorfourright',    x: 480, y: 360 },
-  { sprite: 'floorfourfarright', x: 770, y: 390 },
-  // Row 5: wide middle platform
-  { sprite: 'floorfivemiddle',   x: 330, y: 460 },
-  // Row 6: low left and right
-  { sprite: 'floorsixleft',      x: 150, y: 540 },
-  { sprite: 'floorsixright',     x: 600, y: 540 },
+  // Floor 6 (HIGHEST, the small top-corner ones, ~14% of H)
+  { sprite: 'floorsixleft',      x:  80, y:  85 },
+  { sprite: 'floorsixright',     x: 700, y:  85 },
+  // Floor 5 (~22% of H, single middle, slightly below the top corners)
+  { sprite: 'floorfivemiddle',   x: 340, y: 145 },
+  // Floor 4 (~33% of H, left + right pair)
+  { sprite: 'floorfourleft',     x: 110, y: 225 },
+  { sprite: 'floorfourright',    x: 580, y: 225 },
+  // Floor 4b (~37% of H, far right small, slightly lower than fourleft/right)
+  { sprite: 'floorfourfarright', x: 780, y: 260 },
+  // Floor 3 (~48% of H, single middle)
+  { sprite: 'floorthreemiddle',  x: 360, y: 325 },
+  // Floor 2 (~58% of H, left + right pair)
+  { sprite: 'floortwoleft',      x:  80, y: 395 },
+  { sprite: 'floortworight',     x: 620, y: 395 },
+  // Floor 1 (LOWEST, the wide one just above base, ~68% of H)
+  { sprite: 'floorone',          x: 310, y: 465 },
 ];
 
 // The BASE platform is special — spans the full width with built-in score
@@ -1132,24 +1144,32 @@ function drawPlatforms() {
 // Draws the score INSIDE the base's built-in score window. Covers the
 // "0123456789" placeholder digits so they don't show through.
 // drawnBaseH is the on-canvas height the base sprite is rendered at.
+//
+// TUNE these proportions if the score doesn't sit perfectly over the
+// placeholder digits in your base.png:
+//   winX_PCT — left edge of overlay, as fraction of canvas width
+//   winW_PCT — overlay width, as fraction of canvas width
+//   winY_PCT — top edge, as fraction of drawnBaseH (from base top)
+//   winH_PCT — overlay height, as fraction of drawnBaseH
 function drawBaseScoreOverlay(drawnBaseH) {
-  // Estimated position of the score window relative to base sprite:
-  //   horizontal: from ~32% to ~52% of canvas width
-  //   vertical:   from ~62% to ~78% of drawnBaseH (measured from base top)
-  // TUNE THESE if the score doesn't sit perfectly in the window.
-  const winX  = W * 0.32;
-  const winW  = W * 0.20;
-  const winY  = (H - drawnBaseH) + drawnBaseH * 0.62;
-  const winH  = drawnBaseH * 0.16;
+  const winX_PCT = 0.21;
+  const winW_PCT = 0.27;
+  const winY_PCT = 0.40;
+  const winH_PCT = 0.20;
 
-  // Dark fill over the placeholder digits in case they show through
+  const winX = W * winX_PCT;
+  const winW = W * winW_PCT;
+  const winY = (H - drawnBaseH) + drawnBaseH * winY_PCT;
+  const winH = drawnBaseH * winH_PCT;
+
+  // Dark fill over the placeholder digits
   ctx.fillStyle = 'rgba(20, 8, 4, 0.95)';
   ctx.fillRect(winX, winY, winW, winH);
 
-  // Real score in golden yellow, monospace, right-aligned in the window
+  // Real score in golden yellow
   ctx.save();
   ctx.fillStyle = '#ffd040';
-  ctx.font = `bold ${Math.floor(winH * 0.72)}px "Press Start 2P", monospace`;
+  ctx.font = `bold ${Math.floor(winH * 0.65)}px "Press Start 2P", monospace`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   ctx.fillText(score.toString().padStart(6, '0'),
