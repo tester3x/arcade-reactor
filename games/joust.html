@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.16 — Arcade Reactor</title>
+<title>JOUST v0.18 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.16</div>
+    <div class="version-tag" id="versionTag">v0.18</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.16 — Arcade Reactor
+// JOUST v0.18 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -232,6 +232,42 @@ const player = {
 //── Enemies ──────────────────────────────────────────────────────────────────
 const enemies = [];
 
+//── Eggs ─────────────────────────────────────────────────────────────────────
+const EGG_W = 18;
+const EGG_H = 22;
+const EGG_HATCH_TIME = 5.0;     // sec on a platform before hatching back into an enemy
+const EGG_PICKUP_SCORE = 250;
+const EGG_AIR_DRAG = 0.99;
+
+const eggs = [];  // each: { x, y, vx, vy, state: 'falling'|'resting', timer, alive }
+
+function spawnEgg(x, y, fromVx) {
+  eggs.push({
+    x: x + (BIRD_W - EGG_W) / 2,
+    y: y + (BIRD_H - EGG_H) / 2,
+    vx: (fromVx || 0) * 0.3,
+    vy: -120,                   // small upward bounce on the kill, then falls
+    state: 'falling',
+    timer: 0,
+    alive: true,
+  });
+}
+
+// Hatch: replace egg with a new enemy at the egg's position.
+function spawnEnemyAtEgg(egg) {
+  enemies.push({
+    x: egg.x - (BIRD_W - EGG_W) / 2,
+    y: egg.y - (BIRD_H - EGG_H),
+    vx: (Math.random() < 0.5 ? -80 : 80),
+    vy: -60,                    // small lift as the buzzard picks it up
+    facingLeft: Math.random() < 0.5,
+    flapTimer: 0,
+    flapAnimTime: 0,
+    aiTimer: 0,
+    alive: true,
+  });
+}
+
 function spawnEnemy() {
   // Spawn from the corner ledges and mid-side areas — avoiding the base
   // platform where the player materializes.
@@ -310,6 +346,7 @@ function noiseBurst(dur, vol=0.08) {
 // either way, the corresponding snd.* function falls back to synth.
 const audioBuffers = {
   flap: null,
+  egg: null,
 };
 
 function loadAudioBuffer(name, url) {
@@ -330,6 +367,7 @@ function loadAudioBuffer(name, url) {
 
 // Kick off loads on script start (browsers will fetch in parallel with sprites)
 loadAudioBuffer('flap', '../assets/joust/sounds/flap.wav');
+loadAudioBuffer('egg',  '../assets/joust/sounds/egg.wav');
 
 // Play a loaded buffer with optional pitch + volume variation. Returns true
 // if the buffer played, false if it wasn't loaded (caller can synth-fallback).
@@ -393,7 +431,7 @@ const snd = {
     // don't sound robotic. Fall back to synth if WAV didn't load.
     const played = playBuffer('flap', {
       playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
-      volume: 0.55,
+      volume: 0.25,
     });
     if (!played) {
       noiseBurst(0.08, 0.06);
@@ -403,6 +441,14 @@ const snd = {
   jousthit: () => { tone(660, 0.08, 'square', 0.14); setTimeout(() => tone(880, 0.12, 'square', 0.14), 60); },
   death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
   spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
+  egg:      () => {
+    const played = playBuffer('egg', { volume: 0.6 });
+    if (!played) {
+      // Fallback: bright ascending blip
+      tone(880, 0.06, 'triangle', 0.14);
+      setTimeout(() => tone(1320, 0.10, 'triangle', 0.14), 60);
+    }
+  },
   skid:     (intensity) => skidSound(intensity),
   wave:     () => {
     tone(523, 0.12, 'square', 0.14);
@@ -525,6 +571,7 @@ function startGame() {
   lives = STARTING_LIVES;
   enemiesKilledThisWave = 0;
   enemies.length = 0;
+  eggs.length = 0;
   spawnTimer = 1.0; // first spawn after 1 sec
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
@@ -582,6 +629,7 @@ function advanceWave() {
   snd.wave();
   // Clear enemies to make wave transition feel clean
   enemies.length = 0;
+  eggs.length = 0;
   spawnTimer = 1.2;
 }
 
@@ -745,6 +793,74 @@ function update(dt) {
     }
   }
 
+  // Eggs: gravity, platform landing, lava destruction, hatch timer
+  for (const egg of eggs) {
+    if (!egg.alive) continue;
+
+    if (egg.state === 'falling') {
+      egg.vy += GRAVITY * dt;
+      egg.vy = Math.min(egg.vy, TERMINAL_VY);
+      egg.vx *= EGG_AIR_DRAG;
+      egg.x += egg.vx * dt;
+      egg.y += egg.vy * dt;
+
+      // Horizontal wrap
+      if (egg.x + EGG_W < 0) egg.x = W;
+      if (egg.x > W) egg.x = -EGG_W;
+
+      // Try to land on a platform
+      for (const p of platforms) {
+        if (egg.vy >= 0 &&
+            egg.x + EGG_W > p.x && egg.x < p.x + p.w &&
+            egg.y + EGG_H >= p.y && egg.y + EGG_H <= p.y + PLATFORM_THICKNESS + Math.abs(egg.vy * dt) + 2) {
+          egg.y = p.y - EGG_H;
+          egg.vy = 0;
+          egg.vx = 0;
+          egg.state = 'resting';
+          egg.timer = EGG_HATCH_TIME;
+          break;
+        }
+      }
+
+      // Lava destroys the egg
+      if (egg.y + EGG_H > LAVA_TOP &&
+          (egg.x + EGG_W < LAVA_LEFT_END + 10 || egg.x > LAVA_RIGHT_START - 10)) {
+        egg.alive = false;
+      }
+
+      // Safety: gone off the bottom
+      if (egg.y > H + 50) egg.alive = false;
+    } else if (egg.state === 'resting') {
+      egg.timer -= dt;
+      if (egg.timer <= 0) {
+        // Hatch into a new enemy
+        spawnEnemyAtEgg(egg);
+        egg.alive = false;
+      }
+    }
+  }
+
+  // Player picks up eggs by touching them (no lance comparison needed —
+  // free points if you can reach them before they hatch).
+  if (player.alive && player.invulnTimer <= 0) {
+    const pb = birdBox(player);
+    for (const egg of eggs) {
+      if (!egg.alive) continue;
+      const eb = { x: egg.x, y: egg.y, w: EGG_W, h: EGG_H };
+      if (rectOverlap(pb, eb)) {
+        egg.alive = false;
+        score += EGG_PICKUP_SCORE;
+        hudScore.textContent = score;
+        snd.egg();
+      }
+    }
+  }
+
+  // Clean up dead eggs
+  for (let i = eggs.length - 1; i >= 0; i--) {
+    if (!eggs[i].alive) eggs.splice(i, 1);
+  }
+
   // Bird-bird collisions: player vs enemies
   if (player.alive && player.invulnTimer <= 0) {
     for (const e of enemies) {
@@ -761,6 +877,7 @@ function update(dt) {
         } else if (diff < 0) {
           // Player's lance higher → player wins
           e.alive = false;
+          spawnEgg(e.x, e.y, e.vx);  // dropped egg from the kill
           score += 750;
           hudScore.textContent = score;
           enemiesKilledThisWave++;
@@ -772,6 +889,25 @@ function update(dt) {
           loseLife();
           break;
         }
+      }
+    }
+  }
+
+  // Enemy-vs-enemy collisions: bounce off each other and flip direction.
+  // Doesn't kill (would make the game too easy if enemies took each other
+  // out for free). Just deflects so they don't pass through or stack up.
+  for (let i = 0; i < enemies.length; i++) {
+    for (let j = i + 1; j < enemies.length; j++) {
+      const a = enemies[i];
+      const b = enemies[j];
+      if (!a.alive || !b.alive) continue;
+      if (rectOverlap(birdJoustBox(a), birdJoustBox(b))) {
+        // Push apart based on which is left/right
+        const sep = a.x < b.x ? -1 : 1;
+        a.vx = sep * 120;
+        b.vx = -sep * 120;
+        a.facingLeft = sep < 0;
+        b.facingLeft = sep > 0;
       }
     }
   }
@@ -795,8 +931,8 @@ function update(dt) {
     }
   }
 
-  // Wave progression
-  if (enemiesKilledThisWave >= ENEMIES_PER_WAVE && enemies.length === 0) {
+  // Wave progression — wait for all enemies dead AND all eggs collected/hatched/destroyed
+  if (enemiesKilledThisWave >= ENEMIES_PER_WAVE && enemies.length === 0 && eggs.length === 0) {
     advanceWave();
   }
 }
@@ -946,6 +1082,49 @@ function drawEnemies() {
   }
 }
 
+// Render all eggs. Eggs falling rotate slightly with horizontal velocity.
+// Eggs resting near hatch time pulse to warn the player.
+function drawEggs() {
+  for (const egg of eggs) {
+    if (!egg.alive) continue;
+
+    ctx.save();
+    ctx.translate(egg.x + EGG_W / 2, egg.y + EGG_H / 2);
+    if (egg.state === 'falling') {
+      ctx.rotate(egg.vx * 0.004 + egg.vy * 0.002);
+    }
+
+    // Warning pulse if near hatching
+    if (egg.state === 'resting' && egg.timer < 2.0) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 80);
+      ctx.strokeStyle = `rgba(255, 140, 60, ${pulse * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, EGG_W / 2 + 3, EGG_H / 2 + 3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Egg body — cream tan
+    ctx.fillStyle = '#f0e0c0';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, EGG_W / 2, EGG_H / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Shading line
+    ctx.strokeStyle = '#a08060';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // Specks for character
+    ctx.fillStyle = '#8c6b48';
+    ctx.beginPath(); ctx.arc(-2.5, -3.5, 1.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 3.0,  3.5, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 1.0, -5.5, 0.7, 0, Math.PI * 2); ctx.fill();
+
+    ctx.restore();
+  }
+}
+
 //── Main loop ────────────────────────────────────────────────────────────────
 let lastT = performance.now();
 function frame(now) {
@@ -961,6 +1140,7 @@ function frame(now) {
   drawPlatforms();
   drawLava(dt);
   drawParticles();
+  drawEggs();
   drawEnemies();
   drawPlayer();
   drawSkidDebugFlash();
