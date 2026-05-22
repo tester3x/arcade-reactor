@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.18 — Arcade Reactor</title>
+<title>JOUST v0.19 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.18</div>
+    <div class="version-tag" id="versionTag">v0.19</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.18 — Arcade Reactor
+// JOUST v0.19 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -237,16 +237,23 @@ const EGG_W = 18;
 const EGG_H = 22;
 const EGG_HATCH_TIME = 5.0;     // sec on a platform before hatching back into an enemy
 const EGG_PICKUP_SCORE = 250;
-const EGG_AIR_DRAG = 0.99;
+const EGG_AIR_DRAG = 0.992;     // very gentle horizontal drag — eggs glide
+const EGG_GRAVITY = 170;        // much lighter than birds (280) — eggs hang and float
+const EGG_TERMINAL_VY = 140;    // slow fall cap — eggs drift down, never plummet
 
 const eggs = [];  // each: { x, y, vx, vy, state: 'falling'|'resting', timer, alive }
 
-function spawnEgg(x, y, fromVx) {
+// Spawn an egg from a dying enemy. The egg shoots AWAY from the player so
+// they can actually see it before catching it, plus a strong upward kick
+// for proper Joust-style egg arc.
+function spawnEgg(enemyX, enemyY, awayFromX) {
+  const eggCenterX = enemyX + BIRD_W / 2;
+  const dirAway = eggCenterX >= awayFromX ? 1 : -1;
   eggs.push({
-    x: x + (BIRD_W - EGG_W) / 2,
-    y: y + (BIRD_H - EGG_H) / 2,
-    vx: (fromVx || 0) * 0.3,
-    vy: -120,                   // small upward bounce on the kill, then falls
+    x: enemyX + (BIRD_W - EGG_W) / 2,
+    y: enemyY + (BIRD_H - EGG_H) / 2,
+    vx: dirAway * (200 + Math.random() * 100),  // 200-300 px/sec horizontal kick
+    vy: -260 - Math.random() * 60,              // strong upward arc
     state: 'falling',
     timer: 0,
     alive: true,
@@ -431,7 +438,7 @@ const snd = {
     // don't sound robotic. Fall back to synth if WAV didn't load.
     const played = playBuffer('flap', {
       playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
-      volume: 0.25,
+      volume: 0.12,
     });
     if (!played) {
       noiseBurst(0.08, 0.06);
@@ -442,7 +449,7 @@ const snd = {
   death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
   spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
   egg:      () => {
-    const played = playBuffer('egg', { volume: 0.6 });
+    const played = playBuffer('egg', { volume: 0.30 });
     if (!played) {
       // Fallback: bright ascending blip
       tone(880, 0.06, 'triangle', 0.14);
@@ -798,8 +805,8 @@ function update(dt) {
     if (!egg.alive) continue;
 
     if (egg.state === 'falling') {
-      egg.vy += GRAVITY * dt;
-      egg.vy = Math.min(egg.vy, TERMINAL_VY);
+      egg.vy += EGG_GRAVITY * dt;
+      egg.vy = Math.min(egg.vy, EGG_TERMINAL_VY);
       egg.vx *= EGG_AIR_DRAG;
       egg.x += egg.vx * dt;
       egg.y += egg.vy * dt;
@@ -877,7 +884,7 @@ function update(dt) {
         } else if (diff < 0) {
           // Player's lance higher → player wins
           e.alive = false;
-          spawnEgg(e.x, e.y, e.vx);  // dropped egg from the kill
+          spawnEgg(e.x, e.y, player.x + BIRD_W / 2);  // shoot away from player center
           score += 750;
           hudScore.textContent = score;
           enemiesKilledThisWave++;
