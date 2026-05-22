@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.28 — Arcade Reactor</title>
+<title>JOUST v0.29 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -17,7 +17,7 @@
     min-height: 100vh;
   }
   .wrap {
-    position: relative; width: 900px; height: 680px;
+    position: relative; width: 1200px; height: 720px;
     max-width: 100vw; max-height: 100vh;
     aspect-ratio: 4 / 3;
   }
@@ -85,7 +85,7 @@
 <body>
   <a href="../index.html" class="back-link">← ARCADE REACTOR</a>
   <div class="wrap">
-    <canvas id="game" width="900" height="680"></canvas>
+    <canvas id="game" width="1200" height="720"></canvas>
     <div class="hud">
       <div class="hud-section">
         <div><span class="hud-label">SCORE</span><span class="hud-value" id="score">0</span></div>
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.28</div>
+    <div class="version-tag" id="versionTag">v0.29</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.28 — Arcade Reactor
+// JOUST v0.29 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -193,9 +193,9 @@ const BIRD_JOUST_INSET_X = 12;  // horizontal inset for joust collision (exclude
 const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
 const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
-const LAVA_TOP       = H - 50;     // lava surface height
-const LAVA_LEFT_END    = 120;       // matches BASE_WALK_X_START — death zone is corner flame area
-const LAVA_RIGHT_START = W - 120;   // matches BASE_WALK_X_END
+const LAVA_TOP       = H - 60;     // lava surface height
+const LAVA_LEFT_END    = W * 0.12;  // matches BASE_WALK_X_START_PCT — death zone is corner flame area
+const LAVA_RIGHT_START = W * 0.88;  // matches BASE_WALK_X_END_PCT
 const CEILING        = 28;     // hard ceiling near top
 
 const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
@@ -233,79 +233,97 @@ const overlay  = document.getElementById('overlay');
 const startBtn = document.getElementById('startBtn');
 
 //── Platforms ────────────────────────────────────────────────────────────────
-// Each platform references one of the loaded sprites for rendering.
-// Position is the top-left of the SPRITE; collision uses sprite naturalWidth.
-// Layout matches the joust_field reference image (6 floating rows + base).
+// Each platform is positioned by its CENTER (as fraction of canvas width) +
+// absolute y. Sprites are drawn at PLATFORM_DRAW_SCALE × natural size.
+// Both collision and rendering use the scaled dimensions, so positions stay
+// proportionally correct if canvas resizes.
 //
-// MIKE: tune these (x, y) positions to nudge the layout. The widths come from
-// the sprite files themselves (loaded async), so they self-size correctly.
-const PLATFORM_THICKNESS = 14;  // top "walking surface" thickness for collision
+// MIKE: tune cx (0.0 = far left, 1.0 = far right) and y to nudge layout.
+const PLATFORM_THICKNESS  = 14;
+const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
 
 const platforms = [
-  // Floor 6 (HIGHEST, the small top-corner ones, ~14% of H)
-  { sprite: 'floorsixleft',      x:  80, y:  85 },
-  { sprite: 'floorsixright',     x: 700, y:  85 },
-  // Floor 5 (~22% of H, single middle, slightly below the top corners)
-  { sprite: 'floorfivemiddle',   x: 340, y: 145 },
-  // Floor 4 (~33% of H, left + right pair)
-  { sprite: 'floorfourleft',     x: 110, y: 225 },
-  { sprite: 'floorfourright',    x: 580, y: 225 },
-  // Floor 4b (~37% of H, far right small, slightly lower than fourleft/right)
-  { sprite: 'floorfourfarright', x: 780, y: 260 },
-  // Floor 3 (~48% of H, single middle)
-  { sprite: 'floorthreemiddle',  x: 360, y: 325 },
-  // Floor 2 (~58% of H, left + right pair)
-  { sprite: 'floortwoleft',      x:  80, y: 395 },
-  { sprite: 'floortworight',     x: 620, y: 395 },
-  // Floor 1 (LOWEST, the wide one just above base, ~68% of H)
-  { sprite: 'floorone',          x: 310, y: 465 },
+  // Floor 6 (HIGHEST — small top-corner ones)
+  { sprite: 'floorsixleft',      cx: 0.10, y: 105 },
+  { sprite: 'floorsixright',     cx: 0.90, y: 105 },
+  // Floor 5 (single middle, slightly below the top corners)
+  { sprite: 'floorfivemiddle',   cx: 0.50, y: 170 },
+  // Floor 4 (left + right pair)
+  { sprite: 'floorfourleft',     cx: 0.22, y: 260 },
+  { sprite: 'floorfourright',    cx: 0.72, y: 260 },
+  // Floor 4 far-right (small, slightly lower than fourleft/right)
+  { sprite: 'floorfourfarright', cx: 0.93, y: 290 },
+  // Floor 3 (single middle)
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 360 },
+  // Floor 2 (left + right pair)
+  { sprite: 'floortwoleft',      cx: 0.16, y: 435 },
+  { sprite: 'floortworight',     cx: 0.84, y: 435 },
+  // Floor 1 (LOWEST — wide one, just above base)
+  { sprite: 'floorone',          cx: 0.50, y: 510 },
 ];
+
+// Returns the scaled width of a platform (collision + rendering use this)
+function platformWidth(p) {
+  const s = sprites[p.sprite];
+  if (s && s.complete && s.naturalWidth > 0) {
+    return s.naturalWidth * PLATFORM_DRAW_SCALE;
+  }
+  return 120; // fallback
+}
+
+// Returns the scaled height (for rendering)
+function platformHeight(p) {
+  const s = sprites[p.sprite];
+  if (s && s.complete && s.naturalHeight > 0) {
+    return s.naturalHeight * PLATFORM_DRAW_SCALE;
+  }
+  return 30;
+}
+
+// Returns the top-left x coordinate (derived from cx)
+function platformX(p) {
+  return W * p.cx - platformWidth(p) / 2;
+}
 
 // The BASE platform is special — spans the full width with built-in score
 // window and corner flame lanterns. Its collision shape excludes the corner
 // flame zones (those are death zones, equivalent to lava).
-const BASE_HEIGHT_GUESS = 110;             // approximate base sprite height
+const BASE_HEIGHT_GUESS = 120;
 const BASE_TOP_Y_FALLBACK = H - BASE_HEIGHT_GUESS;
-const BASE_WALK_X_START = 120;             // left edge of safe walking area (right of left flame)
-const BASE_WALK_X_END   = W - 120;         // right edge of safe walking area (left of right flame)
-const BASE_WALK_TOP_Y_INSET = 28;          // how far below the sprite top the walkable surface sits
+const BASE_WALK_X_START_PCT = 0.12;  // safe walking area as fraction of width
+const BASE_WALK_X_END_PCT   = 0.88;
+const BASE_WALK_TOP_Y_INSET = 30;    // top of walkable strip below sprite top
 
-// Returns the current base platform collision rect — computed each frame
-// from the base sprite's actual size so it stays accurate as sprites load.
 function getBaseCollisionRect() {
   const baseH = (sprites.base && sprites.base.complete && sprites.base.naturalHeight > 0)
-                ? sprites.base.naturalHeight
+                ? sprites.base.naturalHeight * (W / sprites.base.naturalWidth)
                 : BASE_HEIGHT_GUESS;
   const topY = H - baseH + BASE_WALK_TOP_Y_INSET;
   return {
-    x: BASE_WALK_X_START,
+    x: W * BASE_WALK_X_START_PCT,
     y: topY,
-    w: BASE_WALK_X_END - BASE_WALK_X_START,
+    w: W * (BASE_WALK_X_END_PCT - BASE_WALK_X_START_PCT),
     sprite: 'base',
     isBase: true,
   };
 }
 
-// Returns the platform width for collision — uses sprite naturalWidth if
-// loaded, falls back to a sane default.
-function platformWidth(p) {
-  const s = sprites[p.sprite];
-  if (s && s.complete && s.naturalWidth > 0) return s.naturalWidth;
-  return 160; // fallback width
-}
-
-// Returns the active platforms list for collision/rendering (floats + base).
 function getAllPlatforms() {
   const out = [];
   for (const p of platforms) {
-    out.push({ x: p.x, y: p.y, w: platformWidth(p), sprite: p.sprite });
+    out.push({
+      x: platformX(p),
+      y: p.y,
+      w: platformWidth(p),
+      sprite: p.sprite,
+    });
   }
   out.push(getBaseCollisionRect());
   return out;
 }
 
 // Spawn position — center of the base platform's safe walking area.
-const SPAWN_X = (BASE_WALK_X_START + BASE_WALK_X_END) / 2 - BIRD_W / 2;
+const SPAWN_X = W * 0.5 - BIRD_W / 2;
 const SPAWN_Y = BASE_TOP_Y_FALLBACK + BASE_WALK_TOP_Y_INSET - BIRD_H;
 
 //── Player ───────────────────────────────────────────────────────────────────
@@ -1122,21 +1140,24 @@ function drawPlatforms() {
     ctx.fillStyle = COLOR_PLATFORM;
     ctx.fillRect(0, H - 80, W, 80);
     ctx.fillStyle = COLOR_PLATFORM_EDGE;
-    ctx.fillRect(BASE_WALK_X_START, H - 80, BASE_WALK_X_END - BASE_WALK_X_START, 2);
+    ctx.fillRect(W * BASE_WALK_X_START_PCT, H - 80,
+                 W * (BASE_WALK_X_END_PCT - BASE_WALK_X_START_PCT), 2);
   }
 
-  // Then the floating platforms
+  // Then the floating platforms — scaled down by PLATFORM_DRAW_SCALE
   for (const p of platforms) {
     const s = sprites[p.sprite];
+    const w = platformWidth(p);
+    const h = platformHeight(p);
+    const x = platformX(p);
     if (s && s.complete && s.naturalWidth > 0) {
-      ctx.drawImage(s, p.x, p.y);
+      ctx.drawImage(s, x, p.y, w, h);
     } else {
       // Fallback colored rect while sprite loads
-      const w = platformWidth(p);
       ctx.fillStyle = COLOR_PLATFORM;
-      ctx.fillRect(p.x, p.y, w, PLATFORM_THICKNESS);
+      ctx.fillRect(x, p.y, w, PLATFORM_THICKNESS);
       ctx.fillStyle = COLOR_PLATFORM_EDGE;
-      ctx.fillRect(p.x, p.y, w, 2);
+      ctx.fillRect(x, p.y, w, 2);
     }
   }
 }
