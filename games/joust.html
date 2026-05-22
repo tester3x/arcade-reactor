@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.23 — Arcade Reactor</title>
+<title>JOUST v0.24 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.23</div>
+    <div class="version-tag" id="versionTag">v0.24</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.23 — Arcade Reactor
+// JOUST v0.24 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1119,17 +1119,23 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
   const walkReady = walkSprite && walkSprite.complete && walkSprite.naturalWidth > 0;
 
   if (inAir && flyReady && fly2Ready) {
-    // Wing flap cycle — ~8 fps so it reads as continuous flapping
-    const flyFrame = Math.floor(performance.now() / 120) % 2;
+    // Wing flap cycle — faster = more motion. ~12 fps reads as vigorous flapping.
+    const flyFrame = Math.floor(performance.now() / 80) % 2;
     activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
   } else if (isWalking && walkReady) {
     const walkFrame = Math.floor(performance.now() / 160) % 2;
     activeSprite = walkFrame === 0 ? sprite : walkSprite;
   }
 
-  // Walking bob: vertical sine while on ground and moving. Combines with the
-  // leg swap to sell the walking animation. No bob in air — wings handle that.
-  const bobY = isWalking ? Math.sin(performance.now() / 80) * 2 : 0;
+  // Vertical bob — DIFFERENT motion for walking vs flying:
+  //   Walking: slow sine, body bobs as legs cycle
+  //   Flying:  fast cosine synced to flap (body rises on downstroke)
+  let bobY = 0;
+  if (isWalking) {
+    bobY = Math.sin(performance.now() / 80) * 2;
+  } else if (inAir) {
+    bobY = Math.cos(performance.now() / 25) * 2.5;  // ~157ms period syncs to 80ms flap swap
+  }
   const drawY = b.y + bobY;
 
   ctx.save();
