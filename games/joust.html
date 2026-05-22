@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.7 — Arcade Reactor</title>
+<title>JOUST v0.8 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,18 +102,29 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.7</div>
+    <div class="version-tag" id="versionTag">v0.8</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.7 — Arcade Reactor
+// JOUST v0.8 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width;   // 800
 const H = canvas.height;  // 600
+
+// Disable image smoothing so pixel art stays crisp when scaled
+ctx.imageSmoothingEnabled = false;
+
+//── Sprites ──────────────────────────────────────────────────────────────────
+const sprites = {
+  ostrich: new Image(),
+  buzzard: new Image(),
+};
+sprites.ostrich.src = '../assets/joust/ostrich.png';
+sprites.buzzard.src = '../assets/joust/buzzard.png';
 
 //── Constants ─────────────────────────────────────────────────────────────────
 const GRAVITY        = 280;    // px/sec² — ANTI-gravity feel; speed-boosted flaps dominate
@@ -127,10 +138,10 @@ const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — long dr
 const GROUND_FRICTION= 0.86;
 const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
 
-const BIRD_W         = 38;
-const BIRD_H         = 30;
-const LANCE_OFFSET_Y = -10;    // how far above bird-top the lance sits (rider height)
-const LANCE_TOLERANCE= 6;      // pixels — if lances within this, both bounce
+const BIRD_W         = 56;
+const BIRD_H         = 52;
+const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
+const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
 const LAVA_TOP       = H - 40;
 const LAVA_LEFT_END    = 100;     // lava covers x=0..this on the left bottom
@@ -197,8 +208,8 @@ const PLATFORM_THICKNESS = 10;
 
 // Spawn position — center of the BASE platform (x=100, y=H-40, w=600).
 // Materializes there with a sparkle effect at the start of each life.
-const SPAWN_X = 100 + 300 - BIRD_W / 2;  // 381
-const SPAWN_Y = (H - 40) - BIRD_H;       // 530
+const SPAWN_X = 100 + 300 - BIRD_W / 2;  // centered on base
+const SPAWN_Y = (H - 40) - BIRD_H;       // sitting on top of base platform
 
 //── Player ───────────────────────────────────────────────────────────────────
 const player = {
@@ -788,114 +799,53 @@ function drawFlame(x, baseY) {
   ctx.fill();
 }
 
-// Draw a bird+rider. `b` is the bird state. `bodyColor`/`riderColor` differentiate.
-// Flapping detected via b.flapAnimTime (low value = wings up, recently flapped).
-function drawBird(b, bodyColor, riderColor) {
-  ctx.save();
-  // Translate to bird center, flip if facing left
-  const cx = b.x + BIRD_W / 2;
-  const cy = b.y + BIRD_H / 2;
-  ctx.translate(cx, cy);
-  if (b.facingLeft) ctx.scale(-1, 1);
-  ctx.translate(-BIRD_W / 2, -BIRD_H / 2);
-
-  // Body (oval-ish)
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  ctx.ellipse(BIRD_W * 0.5, BIRD_H * 0.62, BIRD_W * 0.42, BIRD_H * 0.30, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Wing — animate based on flapAnimTime
-  // 0-0.10s: wings up; 0.10-0.20s: wings down; after: tucked
-  const t = b.flapAnimTime;
-  let wingY = BIRD_H * 0.55; // tucked
-  let wingShape = 'tuck';
-  if (t < 0.10) { wingY = BIRD_H * 0.20; wingShape = 'up'; }
-  else if (t < 0.22) { wingY = BIRD_H * 0.85; wingShape = 'down'; }
-
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  if (wingShape === 'up') {
-    ctx.moveTo(BIRD_W * 0.30, BIRD_H * 0.55);
-    ctx.lineTo(BIRD_W * 0.20, wingY);
-    ctx.lineTo(BIRD_W * 0.55, BIRD_H * 0.50);
-    ctx.closePath();
-  } else if (wingShape === 'down') {
-    ctx.moveTo(BIRD_W * 0.30, BIRD_H * 0.65);
-    ctx.lineTo(BIRD_W * 0.18, wingY);
-    ctx.lineTo(BIRD_W * 0.55, BIRD_H * 0.65);
-    ctx.closePath();
-  } else {
-    // Tucked
-    ctx.moveTo(BIRD_W * 0.30, BIRD_H * 0.58);
-    ctx.lineTo(BIRD_W * 0.50, BIRD_H * 0.70);
-    ctx.lineTo(BIRD_W * 0.55, BIRD_H * 0.55);
-    ctx.closePath();
+// Find the Y coordinate of the highest platform top directly below the bird.
+// Used for casting a dynamic shadow. Returns null if no platform is below.
+function findShadowY(b) {
+  let bestY = null;
+  for (const p of platforms) {
+    if (p.x < b.x + BIRD_W && p.x + p.w > b.x && p.y >= b.y + BIRD_H) {
+      if (bestY === null || p.y < bestY) bestY = p.y;
+    }
   }
-  ctx.fill();
+  return bestY;
+}
 
-  // Neck and head (long ostrich neck arching up and forward)
-  ctx.strokeStyle = bodyColor;
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
+// Cast a small ellipse shadow on the platform below the bird. Alpha fades
+// with altitude — darker when close, fainter when high.
+function drawShadow(b) {
+  const sy = findShadowY(b);
+  if (sy === null) return;
+  const distance = sy - (b.y + BIRD_H);
+  if (distance < 0) return;
+  const alpha = Math.max(0.06, 0.45 - distance / 220);
+  const widthScale = Math.max(0.55, 1 - distance / 400);
+  ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
   ctx.beginPath();
-  ctx.moveTo(BIRD_W * 0.75, BIRD_H * 0.55);
-  ctx.quadraticCurveTo(BIRD_W * 0.92, BIRD_H * 0.30, BIRD_W * 0.92, BIRD_H * 0.40);
-  ctx.stroke();
-  // Head
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  ctx.arc(BIRD_W * 0.93, BIRD_H * 0.32, 3.5, 0, Math.PI * 2);
+  ctx.ellipse(b.x + BIRD_W / 2, sy + 1, (BIRD_W * 0.36) * widthScale, 3.5, 0, 0, Math.PI * 2);
   ctx.fill();
-  // Beak
-  ctx.fillStyle = '#ffaa3a';
-  ctx.beginPath();
-  ctx.moveTo(BIRD_W * 0.96, BIRD_H * 0.31);
-  ctx.lineTo(BIRD_W * 1.04, BIRD_H * 0.33);
-  ctx.lineTo(BIRD_W * 0.96, BIRD_H * 0.36);
-  ctx.closePath();
-  ctx.fill();
-  // Eye
-  ctx.fillStyle = '#000';
-  ctx.fillRect(BIRD_W * 0.93, BIRD_H * 0.30, 1.5, 1.5);
+}
 
-  // Legs (two thin lines going down)
-  ctx.strokeStyle = bodyColor;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(BIRD_W * 0.42, BIRD_H * 0.85);
-  ctx.lineTo(BIRD_W * 0.40, BIRD_H * 1.02);
-  ctx.moveTo(BIRD_W * 0.56, BIRD_H * 0.85);
-  ctx.lineTo(BIRD_W * 0.58, BIRD_H * 1.02);
-  ctx.stroke();
+// Draw a bird+rider using the sprite image, flipping horizontally if facing
+// left. Falls back to a simple placeholder rect if the sprite hasn't loaded.
+function drawBird(b, sprite) {
+  // Sprite ready check
+  if (!sprite || !sprite.complete || sprite.naturalWidth === 0) {
+    // Fallback placeholder so the game is still playable while sprites load
+    ctx.fillStyle = (sprite === sprites.buzzard) ? '#ff4a4a' : '#ffdb4a';
+    ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H);
+    return;
+  }
 
-  // Rider — sits on the back of the bird
-  // Rider body
-  ctx.fillStyle = riderColor;
-  ctx.fillRect(BIRD_W * 0.38, BIRD_H * 0.18, 9, 14);
-  // Rider head
-  ctx.beginPath();
-  ctx.arc(BIRD_W * 0.43, BIRD_H * 0.13, 3.5, 0, Math.PI * 2);
-  ctx.fill();
-  // Lance — extends forward from rider's chest height
-  // Lance is positioned at the bird's "lance Y" which is bird.y + LANCE_OFFSET_Y in world coords
-  // In local coords here, that's at y = LANCE_OFFSET_Y (since we translated to bird's top-left)
-  ctx.strokeStyle = COLOR_LANCE;
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(BIRD_W * 0.50, BIRD_H * 0.20);
-  ctx.lineTo(BIRD_W * 1.15, BIRD_H * 0.22);
-  ctx.stroke();
-  // Lance tip
-  ctx.fillStyle = COLOR_LANCE;
-  ctx.beginPath();
-  ctx.moveTo(BIRD_W * 1.15, BIRD_H * 0.18);
-  ctx.lineTo(BIRD_W * 1.22, BIRD_H * 0.22);
-  ctx.lineTo(BIRD_W * 1.15, BIRD_H * 0.26);
-  ctx.closePath();
-  ctx.fill();
-
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (b.facingLeft) {
+    ctx.translate(b.x + BIRD_W, b.y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
+  } else {
+    ctx.drawImage(sprite, b.x, b.y, BIRD_W, BIRD_H);
+  }
   ctx.restore();
 }
 
@@ -903,12 +853,16 @@ function drawPlayer() {
   if (!player.alive) return;
   // Flicker during invulnerability
   if (player.invulnTimer > 0 && Math.floor(player.invulnTimer * 12) % 2 === 0) return;
-  drawBird(player, COLOR_PLAYER, COLOR_PLAYER_RIDER);
+  drawShadow(player);
+  drawBird(player, sprites.ostrich);
 }
 
 function drawEnemies() {
   for (const e of enemies) {
-    if (e.alive) drawBird(e, COLOR_ENEMY, COLOR_ENEMY_RIDER);
+    if (e.alive) {
+      drawShadow(e);
+      drawBird(e, sprites.buzzard);
+    }
   }
 }
 
