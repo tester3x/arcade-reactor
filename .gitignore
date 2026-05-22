@@ -1,0 +1,20 @@
+# Photoshop / image source files (keep source on disk but not in deployed repo)
+*.psd
+
+# Temp files
+*.tmp
+*.bak
+
+# Browser Save-Page-As artifacts
+*_files/
+
+# Windows shell metadata
+Thumbs.db
+desktop.ini
+
+# Mac shell metadata
+.DS_Store
+
+# IDE / editor metadata
+.vscode/
+.idea/
