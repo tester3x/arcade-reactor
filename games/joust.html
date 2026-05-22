@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.11 — Arcade Reactor</title>
+<title>JOUST v0.12 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.11</div>
+    <div class="version-tag" id="versionTag">v0.12</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.11 — Arcade Reactor
+// JOUST v0.12 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -223,6 +223,7 @@ const player = {
   respawnTimer: 0,
   invulnTimer: 0,      // brief invulnerability after respawn
   wasSkidding: false,  // state flag for skid sound (fires once on transition into skid)
+  lastAbsVx: 0,        // |vx| from previous frame, for deceleration-based skid detection
 };
 
 //── Enemies ──────────────────────────────────────────────────────────────────
@@ -454,6 +455,7 @@ function startGame() {
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
   player.wasSkidding = false;
+  player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
   hudScore.textContent = score;
   hudWave.textContent = wave;
@@ -493,6 +495,7 @@ function respawnPlayer() {
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.invulnTimer = 1.5;
   player.wasSkidding = false;
+  player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
 }
 
@@ -558,19 +561,27 @@ function update(dt) {
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
 
-    // Skid sound — state-based. Fires once when the bird ENTERS the "actively
-    // decelerating on ground" state. Catches both running-and-release (key
-    // was just released) and land-while-moving (just touched down with speed).
-    // Doesn't fire while you're driving (keys held), because that's not braking.
-    const SKID_VX_THRESHOLD = 60;
+    // Skid sound — DECELERATION-based. Fires when the bird is on the ground
+    // AND was moving with significant speed AND is currently slowing down hard.
+    // This catches all braking cases:
+    //   - Release direction key (friction decelerates)
+    //   - Press OPPOSITE direction to brake (Joust-style turnaround)
+    //   - Land with horizontal momentum (friction kicks in on touchdown)
+    //   - Slam into a wall
+    const SKID_MIN_PREV_SPEED = 50;     // were moving at least this fast last frame
+    const SKID_MIN_DECEL = 4;           // pixels/frame dropoff to count as "braking"
+    const absVx = Math.abs(player.vx);
+    const decel = player.lastAbsVx - absVx;  // positive = slowing
     const skiddingNow = player.onGround &&
-                        !(keys.left || keys.right) &&
-                        Math.abs(player.vx) > SKID_VX_THRESHOLD;
+                        player.lastAbsVx > SKID_MIN_PREV_SPEED &&
+                        decel > SKID_MIN_DECEL;
     if (skiddingNow && !player.wasSkidding) {
-      snd.skid(Math.abs(player.vx) / HORIZ_MAX);
-      lastSkidFireTime = performance.now() / 1000;  // for debug flash
+      console.log(`[SKID-TRIGGER] decel=${decel.toFixed(1)} prevVx=${player.lastAbsVx.toFixed(1)} vx=${absVx.toFixed(1)} keys=${keys.left?'L':''}${keys.right?'R':''} ground=${player.onGround}`);
+      snd.skid(player.lastAbsVx / HORIZ_MAX);
+      lastSkidFireTime = performance.now() / 1000;
     }
     player.wasSkidding = skiddingNow;
+    player.lastAbsVx = absVx;
 
     // Lava — only the LEFT and RIGHT corner zones (sides of the base platform)
     {
