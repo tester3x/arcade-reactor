@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.19 — Arcade Reactor</title>
+<title>JOUST v0.20 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.19</div>
+    <div class="version-tag" id="versionTag">v0.20</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.19 — Arcade Reactor
+// JOUST v0.20 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1060,14 +1060,21 @@ function drawBird(b, sprite) {
     return;
   }
 
+  // Walking bob: when on ground and moving, the bird bobs vertically.
+  // Creates a walking-animation feel from a static sprite — your brain reads
+  // the up/down rhythm as legs stepping.
+  const isWalking = b.onGround && Math.abs(b.vx) > 30;
+  const bobY = isWalking ? Math.sin(performance.now() / 80) * 2 : 0;
+  const drawY = b.y + bobY;
+
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   if (b.facingLeft) {
-    ctx.translate(b.x + BIRD_W, b.y);
+    ctx.translate(b.x + BIRD_W, drawY);
     ctx.scale(-1, 1);
     ctx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
   } else {
-    ctx.drawImage(sprite, b.x, b.y, BIRD_W, BIRD_H);
+    ctx.drawImage(sprite, b.x, drawY, BIRD_W, BIRD_H);
   }
   ctx.restore();
 }
