@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.15 — Arcade Reactor</title>
+<title>JOUST v0.16 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   * { box-sizing: border-box; }
@@ -102,12 +102,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.15</div>
+    <div class="version-tag" id="versionTag">v0.16</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.15 — Arcade Reactor
+// JOUST v0.16 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -142,6 +142,7 @@ const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-
 
 const BIRD_W         = 56;
 const BIRD_H         = 52;
+const BIRD_JOUST_INSET_X = 12;  // horizontal inset for joust collision (excludes lance + tail)
 const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
 const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
@@ -415,6 +416,17 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function birdBox(b) {
   return { x: b.x, y: b.y, w: BIRD_W, h: BIRD_H };
+}
+// Tighter body box used for joust (bird-vs-bird) collisions only.
+// Excludes the lance tip (one side) and tail feathers (other side).
+// Birds must actually be body-to-body close to trigger a joust.
+function birdJoustBox(b) {
+  return {
+    x: b.x + BIRD_JOUST_INSET_X,
+    y: b.y,
+    w: BIRD_W - BIRD_JOUST_INSET_X * 2,
+    h: BIRD_H,
+  };
 }
 function lanceY(b) {
   return b.y + LANCE_OFFSET_Y;
@@ -737,7 +749,7 @@ function update(dt) {
   if (player.alive && player.invulnTimer <= 0) {
     for (const e of enemies) {
       if (!e.alive) continue;
-      if (rectOverlap(birdBox(player), birdBox(e))) {
+      if (rectOverlap(birdJoustBox(player), birdJoustBox(e))) {
         const pl = lanceY(player);
         const el = lanceY(e);
         const diff = pl - el; // negative = player's lance is higher (better)
