@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.41 — Arcade Reactor</title>
+<title>JOUST v0.42 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.41</div>
+    <div class="version-tag" id="versionTag">v0.42</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.41 — Arcade Reactor
+// JOUST v0.42 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -350,16 +350,17 @@ function getAllPlatforms() {
   out.push(getBaseCollisionRect());
 
   // Floor strips on either side of base (these BURN AWAY by wave).
-  // We extend them 6px INTO the base area so they connect flush — the base
-  // sprite renders on top and hides the overlap.
-  const baseDrawW = W * BASE_DRAW_W_PCT;
-  const baseLeftX = (W - baseDrawW) / 2;
-  const baseRightX = baseLeftX + baseDrawW;
+  // Extend collision to touch the BASE'S COLLISION RECT (not its sprite edge).
+  // The base sprite is ~78% wide but its walkable rect is only ~64% wide —
+  // the difference is rocky decoration that isn't walkable. Floor strip must
+  // reach the walkable edge or birds fall through the gap.
+  const baseColl = getBaseCollisionRect();
+  const baseCollLeftX  = baseColl.x;
+  const baseCollRightX = baseColl.x + baseColl.w;
   const floorY = getFloorStripY();
-  const STRIP_BASE_OVERLAP = 14;
 
-  // Left strip — from burn edge to (slightly past base left edge)
-  const leftStripW = (baseLeftX + STRIP_BASE_OVERLAP) - floorBurnAmount;
+  // Left strip — from burn edge to LEFT edge of base's walkable area
+  const leftStripW = baseCollLeftX - floorBurnAmount;
   if (leftStripW > 4) {
     out.push({
       x: floorBurnAmount,
@@ -369,11 +370,11 @@ function getAllPlatforms() {
     });
   }
 
-  // Right strip — from (slightly before base right edge) to (W - burn edge)
-  const rightStripW = (W - floorBurnAmount) - (baseRightX - STRIP_BASE_OVERLAP);
+  // Right strip — from RIGHT edge of base's walkable area to (W - burn edge)
+  const rightStripW = (W - floorBurnAmount) - baseCollRightX;
   if (rightStripW > 4) {
     out.push({
-      x: baseRightX - STRIP_BASE_OVERLAP,
+      x: baseCollRightX,
       y: floorY,
       w: rightStripW,
       sprite: 'floor',
@@ -1491,23 +1492,22 @@ function drawLava(dt) {
   }
 }
 
-// Render floor strips on either side of base. Strips extend 6px INTO the
-// base area so they connect flush — the base sprite renders on top after
-// this and hides the overlap, leaving no visible gap.
+// Render floor strips on either side of base. Visual extends to the BASE
+// COLLISION RECT (not sprite edge). Base sprite renders on top later and
+// covers any inside overlap.
 function drawFloorStrips() {
   const floorY = getFloorStripY();
-  const baseDrawW = W * BASE_DRAW_W_PCT;
-  const baseLeftX = (W - baseDrawW) / 2;
-  const baseRightX = baseLeftX + baseDrawW;
-  const STRIP_BASE_OVERLAP = 14;
+  const baseColl = getBaseCollisionRect();
+  const baseCollLeftX  = baseColl.x;
+  const baseCollRightX = baseColl.x + baseColl.w;
 
-  const leftStripW = (baseLeftX + STRIP_BASE_OVERLAP) - floorBurnAmount;
+  const leftStripW = baseCollLeftX - floorBurnAmount;
   if (leftStripW > 0) {
     drawFloorStrip(floorBurnAmount, floorY, leftStripW);
   }
-  const rightStripW = (W - floorBurnAmount) - (baseRightX - STRIP_BASE_OVERLAP);
+  const rightStripW = (W - floorBurnAmount) - baseCollRightX;
   if (rightStripW > 0) {
-    drawFloorStrip(baseRightX - STRIP_BASE_OVERLAP, floorY, rightStripW);
+    drawFloorStrip(baseCollRightX, floorY, rightStripW);
   }
 }
 
@@ -1515,12 +1515,12 @@ function drawFloorStrips() {
 // everything (including the base sprite and floor strips).
 function drawBurnFlamesAtEdges() {
   const floorY = getFloorStripY();
-  const baseDrawW = W * BASE_DRAW_W_PCT;
-  const baseLeftX = (W - baseDrawW) / 2;
-  const baseRightX = baseLeftX + baseDrawW;
+  const baseColl = getBaseCollisionRect();
+  const baseCollLeftX  = baseColl.x;
+  const baseCollRightX = baseColl.x + baseColl.w;
 
-  const leftStripW = baseLeftX - floorBurnAmount;
-  const rightStripW = (W - floorBurnAmount) - baseRightX;
+  const leftStripW = baseCollLeftX - floorBurnAmount;
+  const rightStripW = (W - floorBurnAmount) - baseCollRightX;
   if (leftStripW > 4)  drawBurnFlames(floorBurnAmount, floorY);
   if (rightStripW > 4) drawBurnFlames(W - floorBurnAmount, floorY);
 }
