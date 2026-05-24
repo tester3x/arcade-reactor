@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.33 — Arcade Reactor</title>
+<title>JOUST v0.34 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.33</div>
+    <div class="version-tag" id="versionTag">v0.34</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.33 — Arcade Reactor
+// JOUST v0.34 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -200,10 +200,23 @@ const BIRD_JOUST_INSET_X = 12;  // horizontal inset for joust collision (exclude
 const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
 const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
-const LAVA_TOP       = H - 60;     // lava surface height
-const LAVA_LEFT_END    = W * 0.12;  // matches BASE_WALK_X_START_PCT — death zone is corner flame area
-const LAVA_RIGHT_START = W * 0.88;  // matches BASE_WALK_X_END_PCT
+// LAVA + FLOOR system. The floor is a thin rocky strip across the screen
+// that covers the lava pit. It burns away from the outside-in starting at
+// wave 3 (in arcade Joust). Set TEST_BURN_FROM_WAVE_1 to see the burn from
+// the start instead of waiting.
+const LAVA_VISIBLE_HEIGHT = 50;       // height of the visible lava strip
+const LAVA_SURFACE_Y      = H - LAVA_VISIBLE_HEIGHT;  // top of lava (death line)
+const FLOOR_STRIP_HEIGHT  = 18;       // thin rocky walkable strip above lava
+const FLOOR_STRIP_Y       = LAVA_SURFACE_Y - FLOOR_STRIP_HEIGHT;
+const TEST_BURN_FROM_WAVE_1 = true;   // false = arcade authentic (burn starts wave 3)
+const FLOOR_BURN_PER_WAVE = 90;       // pixels burned from each side per wave
+const FLOOR_BURN_RATE     = 50;       // pixels/sec animation speed during transition
 const CEILING        = 28;     // hard ceiling near top
+
+// Burn state — updated each frame to smoothly animate toward the target
+let floorBurnAmount = 0;
+let targetBurnAmount = 0;
+let lavaWavePhase = 0;
 
 const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
 const MAX_ENEMIES_ON_SCREEN = 3;
@@ -326,7 +339,46 @@ function getAllPlatforms() {
     });
   }
   out.push(getBaseCollisionRect());
+
+  // Floor strips on either side of base (these BURN AWAY by wave)
+  const baseDrawW = W * BASE_DRAW_W_PCT;
+  const baseLeftX = (W - baseDrawW) / 2;
+  const baseRightX = baseLeftX + baseDrawW;
+
+  // Left strip — from burn edge to left of base
+  const leftStripW = baseLeftX - floorBurnAmount;
+  if (leftStripW > 4) {
+    out.push({
+      x: floorBurnAmount,
+      y: FLOOR_STRIP_Y,
+      w: leftStripW,
+      sprite: 'floor',
+    });
+  }
+
+  // Right strip — from right of base to (W - burn edge)
+  const rightStripW = (W - floorBurnAmount) - baseRightX;
+  if (rightStripW > 4) {
+    out.push({
+      x: baseRightX,
+      y: FLOOR_STRIP_Y,
+      w: rightStripW,
+      sprite: 'floor',
+    });
+  }
+
   return out;
+}
+
+// Sets the target burn level for the current wave. The actual burn animates
+// toward this target via FLOOR_BURN_RATE per second in update().
+function setFloorBurnTarget(waveNum) {
+  // In arcade Joust the floor burns starting wave 3. In test mode we start
+  // immediately on wave 1 so we can see the mechanic.
+  const effectiveBurnWave = TEST_BURN_FROM_WAVE_1 ? waveNum : Math.max(0, waveNum - 2);
+  const baseDrawW = W * BASE_DRAW_W_PCT;
+  const maxBurn   = (W - baseDrawW) / 2;  // can't burn past the base edges
+  targetBurnAmount = Math.min(maxBurn, effectiveBurnWave * FLOOR_BURN_PER_WAVE);
 }
 
 // Spawn position — center of the base platform's safe walking area.
@@ -715,6 +767,8 @@ function startGame() {
   eggs.length = 0;
   scorePops.length = 0;
   eggCatchChain = 0;
+  floorBurnAmount = 0;
+  setFloorBurnTarget(wave);
   spawnTimer = 1.0; // first spawn after 1 sec
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
@@ -771,6 +825,7 @@ function advanceWave() {
   hudWave.textContent = wave;
   enemiesKilledThisWave = 0;
   eggCatchChain = 0;  // new wave breaks the chain
+  setFloorBurnTarget(wave);   // floor burns more this wave
   snd.wave();
   // Clear enemies to make wave transition feel clean
   enemies.length = 0;
@@ -780,6 +835,9 @@ function advanceWave() {
 
 //── Update ───────────────────────────────────────────────────────────────────
 function update(dt) {
+  // Animate floor burn-away + lava waves
+  updateBurnState(dt);
+
   // Player input + physics
   if (player.alive) {
     // Flap (edge-triggered, single impulse per press)
@@ -871,11 +929,11 @@ function update(dt) {
 
     // Lava — only the LEFT and RIGHT corner zones (sides of the base platform)
     {
-      const bx = player.x;
       const bbottom = player.y + BIRD_H;
-      const inLavaZone = bbottom > LAVA_TOP &&
-                         (bx + BIRD_W < LAVA_LEFT_END + 10 || bx > LAVA_RIGHT_START - 10);
-      if (inLavaZone && !player.onGround && player.invulnTimer <= 0) {
+      // Lava death: bird's bottom touches the lava surface. Floor strips
+      // (when present) block falling, so this only fires when bird is over
+      // an opened lava section (burned floor) or flies too low.
+      if (bbottom > LAVA_SURFACE_Y && !player.onGround && player.invulnTimer <= 0) {
         loseLife();
       }
     }
@@ -932,12 +990,10 @@ function update(dt) {
     resolveVerticalPlatformCollisions(e);
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Lava (only the LEFT/RIGHT corner zones — enemies just die in it)
+    // Lava death — enemies die instantly if they touch the lava surface
     {
-      const ex = e.x;
       const ebottom = e.y + BIRD_H;
-      if (ebottom > LAVA_TOP &&
-          (ex + BIRD_W < LAVA_LEFT_END + 10 || ex > LAVA_RIGHT_START - 10)) {
+      if (ebottom > LAVA_SURFACE_Y) {
         e.alive = false;
       }
     }
@@ -975,8 +1031,7 @@ function update(dt) {
       }
 
       // Lava destroys the egg
-      if (egg.y + EGG_H > LAVA_TOP &&
-          (egg.x + EGG_W < LAVA_LEFT_END + 10 || egg.x > LAVA_RIGHT_START - 10)) {
+      if (egg.y + EGG_H > LAVA_SURFACE_Y) {
         egg.alive = false;
       }
 
@@ -1211,10 +1266,77 @@ function drawBaseScoreOverlay(drawnBaseH, drawnBaseW, drawnBaseX) {
   ctx.restore();
 }
 
-// drawLava is no longer needed — the base sprite has built-in flame lanterns
-// at the corners. Kept as a no-op so existing render-loop call doesn't break.
+// Smoothly animate the floor burn toward its target (set per wave).
+function updateBurnState(dt) {
+  if (floorBurnAmount < targetBurnAmount) {
+    floorBurnAmount = Math.min(targetBurnAmount, floorBurnAmount + FLOOR_BURN_RATE * dt);
+  }
+  lavaWavePhase += dt * 2;
+}
+
+// Render the lava strip across the bottom + floor strips on either side of
+// the base + animated flames at the burn edges.
 function drawLava(dt) {
-  // intentionally empty
+  // 1. Lava body
+  ctx.fillStyle = '#aa1f08';
+  ctx.fillRect(0, LAVA_SURFACE_Y, W, LAVA_VISIBLE_HEIGHT);
+
+  // 2. Wavy bright top edge of lava
+  ctx.fillStyle = '#ff5818';
+  for (let x = 0; x < W; x += 3) {
+    const wave = Math.sin(x * 0.06 + lavaWavePhase) * 2 + Math.sin(x * 0.15 + lavaWavePhase * 1.7) * 1;
+    ctx.fillRect(x, LAVA_SURFACE_Y - 1 + wave, 3, 3);
+  }
+
+  // 3. Floor strips on either side of the base (these burn away by wave)
+  const baseDrawW = W * BASE_DRAW_W_PCT;
+  const baseLeftX = (W - baseDrawW) / 2;
+  const baseRightX = baseLeftX + baseDrawW;
+
+  const leftStripW = baseLeftX - floorBurnAmount;
+  if (leftStripW > 0) {
+    drawFloorStrip(floorBurnAmount, FLOOR_STRIP_Y, leftStripW);
+  }
+  const rightStripW = (W - floorBurnAmount) - baseRightX;
+  if (rightStripW > 0) {
+    drawFloorStrip(baseRightX, FLOOR_STRIP_Y, rightStripW);
+  }
+
+  // 4. Flames at the burn edges (where lava is currently eating the floor)
+  if (leftStripW > 4)  drawFlame(floorBurnAmount + 2, FLOOR_STRIP_Y);
+  if (rightStripW > 4) drawFlame(W - floorBurnAmount - 2, FLOOR_STRIP_Y);
+}
+
+// Render a chunk of rocky floor with top highlight
+function drawFloorStrip(x, y, w) {
+  ctx.fillStyle = '#9c5a30';   // rocky brown body
+  ctx.fillRect(x, y, w, FLOOR_STRIP_HEIGHT);
+  ctx.fillStyle = '#c08050';   // top edge highlight
+  ctx.fillRect(x, y, w, 3);
+  ctx.fillStyle = '#5a3220';   // bottom shadow
+  ctx.fillRect(x, y + FLOOR_STRIP_HEIGHT - 2, w, 2);
+}
+
+// Animated flame at a burn edge
+function drawFlame(x, baseY) {
+  const t = lavaWavePhase * 1.5;
+  const h = 32 + Math.sin(t * 3) * 6;
+  // Outer flame (orange)
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.85)';
+  ctx.beginPath();
+  ctx.moveTo(x - 7, baseY);
+  ctx.quadraticCurveTo(x - 10 + Math.sin(t * 2.5) * 2, baseY - h * 0.5, x, baseY - h);
+  ctx.quadraticCurveTo(x + 10 + Math.sin(t * 2.5 + 1.5) * 2, baseY - h * 0.5, x + 7, baseY);
+  ctx.closePath();
+  ctx.fill();
+  // Inner flame (yellow)
+  ctx.fillStyle = 'rgba(255, 220, 100, 0.9)';
+  ctx.beginPath();
+  ctx.moveTo(x - 3, baseY - 2);
+  ctx.quadraticCurveTo(x - 4 + Math.sin(t * 3.2) * 1.5, baseY - h * 0.5, x, baseY - h * 0.85);
+  ctx.quadraticCurveTo(x + 4 + Math.sin(t * 3.2 + 2) * 1.5, baseY - h * 0.5, x + 3, baseY - 2);
+  ctx.closePath();
+  ctx.fill();
 }
 
 // Find the Y coordinate of the highest platform top directly below the bird.
