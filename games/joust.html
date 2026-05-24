@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.43 — Arcade Reactor</title>
+<title>JOUST v0.44 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.43</div>
+    <div class="version-tag" id="versionTag">v0.44</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.43 — Arcade Reactor
+// JOUST v0.44 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -711,10 +711,10 @@ const snd = {
     }
   },
   skid:     (intensity) => {
-    // Pass intensity as playback rate so longer skids = lower pitch via
-    // slight slowdown. Volume scales with intensity too.
+    // Slight pitch variation by speed for liveliness, but stays close to
+    // the natural arcade pitch (0.95-1.05).
     const played = playBuffer('skid', {
-      playbackRate: 0.9 + intensity * 0.2,  // 0.9 → 1.1
+      playbackRate: 0.95 + intensity * 0.1,
       volume: 0.3 + intensity * 0.4,
     });
     if (!played) skidSound(intensity);
@@ -1058,7 +1058,9 @@ function update(dt) {
     // - On exit (vx ≈ 0): held key resumes accelerating in new direction
     // - Tap or low-speed reverse: no skid, just normal turnaround
     const SKID_ENTER_SPEED_PCT = 0.55;   // need 55% of max speed to enter skid
-    const SKID_DECEL = 850;              // px/sec² hard brake during skid (vs GROUND_DECEL=300)
+    const SKID_DECEL = 380;              // px/sec² brake during skid — tuned to match
+                                         // arcade WAV duration. At max speed 240 → 0.63s slide
+                                         // covering 76px. At 55% trigger → 0.35s / 23px.
     const SKID_EXIT_SPEED = 4;           // when |vx| drops below this, exit skid
 
     // Detect skid entry: on ground + at speed + opposite direction key pressed
