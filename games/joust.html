@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.44 — Arcade Reactor</title>
+<title>JOUST v0.45 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.44</div>
+    <div class="version-tag" id="versionTag">v0.45</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.44 — Arcade Reactor
+// JOUST v0.45 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -191,7 +191,9 @@ const FLAP_SPEED_BONUS = 0.50; // at full horizontal speed, flap impulse is (1 +
 const MAX_VY_UP      = -380;   // cap upward velocity
 const TERMINAL_VY    = 220;    // cap downward velocity — slow fall, never "like a rock"
 const HORIZ_ACCEL    = 700;    // px/sec²
-const HORIZ_MAX      = 240;    // max horizontal speed
+const HORIZ_MAX      = 240;    // max horizontal speed (RUNNING)
+const WALK_SPEED     = 110;    // walking speed cap — below SKID trigger (132) so walking can't skid
+const HOLD_THRESHOLD = 0.18;   // sec — press shorter than this = "tap" (walk), longer = "hold" (run)
 const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — long drift between flaps
 const GROUND_DECEL   = 300;    // px/sec² — LINEAR deceleration on ground (not multiplicative).
                                //   Faster speed = proportionally longer slide. From full speed (240),
@@ -502,11 +504,24 @@ function spawnEnemy() {
 
 //── Input ────────────────────────────────────────────────────────────────────
 const keys = { left: false, right: false, flapPressed: false };
+// Track when each direction key was FIRST pressed, for tap-vs-hold detection.
+// -1 means key isn't currently held.
+let leftPressTime  = -1;
+let rightPressTime = -1;
 
 window.addEventListener('keydown', (ev) => {
   const k = ev.key;
-  if (k === 'ArrowLeft' || k === 'a' || k === 'A') { keys.left = true; ev.preventDefault(); }
-  else if (k === 'ArrowRight' || k === 'd' || k === 'D') { keys.right = true; ev.preventDefault(); }
+  const now = performance.now() / 1000;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') {
+    if (!keys.left) leftPressTime = now;  // edge-detect first press (ignore auto-repeat)
+    keys.left = true;
+    ev.preventDefault();
+  }
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') {
+    if (!keys.right) rightPressTime = now;
+    keys.right = true;
+    ev.preventDefault();
+  }
   else if (k === ' ' || k === 'w' || k === 'W' || k === 'ArrowUp') {
     keys.flapPressed = true;  // edge-triggered flap; consumed in update
     ev.preventDefault();
@@ -520,8 +535,8 @@ window.addEventListener('keydown', (ev) => {
 });
 window.addEventListener('keyup', (ev) => {
   const k = ev.key;
-  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
-  else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A')  { keys.left  = false; leftPressTime  = -1; }
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') { keys.right = false; rightPressTime = -1; }
 });
 
 //── Audio ────────────────────────────────────────────────────────────────────
@@ -1058,9 +1073,9 @@ function update(dt) {
     // - On exit (vx ≈ 0): held key resumes accelerating in new direction
     // - Tap or low-speed reverse: no skid, just normal turnaround
     const SKID_ENTER_SPEED_PCT = 0.55;   // need 55% of max speed to enter skid
-    const SKID_DECEL = 380;              // px/sec² brake during skid — tuned to match
-                                         // arcade WAV duration. At max speed 240 → 0.63s slide
-                                         // covering 76px. At 55% trigger → 0.35s / 23px.
+    const SKID_DECEL = 320;              // px/sec² brake during skid — tuned to match
+                                         // arcade WAV. At max speed 240 → 0.75s slide / 90px.
+                                         // At 55% trigger speed → 0.41s / 28px.
     const SKID_EXIT_SPEED = 4;           // when |vx| drops below this, exit skid
 
     // Detect skid entry: on ground + at speed + opposite direction key pressed
@@ -1091,6 +1106,16 @@ function update(dt) {
       }
     } else {
       // NORMAL ground / air movement
+      // Walk vs run on the ground: tap (key held < HOLD_THRESHOLD) caps at
+      // WALK_SPEED; hold (longer) lets bird reach full HORIZ_MAX. In the air,
+      // always full speed allowed (no walking through the air).
+      const nowT = performance.now() / 1000;
+      const leftHeldLong  = keys.left  && leftPressTime  > 0 && (nowT - leftPressTime)  >= HOLD_THRESHOLD;
+      const rightHeldLong = keys.right && rightPressTime > 0 && (nowT - rightPressTime) >= HOLD_THRESHOLD;
+      const groundMaxSpeed = player.onGround
+        ? ((leftHeldLong || rightHeldLong) ? HORIZ_MAX : WALK_SPEED)
+        : HORIZ_MAX;
+
       if (keys.left) {
         player.vx -= HORIZ_ACCEL * dt;
         if (!player.onGround || player.vx <= 0) player.facingLeft = true;
@@ -1113,6 +1138,8 @@ function update(dt) {
           player.vx *= AIR_FRICTION;
         }
       }
+      // Apply walk/run speed cap
+      player.vx = clamp(player.vx, -groundMaxSpeed, groundMaxSpeed);
     }
     player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
 
