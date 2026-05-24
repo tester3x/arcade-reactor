@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.39 — Arcade Reactor</title>
+<title>JOUST v0.40 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.39</div>
+    <div class="version-tag" id="versionTag">v0.40</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.39 — Arcade Reactor
+// JOUST v0.40 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1525,13 +1525,35 @@ function drawBurnFlamesAtEdges() {
   if (rightStripW > 4) drawBurnFlames(W - floorBurnAmount, floorY);
 }
 
-// Render a chunk of rocky floor with top highlight + bottom shadow
+// Render a chunk of rocky floor — the full BRIDGE thickness from the walking
+// surface (top) down to the lava surface (bottom). Only the top FLOOR_STRIP_HEIGHT
+// px are the actual walkable collision surface; the rest is decorative rock
+// that fills the gap so the bridge doesn't look like a floating shelf.
 function drawFloorStrip(x, y, w) {
-  ctx.fillStyle = '#9c5a30';   // rocky brown body
+  const totalH = FLOOR_STRIP_HEIGHT + LAVA_GAP;  // bridge fills from walking surface to lava
+
+  // Rocky body — full depth (we'll draw the walking strip on top after)
+  ctx.fillStyle = '#7a3c1c';   // base rocky brown
+  ctx.fillRect(x, y, w, totalH);
+
+  // Vertical gradient — darker toward bottom (closer to lava = more soot)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fillRect(x, y + totalH * 0.5, w, totalH * 0.5);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fillRect(x, y + totalH - 4, w, 4);
+
+  // Subtle vertical highlights every ~30px for "rock face" feel
+  ctx.fillStyle = 'rgba(255, 150, 60, 0.18)';
+  for (let dx = 8; dx < w; dx += 32) {
+    ctx.fillRect(x + dx, y + FLOOR_STRIP_HEIGHT, 3, totalH - FLOOR_STRIP_HEIGHT);
+  }
+
+  // Silver walking surface on top (top FLOOR_STRIP_HEIGHT px)
+  ctx.fillStyle = '#7c7c84';   // walking strip body (gray)
   ctx.fillRect(x, y, w, FLOOR_STRIP_HEIGHT);
-  ctx.fillStyle = '#c08050';   // top edge highlight
+  ctx.fillStyle = '#c4c4cc';   // top highlight (bright silver)
   ctx.fillRect(x, y, w, 2);
-  ctx.fillStyle = '#4a2818';   // bottom shadow
+  ctx.fillStyle = '#3a3a44';   // shadow line under silver strip
   ctx.fillRect(x, y + FLOOR_STRIP_HEIGHT - 1, w, 1);
 }
 
