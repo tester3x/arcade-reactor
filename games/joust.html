@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.47 — Arcade Reactor</title>
+<title>JOUST v0.48 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.47</div>
+    <div class="version-tag" id="versionTag">v0.48</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.47 — Arcade Reactor
+// JOUST v0.48 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -436,7 +436,7 @@ const EGG_TERMINAL_VY = 160;    // slow fall cap
 const eggs = [];  // each: { x, y, vx, vy, state, timer, alive }
 let eggCatchChain = 0;        // current chain step (0..N). Awards EGG_CHAIN_VALUES[min(chain, max)].
 let eggChainTimer = 0;        // seconds since last egg pickup. Resets chain when > EGG_CHAIN_TIMEOUT.
-const EGG_CHAIN_TIMEOUT = 5.0; // arcade-feel: ~5s without a catch and chain resets
+const EGG_CHAIN_TIMEOUT = 10.0; // ~10s without a catch and chain resets
 
 // Spawn an egg from a dying enemy. Egg shoots AWAY from player with modest
 // horizontal velocity and a small upward bounce, then floats down. Player
@@ -1105,7 +1105,9 @@ function update(dt) {
     // - During SKID: hard constant deceleration, ignore input until vx ≈ 0
     // - On exit (vx ≈ 0): held key resumes accelerating in new direction
     // - Tap or low-speed reverse: no skid, just normal turnaround
-    const SKID_ENTER_SPEED_PCT = 0.55;   // need 55% of max speed to enter skid
+    const SKID_ENTER_SPEED_PCT = 0.50;   // 50% (= 120 px/s) — just above WALK_SPEED of 110
+                                         // so walking can't skid, but running triggers it
+                                         // as soon as you cross out of the walk zone.
     const SKID_DECEL = 320;              // px/sec² brake during skid — tuned to match
                                          // arcade WAV. At max speed 240 → 0.75s slide / 90px.
                                          // At 55% trigger speed → 0.41s / 28px.
@@ -1787,11 +1789,15 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
     // Cycle fly + fly2 during the flap animation window
     const flyFrame = Math.floor(performance.now() / 80) % 2;
     activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
+  } else if (inAir && fly2Ready) {
+    // Gliding in air between flaps — use fly2 (wings level/down) as the
+    // soaring pose. NOT the base ostrich sprite (which has standing legs).
+    activeSprite = fly2Sprite;
   } else if (isWalking && walkReady) {
     const walkFrame = Math.floor(performance.now() / 160) % 2;
     activeSprite = walkFrame === 0 ? sprite : walkSprite;
   }
-  // else: activeSprite stays as the default sprite (gliding in air, or standing)
+  // else: activeSprite stays as the default sprite (standing on ground)
 
   // Vertical bob — only while actively walking or flapping. Gliding = no bob.
   let bobY = 0;
