@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.49 — Arcade Reactor</title>
+<title>JOUST v0.50 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.49</div>
+    <div class="version-tag" id="versionTag">v0.50</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.49 — Arcade Reactor
+// JOUST v0.50 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -233,8 +233,15 @@ const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
 // Wave structure constants
 // Real arcade Joust: wave 1 = 3 enemies, wave 2 = 4, wave 3+ = 5 (caps)
 const MAX_ENEMIES_ON_SCREEN = 5;          // hard cap regardless of wave size
-const SPAWN_PROTECTION_DURATION = 1.5;    // seconds of invulnerability after birth
-const BIRTH_DURATION = 1.4;               // seconds of birth animation (matches WAV length)
+const SPAWN_PROTECTION_DURATION = 1.5;    // legacy — used only as fallback now
+// Birth duration is now DYNAMIC per sound — looked up from the loaded WAV
+// after decode. Each bird type plays its own birth sound for its own length.
+// If a sound isn't loaded yet, falls back to 2.0s so the bird still births.
+function getBirthDuration(soundName) {
+  const buf = audioBuffers[soundName];
+  if (buf && buf.duration > 0) return buf.duration;
+  return 2.0;
+}
 function enemiesForWave(waveNum) {
   return Math.min(2 + waveNum, 5);        // wave 1=3, wave 2=4, wave 3+=5
 }
@@ -522,18 +529,22 @@ function spawnEnemy() {
   const pads = getSpawnPads();
   if (pads.length === 0) return;       // safety: no pads = no spawn
   const pad = pads[Math.floor(Math.random() * pads.length)];
+  // Birth duration matches the actual WAV length (whatever bluebirth.wav is)
+  const dur = getBirthDuration('bluebirth');
   enemies.push({
     x: pad.x, y: pad.y,
     vx: 0,
     vy: 0,
     facingLeft: Math.random() < 0.5,
     flapTimer: 0,
-    flapAnimTime: 999,                   // big number = not currently flapping
+    flapAnimTime: 999,                   // not currently flapping
     aiTimer: 0.5,
     onGround: true,                      // standing on pad during birth
-    birthTimer: BIRTH_DURATION,          // counts down; bird is silhouette/inert
+    birthTimer: dur,
+    birthDuration: dur,                  // remember total for progress math
+    birthMode: 'enemy',                  // 'enemy' = solid white throughout
     birthPad: pad.platform,              // for pad-flash effect
-    invulnTimer: SPAWN_PROTECTION_DURATION,
+    invulnTimer: dur,                    // invuln = full birth duration, no leftover
     alive: true,
   });
   snd.bluebirth();
@@ -1079,8 +1090,11 @@ function startGame() {
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.respawnTimer = 0;
-  player.invulnTimer = SPAWN_PROTECTION_DURATION;
-  player.birthTimer = BIRTH_DURATION;
+  const pbirth = getBirthDuration('mybirth');
+  player.invulnTimer = pbirth;
+  player.birthTimer = pbirth;
+  player.birthDuration = pbirth;
+  player.birthMode = 'player';
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   snd.mybirth();
@@ -1126,8 +1140,11 @@ function respawnPlayer() {
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true;
-  player.invulnTimer = SPAWN_PROTECTION_DURATION;
-  player.birthTimer = BIRTH_DURATION;
+  const pbirth = getBirthDuration('mybirth');
+  player.invulnTimer = pbirth;
+  player.birthTimer = pbirth;
+  player.birthDuration = pbirth;
+  player.birthMode = 'player';
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   snd.mybirth();
@@ -1937,42 +1954,74 @@ const _tintCtx = _tintCanvas.getContext('2d');
 function drawPlayer() {
   if (!player.alive) return;
   drawShadow(player);
-  // During birth, draw tinted silhouette instead of normal bird sprite.
   if (player.birthTimer > 0) {
-    drawBirthSilhouette(player, sprites.ostrich, BIRTH_DURATION);
-    // Flash the BASE'S walking pad behind the player
+    drawBirthSilhouette(player, sprites.ostrich, player.birthDuration, player.birthMode);
     drawBaseBirthFlash(player);
   } else {
     drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, sprites.ostrichBrake);
-    // Subtle spawn-protection flicker after birth ends but invuln still active
-    if (player.invulnTimer > 0) drawSpawnFlicker(player);
   }
 }
 
-// Renders the bird as a solid-color silhouette cycling through yellow → grey →
-// white at an accelerating rate. Used during the birth/materialize animation.
-function drawBirthSilhouette(b, sprite, totalDuration) {
+// Birth animation renderer. Two modes:
+//   'player' = first ~70% alternates top-white/bottom-grey ↔ top-grey/bottom-white
+//              (the flickering "halves" effect), accelerating. Last ~30% goes
+//              solid YELLOW. Then bird becomes alive (real sprite).
+//   'enemy'  = solid white silhouette for the entire birth duration.
+function drawBirthSilhouette(b, sprite, totalDuration, mode) {
   if (!sprite || !sprite.complete || sprite.naturalWidth === 0) return;
-  // Cycle speed accelerates as birth nears completion (slow start, fast end)
   const progress = 1 - (b.birthTimer / totalDuration);   // 0 → 1
-  const cycleSpeed = 6 + progress * 18;                   // 6 → 24 Hz
-  const phase = Math.floor(performance.now() / 1000 * cycleSpeed) % 3;
-  const colors = ['#ffea50', '#a8a8b0', '#ffffff'];       // yellow, grey, white
-  const tint = colors[phase];
+  const dirLeft = b.facingLeft;
 
-  // Draw bird sprite to offscreen canvas, then tint with source-atop
+  if (mode === 'player') {
+    if (progress < 0.70) {
+      // Phase 1: alternating top/bottom white-grey halves, faster as it goes
+      const localProgress = progress / 0.70;             // 0 → 1 within phase 1
+      const freq = 3 + localProgress * 15;               // 3 → 18 Hz
+      const phase = Math.floor(performance.now() / 1000 * freq) % 2;
+      const topColor    = phase === 0 ? '#ffffff' : '#9a9aa6';
+      const bottomColor = phase === 0 ? '#9a9aa6' : '#ffffff';
+      drawTwoToneBird(b, sprite, topColor, bottomColor, dirLeft);
+    } else {
+      // Phase 2: solid yellow body
+      drawSolidTintBird(b, sprite, '#ffe040', dirLeft);
+    }
+  } else {
+    // Enemy mode: solid white silhouette throughout
+    drawSolidTintBird(b, sprite, '#ffffff', dirLeft);
+  }
+}
+
+// Helper: draws the bird's sprite outline filled with a single solid color.
+// Uses source-atop on an offscreen canvas so only the bird's pixels are tinted.
+function drawSolidTintBird(b, sprite, color, facingLeft) {
   _tintCtx.clearRect(0, 0, BIRD_W, BIRD_H);
   _tintCtx.imageSmoothingEnabled = false;
   _tintCtx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
   _tintCtx.globalCompositeOperation = 'source-atop';
-  _tintCtx.fillStyle = tint;
+  _tintCtx.fillStyle = color;
   _tintCtx.fillRect(0, 0, BIRD_W, BIRD_H);
   _tintCtx.globalCompositeOperation = 'source-over';
+  blitTintCanvas(b, facingLeft);
+}
 
-  // Now blit the tinted silhouette to main canvas with proper facing
+// Helper: top half = topColor, bottom half = bottomColor, masked to bird outline
+function drawTwoToneBird(b, sprite, topColor, bottomColor, facingLeft) {
+  _tintCtx.clearRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.imageSmoothingEnabled = false;
+  _tintCtx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
+  _tintCtx.globalCompositeOperation = 'source-atop';
+  _tintCtx.fillStyle = topColor;
+  _tintCtx.fillRect(0, 0, BIRD_W, BIRD_H / 2);
+  _tintCtx.fillStyle = bottomColor;
+  _tintCtx.fillRect(0, BIRD_H / 2, BIRD_W, BIRD_H / 2);
+  _tintCtx.globalCompositeOperation = 'source-over';
+  blitTintCanvas(b, facingLeft);
+}
+
+function blitTintCanvas(b, facingLeft) {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  if (b.facingLeft) {
+  if (facingLeft) {
     ctx.translate(b.x + BIRD_W, b.y);
     ctx.scale(-1, 1);
     ctx.drawImage(_tintCanvas, 0, 0);
@@ -1985,7 +2034,7 @@ function drawBirthSilhouette(b, sprite, totalDuration) {
 // Flash a bright overlay on the BASE'S walking strip behind a birthing player.
 function drawBaseBirthFlash(b) {
   const cycle = Math.floor(performance.now() / 80) % 2;
-  if (cycle === 0) return;  // strobe on/off
+  if (cycle === 0) return;
   const baseColl = getBaseCollisionRect();
   const flashX = b.x + BIRD_W / 2 - 30;
   const flashY = baseColl.y;
@@ -2005,23 +2054,6 @@ function drawPadBirthFlash(e) {
   ctx.save();
   ctx.fillStyle = 'rgba(255, 255, 200, 0.5)';
   ctx.fillRect(px, e.birthPad.y, pw, 3);
-  ctx.restore();
-}
-
-// Subtle post-birth flicker overlay (after birth animation but during invuln).
-// Used to indicate "still protected but bird is fully materialized".
-function drawSpawnFlicker(b) {
-  const t = b.invulnTimer;
-  if (t <= 0) return;
-  const progress = 1 - (t / SPAWN_PROTECTION_DURATION);
-  const freq = 3 + progress * 8;
-  const phase = Math.floor(performance.now() / 1000 * freq) % 2;
-  if (phase !== 0) return;   // simple on/off flicker
-  ctx.save();
-  ctx.globalAlpha = 0.4;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H);
-  ctx.globalCompositeOperation = 'source-atop';
   ctx.restore();
 }
 
@@ -2052,13 +2084,10 @@ function drawEnemies() {
     if (!e.alive) continue;
     drawShadow(e);
     if (e.birthTimer && e.birthTimer > 0) {
-      drawBirthSilhouette(e, sprites.buzzard, BIRTH_DURATION);
+      drawBirthSilhouette(e, sprites.buzzard, e.birthDuration, e.birthMode);
       drawPadBirthFlash(e);
     } else {
       drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2, sprites.buzzardBrake);
-      if (e.invulnTimer && e.invulnTimer > 0) {
-        drawSpawnFlicker(e);
-      }
     }
   }
 }
