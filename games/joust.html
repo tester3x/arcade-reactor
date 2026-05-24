@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.48 — Arcade Reactor</title>
+<title>JOUST v0.49 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.48</div>
+    <div class="version-tag" id="versionTag">v0.49</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.48 — Arcade Reactor
+// JOUST v0.49 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -230,8 +230,38 @@ let targetBurnAmount = 0;
 let lavaWavePhase = 0;
 
 const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
-const MAX_ENEMIES_ON_SCREEN = 3;
-const ENEMIES_PER_WAVE = 4;       // kill this many to advance
+// Wave structure constants
+// Real arcade Joust: wave 1 = 3 enemies, wave 2 = 4, wave 3+ = 5 (caps)
+const MAX_ENEMIES_ON_SCREEN = 5;          // hard cap regardless of wave size
+const SPAWN_PROTECTION_DURATION = 1.5;    // seconds of invulnerability after birth
+const BIRTH_DURATION = 1.4;               // seconds of birth animation (matches WAV length)
+function enemiesForWave(waveNum) {
+  return Math.min(2 + waveNum, 5);        // wave 1=3, wave 2=4, wave 3+=5
+}
+const WAVE_SPAWN_SPREAD = 1.2;            // seconds between staggered births at wave start
+
+// Spawn pads: the four small platforms with silver "birth strips" on top.
+// Enemies materialize from these at wave start. Player materializes from the
+// base platform's central pad.
+const SPAWN_PAD_SPRITES = [
+  'floorfourleft', 'floorfourright',
+  'floortwoleft',  'floortworight',
+];
+function getSpawnPads() {
+  const out = [];
+  for (const p of platforms) {
+    if (SPAWN_PAD_SPRITES.includes(p.sprite)) {
+      const px = platformX(p);
+      const pw = platformWidth(p);
+      out.push({
+        x: px + pw / 2 - BIRD_W / 2,
+        y: p.y - BIRD_H,
+        platform: p,
+      });
+    }
+  }
+  return out;
+}
 
 const STARTING_LIVES = 3;
 
@@ -256,6 +286,7 @@ let wave = 1;
 let lives = STARTING_LIVES;
 let enemiesKilledThisWave = 0;
 let spawnTimer = 0;
+let spawnQueue = [];  // queued enemy births at wave start: [{delay: seconds}]
 let lastSkidFireTime = -10;  // for debug flash — timestamp of last skid trigger
 
 const hudScore = document.getElementById('score');
@@ -415,6 +446,7 @@ const player = {
   alive: true,
   respawnTimer: 0,
   invulnTimer: 0,      // brief invulnerability after respawn
+  birthTimer: 0,       // counts down during materialize animation (frozen on pad)
   isSkidding: false,   // hard-brake state — set when reversing at speed, exits at vx≈0
   wasSkidding: false,  // edge detection for sound trigger (deprecated, kept for compatibility)
   lastAbsVx: 0,        // |vx| from previous frame, for skid detection
@@ -485,26 +517,26 @@ function spawnScorePop(x, y, text, color) {
 }
 
 function spawnEnemy() {
-  // Spawn from the corner ledges and mid-side areas — avoiding the base
-  // platform where the player materializes.
-  const spawnPoints = [
-    { x: 40,  y: 60 },   // top-left ledge area
-    { x: 720, y: 60 },   // top-right ledge area
-    { x: 50,  y: 280 },  // left side, mid height
-    { x: 700, y: 280 },  // right side, mid height
-  ];
-  const sp = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+  // Pick a random spawn pad — these are the 4 small platforms with silver
+  // "birth strips" on top. Enemy materializes ON the pad, not in the sky.
+  const pads = getSpawnPads();
+  if (pads.length === 0) return;       // safety: no pads = no spawn
+  const pad = pads[Math.floor(Math.random() * pads.length)];
   enemies.push({
-    x: sp.x, y: sp.y,
-    vx: (Math.random() < 0.5 ? -80 : 80),
+    x: pad.x, y: pad.y,
+    vx: 0,
     vy: 0,
     facingLeft: Math.random() < 0.5,
     flapTimer: 0,
-    flapAnimTime: 0,
-    aiTimer: 0,
+    flapAnimTime: 999,                   // big number = not currently flapping
+    aiTimer: 0.5,
+    onGround: true,                      // standing on pad during birth
+    birthTimer: BIRTH_DURATION,          // counts down; bird is silhouette/inert
+    birthPad: pad.platform,              // for pad-flash effect
     invulnTimer: SPAWN_PROTECTION_DURATION,
     alive: true,
   });
+  snd.bluebirth();
 }
 
 //── Input ────────────────────────────────────────────────────────────────────
@@ -595,6 +627,10 @@ const audioBuffers = {
   hundred:      null,
   pterodactyl:  null,
   lavatroll:    null,
+  // Birth/materialize sounds — one per knight color, plus generic enemy
+  mybirth:      null,  // player birth/respawn animation sound
+  bluebirth:    null,  // blue knight (currently our only enemy type)
+  enemybirth:   null,  // generic/unknown enemy birth (fallback)
 };
 
 function loadAudioBuffer(name, url) {
@@ -627,6 +663,9 @@ loadAudioBuffer('wave',         '../assets/joust/sounds/wave.wav');
 loadAudioBuffer('hundred',      '../assets/joust/sounds/hundred.wav');
 loadAudioBuffer('pterodactyl',  '../assets/joust/sounds/pterodactyl.wav');
 loadAudioBuffer('lavatroll',    '../assets/joust/sounds/lavatroll.wav');
+loadAudioBuffer('mybirth',      '../assets/joust/sounds/mybirth.wav');
+loadAudioBuffer('bluebirth',    '../assets/joust/sounds/bluebirth.wav');
+loadAudioBuffer('enemybirth',   '../assets/joust/sounds/enemybirth.wav');
 
 // Play a loaded buffer with optional pitch + volume variation. Returns true
 // if the buffer played, false if it wasn't loaded (caller can synth-fallback).
@@ -785,6 +824,34 @@ const snd = {
       tone(80, 0.20, 'sawtooth', 0.20);
       setTimeout(() => tone(140, 0.25, 'sawtooth', 0.20), 100);
     }
+  },
+  // Player birth/respawn — plays each time the player materializes on the
+  // base platform. Cancels if the player moves before the sound finishes.
+  mybirth: () => {
+    const played = playBuffer('mybirth', { volume: 0.5 });
+    if (!played) {
+      tone(440, 0.10, 'square', 0.18);
+      setTimeout(() => tone(660, 0.10, 'square', 0.18), 90);
+      setTimeout(() => tone(880, 0.15, 'square', 0.18), 180);
+    }
+    return played;
+  },
+  // Blue knight (Shadow Lord equivalent) birth — currently our only enemy
+  bluebirth: () => {
+    const played = playBuffer('bluebirth', { volume: 0.4 });
+    if (!played) {
+      tone(330, 0.08, 'sawtooth', 0.15);
+      setTimeout(() => tone(440, 0.12, 'sawtooth', 0.15), 80);
+    }
+    return played;
+  },
+  // Generic enemy birth — fallback when type isn't determined
+  enemybirth: () => {
+    const played = playBuffer('enemybirth', { volume: 0.4 });
+    if (!played) {
+      tone(280, 0.10, 'sawtooth', 0.15);
+    }
+    return played;
   },
 };
 
@@ -1005,13 +1072,18 @@ function startGame() {
   riderlessBirds.length = 0;
   floorBurnAmount = 0;
   setFloorBurnTarget(wave);
-  spawnTimer = 1.0; // first spawn after 1 sec
+  spawnTimer = 0;
+  spawnQueue = [];
+  queueWaveSpawns(wave);
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
-  player.alive = true; player.respawnTimer = 0; player.invulnTimer = SPAWN_PROTECTION_DURATION;
+  player.alive = true; player.respawnTimer = 0;
+  player.invulnTimer = SPAWN_PROTECTION_DURATION;
+  player.birthTimer = BIRTH_DURATION;
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
+  snd.mybirth();
   spawnMaterializeParticles(player.x, player.y);
   hudScore.textContent = score;
   hudWave.textContent = wave;
@@ -1053,9 +1125,12 @@ function respawnPlayer() {
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
-  player.alive = true; player.invulnTimer = SPAWN_PROTECTION_DURATION;
+  player.alive = true;
+  player.invulnTimer = SPAWN_PROTECTION_DURATION;
+  player.birthTimer = BIRTH_DURATION;
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
+  snd.mybirth();
   spawnMaterializeParticles(player.x, player.y);
 }
 
@@ -1064,12 +1139,22 @@ function advanceWave() {
   hudWave.textContent = wave;
   enemiesKilledThisWave = 0;
   eggCatchChain = 0; eggChainTimer = 0;  // new wave breaks the chain
-  setFloorBurnTarget(wave);   // floor burns more this wave
+  setFloorBurnTarget(wave);              // floor burns more this wave
   snd.wave();
-  // Clear enemies to make wave transition feel clean
   enemies.length = 0;
   eggs.length = 0;
-  spawnTimer = 1.2;
+  spawnQueue = [];
+  queueWaveSpawns(wave);                 // queue staggered births
+}
+
+// Queue staggered enemy births for the start of a wave. First arrives after
+// a short delay so the player has a moment to orient, then ~1.2s between
+// births. Number scales with wave (3, 4, 5, 5, ...).
+function queueWaveSpawns(waveNum) {
+  const count = enemiesForWave(waveNum);
+  for (let i = 0; i < count; i++) {
+    spawnQueue.push({ delay: 1.0 + i * WAVE_SPAWN_SPREAD });
+  }
 }
 
 //── Update ───────────────────────────────────────────────────────────────────
@@ -1078,7 +1163,19 @@ function update(dt) {
   updateBurnState(dt);
 
   // Player input + physics
-  if (player.alive) {
+  playerBlock: if (player.alive) {
+    // Birth-lock: while birthTimer > 0, player is frozen on the spawn pad.
+    // ANY movement key (flap, left, right) immediately cancels birth and
+    // commits the player to engagement.
+    if (player.birthTimer > 0) {
+      if (keys.flapPressed || keys.left || keys.right) {
+        player.birthTimer = 0;
+        player.invulnTimer = 0;   // cancel protection too
+      } else {
+        player.birthTimer -= dt;
+        break playerBlock;        // skip rest of physics — bird frozen on pad
+      }
+    }
     // Flap (edge-triggered, single impulse per press)
     // Horizontal speed amplifies vertical lift: standing flap is gentle,
     // running flap is powerful. This is the real Joust mechanic.
@@ -1233,6 +1330,13 @@ function update(dt) {
     // Tick spawn invulnerability
     if (e.invulnTimer && e.invulnTimer > 0) {
       e.invulnTimer = Math.max(0, e.invulnTimer - dt);
+    }
+
+    // Birth-lock: while birthTimer > 0, enemy is frozen on its spawn pad.
+    // Doesn't move, doesn't flap, can't be hit. After birth, AI engages.
+    if (e.birthTimer && e.birthTimer > 0) {
+      e.birthTimer -= dt;
+      continue;   // skip AI + physics for this enemy this frame
     }
 
     // Simple AI: occasionally flap toward player's height if below, drift toward player horizontally
@@ -1391,6 +1495,7 @@ function update(dt) {
     for (const e of enemies) {
       if (!e.alive) continue;
       if (e.invulnTimer && e.invulnTimer > 0) continue;  // skip spawn-protected enemies
+      if (e.birthTimer && e.birthTimer > 0) continue;    // skip birthing enemies
       if (rectOverlap(birdJoustBox(player), birdJoustBox(e))) {
         const pl = lanceY(player);
         const el = lanceY(e);
@@ -1446,22 +1551,22 @@ function update(dt) {
     if (!enemies[i].alive) enemies.splice(i, 1);
   }
 
-  // Spawning
-  if (state === 'PLAYING' && enemies.length < MAX_ENEMIES_ON_SCREEN) {
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      const needed = ENEMIES_PER_WAVE - enemiesKilledThisWave - enemies.length;
-      if (needed > 0) {
+  // Spawning — wave queue: at wave start, an enemy is queued for each
+  // spot, with staggered delays. They birth from random spawn pads. No more
+  // continuous random spawning during the wave.
+  if (state === 'PLAYING') {
+    for (let i = spawnQueue.length - 1; i >= 0; i--) {
+      spawnQueue[i].delay -= dt;
+      if (spawnQueue[i].delay <= 0) {
         spawnEnemy();
-        snd.spawn();
+        spawnQueue.splice(i, 1);
       }
-      // Spawn faster as the wave progresses
-      spawnTimer = Math.max(1.2, ENEMY_SPAWN_INTERVAL - (wave - 1) * 0.3);
     }
   }
 
-  // Wave progression — wait for all enemies dead AND all eggs collected/hatched/destroyed
-  if (enemiesKilledThisWave >= ENEMIES_PER_WAVE && enemies.length === 0 && eggs.length === 0) {
+  // Wave progression — advance ONLY when all queued spawns have happened
+  // AND all enemies are dead AND all eggs are gone (collected/hatched/destroyed).
+  if (state === 'PLAYING' && spawnQueue.length === 0 && enemies.length === 0 && eggs.length === 0) {
     advanceWave();
   }
 }
@@ -1822,36 +1927,101 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   ctx.restore();
 }
 
+// Offscreen canvas used to tint a sprite by source-atop compositing.
+// Persistent so we don't allocate every frame.
+const _tintCanvas = document.createElement('canvas');
+_tintCanvas.width = BIRD_W;
+_tintCanvas.height = BIRD_H;
+const _tintCtx = _tintCanvas.getContext('2d');
+
 function drawPlayer() {
   if (!player.alive) return;
   drawShadow(player);
-  drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, sprites.ostrichBrake);
-  // Spawn-protection flicker overlay — top/bottom alternating black ramps
-  // up in speed as the invulnerability runs out. Drawn ON TOP of the bird.
-  if (player.invulnTimer > 0) {
-    drawSpawnFlicker(player);
+  // During birth, draw tinted silhouette instead of normal bird sprite.
+  if (player.birthTimer > 0) {
+    drawBirthSilhouette(player, sprites.ostrich, BIRTH_DURATION);
+    // Flash the BASE'S walking pad behind the player
+    drawBaseBirthFlash(player);
+  } else {
+    drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, sprites.ostrichBrake);
+    // Subtle spawn-protection flicker after birth ends but invuln still active
+    if (player.invulnTimer > 0) drawSpawnFlicker(player);
   }
 }
 
-// Accelerating alternating top/bottom overlay during spawn-protection. Visual
-// signal that the bird is materializing and briefly invincible. Speed of
-// alternation increases as the timer approaches zero (1.5s → 0s).
-const SPAWN_PROTECTION_DURATION = 1.5;
+// Renders the bird as a solid-color silhouette cycling through yellow → grey →
+// white at an accelerating rate. Used during the birth/materialize animation.
+function drawBirthSilhouette(b, sprite, totalDuration) {
+  if (!sprite || !sprite.complete || sprite.naturalWidth === 0) return;
+  // Cycle speed accelerates as birth nears completion (slow start, fast end)
+  const progress = 1 - (b.birthTimer / totalDuration);   // 0 → 1
+  const cycleSpeed = 6 + progress * 18;                   // 6 → 24 Hz
+  const phase = Math.floor(performance.now() / 1000 * cycleSpeed) % 3;
+  const colors = ['#ffea50', '#a8a8b0', '#ffffff'];       // yellow, grey, white
+  const tint = colors[phase];
+
+  // Draw bird sprite to offscreen canvas, then tint with source-atop
+  _tintCtx.clearRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.imageSmoothingEnabled = false;
+  _tintCtx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
+  _tintCtx.globalCompositeOperation = 'source-atop';
+  _tintCtx.fillStyle = tint;
+  _tintCtx.fillRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.globalCompositeOperation = 'source-over';
+
+  // Now blit the tinted silhouette to main canvas with proper facing
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (b.facingLeft) {
+    ctx.translate(b.x + BIRD_W, b.y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(_tintCanvas, 0, 0);
+  } else {
+    ctx.drawImage(_tintCanvas, b.x, b.y);
+  }
+  ctx.restore();
+}
+
+// Flash a bright overlay on the BASE'S walking strip behind a birthing player.
+function drawBaseBirthFlash(b) {
+  const cycle = Math.floor(performance.now() / 80) % 2;
+  if (cycle === 0) return;  // strobe on/off
+  const baseColl = getBaseCollisionRect();
+  const flashX = b.x + BIRD_W / 2 - 30;
+  const flashY = baseColl.y;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 200, 0.5)';
+  ctx.fillRect(flashX, flashY, 60, 3);
+  ctx.restore();
+}
+
+// Flash the silver pad of an enemy's birth platform.
+function drawPadBirthFlash(e) {
+  if (!e.birthPad) return;
+  const cycle = Math.floor(performance.now() / 80) % 2;
+  if (cycle === 0) return;
+  const px = platformX(e.birthPad);
+  const pw = platformWidth(e.birthPad);
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 200, 0.5)';
+  ctx.fillRect(px, e.birthPad.y, pw, 3);
+  ctx.restore();
+}
+
+// Subtle post-birth flicker overlay (after birth animation but during invuln).
+// Used to indicate "still protected but bird is fully materialized".
 function drawSpawnFlicker(b) {
   const t = b.invulnTimer;
   if (t <= 0) return;
-  // Frequency ramps from ~3 Hz (slow) at start to ~15 Hz (rapid) at end
-  const progress = 1 - (t / SPAWN_PROTECTION_DURATION);  // 0 → 1
-  const freq = 3 + progress * 12;
-  const phase = Math.floor(performance.now() / 1000 * freq) % 2;  // 0 or 1
-  // Phase 0: cover top half. Phase 1: cover bottom half. Both with translucent black.
+  const progress = 1 - (t / SPAWN_PROTECTION_DURATION);
+  const freq = 3 + progress * 8;
+  const phase = Math.floor(performance.now() / 1000 * freq) % 2;
+  if (phase !== 0) return;   // simple on/off flicker
   ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  if (phase === 0) {
-    ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H / 2);
-  } else {
-    ctx.fillRect(b.x, b.y + BIRD_H / 2, BIRD_W, BIRD_H / 2);
-  }
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H);
+  ctx.globalCompositeOperation = 'source-atop';
   ctx.restore();
 }
 
@@ -1879,8 +2049,12 @@ function drawScorePops() {
 
 function drawEnemies() {
   for (const e of enemies) {
-    if (e.alive) {
-      drawShadow(e);
+    if (!e.alive) continue;
+    drawShadow(e);
+    if (e.birthTimer && e.birthTimer > 0) {
+      drawBirthSilhouette(e, sprites.buzzard, BIRTH_DURATION);
+      drawPadBirthFlash(e);
+    } else {
       drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2, sprites.buzzardBrake);
       if (e.invulnTimer && e.invulnTimer > 0) {
         drawSpawnFlicker(e);
