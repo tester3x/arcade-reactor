@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.46 — Arcade Reactor</title>
+<title>JOUST v0.47 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.46</div>
+    <div class="version-tag" id="versionTag">v0.47</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.46 — Arcade Reactor
+// JOUST v0.47 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -275,16 +275,16 @@ const PLATFORM_THICKNESS  = 14;
 const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
 
 const platforms = [
-  // Top row (small side ledges) — was floor 4 in original layout
+  // Top row (small side ledges)
   { sprite: 'floorfourleft',     cx: 0.20, y: 130 },
   { sprite: 'floorfourright',    cx: 0.80, y: 130 },
-  // Far right top edge — partial platform extending off-screen (per pic 1)
-  { sprite: 'floorfourfarright', cx: 0.97, y: 130 },
-  // Middle row (single)
+  // Middle row (single wide)
   { sprite: 'floorthreemiddle',  cx: 0.50, y: 250 },
   // Lower row (left + right)
   { sprite: 'floortwoleft',      cx: 0.20, y: 365 },
   { sprite: 'floortworight',     cx: 0.80, y: 365 },
+  // floorfourfarright — butted right of floortworight, half-height down
+  { sprite: 'floorfourfarright', cx: 0.92, y: 380 },
   // Bottom row (wide platform just above base)
   { sprite: 'floorone',          cx: 0.50, y: 480 },
 ];
@@ -502,6 +502,7 @@ function spawnEnemy() {
     flapTimer: 0,
     flapAnimTime: 0,
     aiTimer: 0,
+    invulnTimer: SPAWN_PROTECTION_DURATION,
     alive: true,
   });
 }
@@ -1008,7 +1009,7 @@ function startGame() {
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
-  player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
+  player.alive = true; player.respawnTimer = 0; player.invulnTimer = SPAWN_PROTECTION_DURATION;
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
@@ -1052,7 +1053,7 @@ function respawnPlayer() {
   player.x = SPAWN_X; player.y = SPAWN_Y;
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
-  player.alive = true; player.invulnTimer = 1.5;
+  player.alive = true; player.invulnTimer = SPAWN_PROTECTION_DURATION;
   player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
@@ -1209,6 +1210,11 @@ function update(dt) {
       }
     }
 
+    // Spawn invulnerability runs out by time, but ALSO cancels immediately
+    // if the player presses a movement key — committing to the engagement.
+    if (player.invulnTimer > 0 && (keys.left || keys.right || keys.flapPressed)) {
+      player.invulnTimer = 0;
+    }
     player.invulnTimer = Math.max(0, player.invulnTimer - dt);
   } else {
     // Player dead, count down respawn
@@ -1221,6 +1227,11 @@ function update(dt) {
   // Enemies
   for (const e of enemies) {
     if (!e.alive) continue;
+
+    // Tick spawn invulnerability
+    if (e.invulnTimer && e.invulnTimer > 0) {
+      e.invulnTimer = Math.max(0, e.invulnTimer - dt);
+    }
 
     // Simple AI: occasionally flap toward player's height if below, drift toward player horizontally
     e.aiTimer -= dt;
@@ -1377,6 +1388,7 @@ function update(dt) {
   if (player.alive && player.invulnTimer <= 0) {
     for (const e of enemies) {
       if (!e.alive) continue;
+      if (e.invulnTimer && e.invulnTimer > 0) continue;  // skip spawn-protected enemies
       if (rectOverlap(birdJoustBox(player), birdJoustBox(e))) {
         const pl = lanceY(player);
         const el = lanceY(e);
@@ -1753,8 +1765,9 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   const isWalking = b.onGround && !isSkidding && Math.abs(b.vx) > 30;
 
   // Pick the active sprite based on state:
-  //   Skidding   → brake sprite (legs forward) if available, fallback to ostrich
-  //   In air     → cycle fly + fly2 (wings flapping)
+  //   Skidding   → brake sprite (legs forward) if available
+  //   Flapping   → cycle fly1/fly2 briefly after each flap (~250ms), then glide
+  //   Gliding    → in air but between flaps → base sprite (wings tucked)
   //   Walking    → cycle ostrich + ostrichMove (legs stepping)
   //   Standing   → base sprite (no animation)
   let activeSprite = sprite;
@@ -1763,27 +1776,30 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   const walkReady  = walkSprite  && walkSprite.complete  && walkSprite.naturalWidth  > 0;
   const brakeReady = brakeSprite && brakeSprite.complete && brakeSprite.naturalWidth > 0;
 
+  // Window of time after a flap during which the flap-cycle sprites show.
+  // Outside this window, bird glides on the base sprite.
+  const FLAP_ANIM_DURATION = 0.28;  // seconds — about one full flap cycle
+  const recentFlap = (b.flapAnimTime !== undefined) && b.flapAnimTime < FLAP_ANIM_DURATION;
+
   if (isSkidding && brakeReady) {
     activeSprite = brakeSprite;
-  } else if (inAir && flyReady && fly2Ready) {
-    // Wing flap cycle — faster = more motion. ~12 fps reads as vigorous flapping.
+  } else if (inAir && recentFlap && flyReady && fly2Ready) {
+    // Cycle fly + fly2 during the flap animation window
     const flyFrame = Math.floor(performance.now() / 80) % 2;
     activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
   } else if (isWalking && walkReady) {
     const walkFrame = Math.floor(performance.now() / 160) % 2;
     activeSprite = walkFrame === 0 ? sprite : walkSprite;
   }
+  // else: activeSprite stays as the default sprite (gliding in air, or standing)
 
-  // Vertical bob — DIFFERENT motion for walking vs flying:
-  //   Walking: slow sine, body bobs as legs cycle
-  //   Flying:  fast cosine synced to flap (body rises on downstroke)
-  //   Skidding: no bob, bird is committed to the slide
+  // Vertical bob — only while actively walking or flapping. Gliding = no bob.
   let bobY = 0;
   if (isSkidding) {
     bobY = 0;
   } else if (isWalking) {
     bobY = Math.sin(performance.now() / 80) * 2;
-  } else if (inAir) {
+  } else if (inAir && recentFlap) {
     bobY = Math.cos(performance.now() / 25) * 2.5;
   }
   const drawY = b.y + bobY;
@@ -1802,10 +1818,35 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
 
 function drawPlayer() {
   if (!player.alive) return;
-  // Flicker during invulnerability
-  if (player.invulnTimer > 0 && Math.floor(player.invulnTimer * 12) % 2 === 0) return;
   drawShadow(player);
   drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, sprites.ostrichBrake);
+  // Spawn-protection flicker overlay — top/bottom alternating black ramps
+  // up in speed as the invulnerability runs out. Drawn ON TOP of the bird.
+  if (player.invulnTimer > 0) {
+    drawSpawnFlicker(player);
+  }
+}
+
+// Accelerating alternating top/bottom overlay during spawn-protection. Visual
+// signal that the bird is materializing and briefly invincible. Speed of
+// alternation increases as the timer approaches zero (1.5s → 0s).
+const SPAWN_PROTECTION_DURATION = 1.5;
+function drawSpawnFlicker(b) {
+  const t = b.invulnTimer;
+  if (t <= 0) return;
+  // Frequency ramps from ~3 Hz (slow) at start to ~15 Hz (rapid) at end
+  const progress = 1 - (t / SPAWN_PROTECTION_DURATION);  // 0 → 1
+  const freq = 3 + progress * 12;
+  const phase = Math.floor(performance.now() / 1000 * freq) % 2;  // 0 or 1
+  // Phase 0: cover top half. Phase 1: cover bottom half. Both with translucent black.
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  if (phase === 0) {
+    ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H / 2);
+  } else {
+    ctx.fillRect(b.x, b.y + BIRD_H / 2, BIRD_W, BIRD_H / 2);
+  }
+  ctx.restore();
 }
 
 // Render floating score popups (after egg pickups, etc.) — fade out over time
@@ -1835,6 +1876,9 @@ function drawEnemies() {
     if (e.alive) {
       drawShadow(e);
       drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2, sprites.buzzardBrake);
+      if (e.invulnTimer && e.invulnTimer > 0) {
+        drawSpawnFlicker(e);
+      }
     }
   }
 }
