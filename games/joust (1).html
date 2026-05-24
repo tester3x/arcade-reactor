@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JOUST v0.33 — Arcade Reactor</title>
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
+<style>
+  @font-face {
+    font-family: 'JoustArcade';
+    src: url('../assets/joust/joust.otf') format('opentype'),
+         url('../assets/joust/joust.ttf') format('truetype');
+    font-display: swap;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: #050813; color: #e6edf3;
+    font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+    height: 100%; overflow: hidden;
+  }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh;
+  }
+  .wrap {
+    position: relative; width: 1200px; height: 720px;
+    max-width: 100vw; max-height: 100vh;
+    aspect-ratio: 4 / 3;
+  }
+  canvas { display: block; width: 100%; height: 100%; cursor: default; background: #050813; }
+
+  .hud {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; pointer-events: none;
+    color: #ffdb4a; font-size: 16px; letter-spacing: 0.18em;
+    text-shadow: 0 0 8px rgba(255, 219, 74, 0.4);
+    font-family: 'JoustArcade', 'JetBrains Mono', monospace;
+  }
+  .hud-section { display: flex; gap: 24px; }
+  .hud-label { color: rgba(255, 219, 74, 0.55); font-size: 13px; letter-spacing: 0.22em; margin-right: 6px; }
+  .hud-value { color: #ffdb4a; }
+  .lives-icons { display: inline-flex; gap: 4px; vertical-align: middle; }
+  .life-icon { width: 12px; height: 12px; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(5, 8, 19, 0.85);
+    text-align: center; padding: 24px;
+    pointer-events: auto;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    font-size: 48px; letter-spacing: 0.28em; margin: 0 0 14px;
+    color: #ffdb4a; text-shadow: 0 0 24px rgba(255, 219, 74, 0.5);
+  }
+  .overlay h2 {
+    font-size: 24px; letter-spacing: 0.2em; margin: 0 0 14px;
+    color: #ff4a6e; text-shadow: 0 0 16px rgba(255, 74, 110, 0.5);
+  }
+  .overlay p { color: rgba(230, 237, 243, 0.7); margin: 4px 0; font-size: 13px; letter-spacing: 0.05em; line-height: 1.6; }
+  .overlay .big-score { color: #ffdb4a; font-size: 28px; margin: 12px 0 16px; letter-spacing: 0.12em; }
+  .overlay button {
+    margin-top: 18px; padding: 12px 32px; background: transparent;
+    color: #ffdb4a; border: 1px solid rgba(255, 219, 74, 0.5);
+    font-family: inherit; font-size: 13px; letter-spacing: 0.22em; cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .overlay button:hover {
+    background: rgba(255, 219, 74, 0.12);
+    box-shadow: 0 0 16px rgba(255, 219, 74, 0.3);
+  }
+
+  .version-tag {
+    position: absolute; bottom: 8px; right: 12px;
+    font-size: 10px; color: rgba(255, 255, 255, 0.18); letter-spacing: 0.2em;
+    pointer-events: none;
+  }
+
+  .back-link {
+    position: fixed; top: 12px; left: 16px;
+    color: rgba(255, 219, 74, 0.5); text-decoration: none;
+    font-size: 12px; letter-spacing: 0.2em;
+    transition: color 0.15s ease;
+    z-index: 10;
+  }
+  .back-link:hover { color: #ffdb4a; }
+</style>
+</head>
+<body>
+  <a href="../index.html" class="back-link">← ARCADE REACTOR</a>
+  <div class="wrap">
+    <canvas id="game" width="1200" height="720"></canvas>
+    <div class="hud">
+      <div class="hud-section">
+        <div><span class="hud-label">SCORE</span><span class="hud-value" id="score">0</span></div>
+        <div><span class="hud-label">WAVE</span><span class="hud-value" id="wave">1</span></div>
+      </div>
+      <div class="hud-section">
+        <div><span class="hud-label">LIVES</span><span class="lives-icons" id="lives"></span></div>
+      </div>
+    </div>
+    <div class="overlay" id="overlay">
+      <h1>JOUST</h1>
+      <p>Flap to fly. Joust by lance height — higher lance loses.</p>
+      <p>Touch the lava and you die. Wrap around the edges.</p>
+      <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
+      <button id="startBtn">START</button>
+    </div>
+    <div class="version-tag" id="versionTag">v0.33</div>
+  </div>
+
+<script>
+//──────────────────────────────────────────────────────────────────────────────
+// JOUST v0.33 — Arcade Reactor
+//──────────────────────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width;   // 800
+const H = canvas.height;  // 600
+
+// Disable image smoothing so pixel art stays crisp when scaled
+ctx.imageSmoothingEnabled = false;
+
+//── Sprites ──────────────────────────────────────────────────────────────────
+const sprites = {
+  // Birds
+  ostrich: new Image(),
+  ostrichMove: new Image(),
+  ostrichFly: new Image(),
+  ostrichFly2: new Image(),
+  buzzard: new Image(),
+  buzzardMove: new Image(),
+  buzzardFly: new Image(),
+  buzzardFly2: new Image(),
+  // Platform sprites
+  base: new Image(),
+  floorone: new Image(),
+  floortwoleft: new Image(),
+  floortworight: new Image(),
+  floorthreemiddle: new Image(),
+  floorfourleft: new Image(),
+  floorfourright: new Image(),
+  floorfourfarright: new Image(),
+  floorfivemiddle: new Image(),
+  floorsixleft: new Image(),
+  floorsixright: new Image(),
+};
+sprites.ostrich.src     = '../assets/joust/ostrich.png';
+sprites.ostrichMove.src = '../assets/joust/ostrichmove.png';
+sprites.ostrichFly.src  = '../assets/joust/fly.png';
+sprites.ostrichFly2.src = '../assets/joust/fly2.png';
+sprites.buzzard.src     = '../assets/joust/buzzard.png';
+sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
+sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
+sprites.buzzardFly2.src = '../assets/joust/buzzardfly2.png';
+sprites.base.src              = '../assets/joust/base.png';
+sprites.floorone.src          = '../assets/joust/floorone.png';
+sprites.floortwoleft.src      = '../assets/joust/floortwoleft.png';
+sprites.floortworight.src     = '../assets/joust/floortworight.png';
+sprites.floorthreemiddle.src  = '../assets/joust/floorthreemiddle.png';
+sprites.floorfourleft.src     = '../assets/joust/floorfourleft.png';
+sprites.floorfourright.src    = '../assets/joust/floorfourright.png';
+sprites.floorfourfarright.src = '../assets/joust/floorfourfarright.png';
+sprites.floorfivemiddle.src   = '../assets/joust/floorfivemiddle.png';
+sprites.floorsixleft.src      = '../assets/joust/floorsixleft.png';
+sprites.floorsixright.src     = '../assets/joust/floorsixright.png';
+
+// Diagnostic: log every sprite as it loads or fails so we can see issues
+for (const name of Object.keys(sprites)) {
+  const img = sprites[name];
+  img.addEventListener('load', () => {
+    console.log(`[sprite] loaded "${name}" (${img.naturalWidth}x${img.naturalHeight})`);
+  });
+  img.addEventListener('error', () => {
+    console.warn(`[sprite] FAILED to load "${name}" — file missing or invalid`);
+  });
+}
+
+//── Constants ─────────────────────────────────────────────────────────────────
+const GRAVITY        = 280;    // px/sec² — ANTI-gravity feel; speed-boosted flaps dominate
+const FLAP_IMPULSE   = -200;   // px/sec — BASE flap; horizontal speed amplifies it (see updatePlayer)
+const FLAP_SPEED_BONUS = 0.50; // at full horizontal speed, flap impulse is (1 + this) × base
+const MAX_VY_UP      = -380;   // cap upward velocity
+const TERMINAL_VY    = 220;    // cap downward velocity — slow fall, never "like a rock"
+const HORIZ_ACCEL    = 700;    // px/sec²
+const HORIZ_MAX      = 240;    // max horizontal speed
+const AIR_FRICTION   = 0.99;   // per-frame multiplier when no input — long drift between flaps
+const GROUND_DECEL   = 300;    // px/sec² — LINEAR deceleration on ground (not multiplicative).
+                               //   Faster speed = proportionally longer slide. From full speed (240),
+                               //   stops in 0.8 sec and slides ~96 px. Lava edges are real danger.
+const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-pressed)
+
+const BIRD_W         = 56;
+const BIRD_H         = 52;
+const BIRD_JOUST_INSET_X = 12;  // horizontal inset for joust collision (excludes lance + tail)
+const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
+const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
+
+const LAVA_TOP       = H - 60;     // lava surface height
+const LAVA_LEFT_END    = W * 0.12;  // matches BASE_WALK_X_START_PCT — death zone is corner flame area
+const LAVA_RIGHT_START = W * 0.88;  // matches BASE_WALK_X_END_PCT
+const CEILING        = 28;     // hard ceiling near top
+
+const ENEMY_SPAWN_INTERVAL = 4.0; // sec between spawns (early game)
+const MAX_ENEMIES_ON_SCREEN = 3;
+const ENEMIES_PER_WAVE = 4;       // kill this many to advance
+
+const STARTING_LIVES = 3;
+
+const COLOR_BG       = '#050813';
+const COLOR_STAR     = 'rgba(255, 255, 255, 0.5)';
+const COLOR_STAR_DIM = 'rgba(255, 255, 255, 0.15)';
+const COLOR_PLATFORM = '#3a3f4a';
+const COLOR_PLATFORM_EDGE = '#5a6070';
+const COLOR_LAVA     = '#ff3d6e';
+const COLOR_LAVA_HOT = '#ffb3c5';
+const COLOR_PLAYER   = '#ffdb4a';
+const COLOR_PLAYER_RIDER = '#6b3d99';
+const COLOR_ENEMY    = '#ff4a4a';
+const COLOR_ENEMY_RIDER = '#2a2a3a';
+const COLOR_LANCE    = '#e6edf3';
+
+//── State ─────────────────────────────────────────────────────────────────────
+let state = 'MENU'; // MENU, PLAYING, GAME_OVER
+let score = 0;
+let wave = 1;
+let lives = STARTING_LIVES;
+let enemiesKilledThisWave = 0;
+let spawnTimer = 0;
+let lastSkidFireTime = -10;  // for debug flash — timestamp of last skid trigger
+
+const hudScore = document.getElementById('score');
+const hudWave  = document.getElementById('wave');
+const hudLives = document.getElementById('lives');
+const overlay  = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+
+//── Platforms ────────────────────────────────────────────────────────────────
+// Each platform is positioned by its CENTER (as fraction of canvas width) +
+// absolute y. Sprites are drawn at PLATFORM_DRAW_SCALE × natural size.
+// Both collision and rendering use the scaled dimensions, so positions stay
+// proportionally correct if canvas resizes.
+//
+// MIKE: tune cx (0.0 = far left, 1.0 = far right) and y to nudge layout.
+const PLATFORM_THICKNESS  = 14;
+const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
+
+const platforms = [
+  // Top row (small side ledges) — was floor 4 in original layout
+  { sprite: 'floorfourleft',     cx: 0.20, y: 130 },
+  { sprite: 'floorfourright',    cx: 0.80, y: 130 },
+  // Middle row (single)
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 250 },
+  // Lower row (left + right)
+  { sprite: 'floortwoleft',      cx: 0.20, y: 365 },
+  { sprite: 'floortworight',     cx: 0.80, y: 365 },
+  // Bottom row (wide platform just above base)
+  { sprite: 'floorone',          cx: 0.50, y: 480 },
+];
+
+// Returns the scaled width of a platform (collision + rendering use this)
+function platformWidth(p) {
+  const s = sprites[p.sprite];
+  if (s && s.complete && s.naturalWidth > 0) {
+    return s.naturalWidth * PLATFORM_DRAW_SCALE;
+  }
+  return 120; // fallback
+}
+
+// Returns the scaled height (for rendering)
+function platformHeight(p) {
+  const s = sprites[p.sprite];
+  if (s && s.complete && s.naturalHeight > 0) {
+    return s.naturalHeight * PLATFORM_DRAW_SCALE;
+  }
+  return 30;
+}
+
+// Returns the top-left x coordinate (derived from cx)
+function platformX(p) {
+  return W * p.cx - platformWidth(p) / 2;
+}
+
+// The BASE platform is special — spans the full width with built-in score
+// window and corner flame lanterns. Its collision shape excludes the corner
+// flame zones (those are death zones, equivalent to lava).
+const BASE_HEIGHT_GUESS = 120;
+const BASE_TOP_Y_FALLBACK = H - BASE_HEIGHT_GUESS;
+const BASE_DRAW_W_PCT = 0.78;        // base sprite renders at this fraction of canvas width
+const BASE_WALK_X_START_PCT = 0.18;  // safe walking area as fraction of width
+const BASE_WALK_X_END_PCT   = 0.82;
+const BASE_WALK_Y_PCT  = 0.05;       // walking surface as fraction of base height from sprite TOP
+                                     // For base.png 1143x140, 0.05 = 7px from top.
+                                     // SMALLER = walking surface higher (closer to sprite top)
+                                     // LARGER  = walking surface lower (closer to score window)
+
+function getBaseCollisionRect() {
+  const baseS = sprites.base;
+  const drawW = W * BASE_DRAW_W_PCT;
+  let drawH = BASE_HEIGHT_GUESS;
+  if (baseS && baseS.complete && baseS.naturalWidth > 0) {
+    drawH = baseS.naturalHeight * (drawW / baseS.naturalWidth);
+  }
+  const topY = (H - drawH) + drawH * BASE_WALK_Y_PCT;
+  return {
+    x: W * BASE_WALK_X_START_PCT,
+    y: topY,
+    w: W * (BASE_WALK_X_END_PCT - BASE_WALK_X_START_PCT),
+    sprite: 'base',
+    isBase: true,
+  };
+}
+
+function getAllPlatforms() {
+  const out = [];
+  for (const p of platforms) {
+    out.push({
+      x: platformX(p),
+      y: p.y,
+      w: platformWidth(p),
+      sprite: p.sprite,
+    });
+  }
+  out.push(getBaseCollisionRect());
+  return out;
+}
+
+// Spawn position — center of the base platform's safe walking area.
+const SPAWN_X = W * 0.5 - BIRD_W / 2;
+const SPAWN_Y = BASE_TOP_Y_FALLBACK + (BASE_HEIGHT_GUESS * BASE_WALK_Y_PCT) - BIRD_H;
+
+//── Player ───────────────────────────────────────────────────────────────────
+const player = {
+  x: SPAWN_X, y: SPAWN_Y,
+  vx: 0, vy: 0,
+  facingLeft: false,
+  onGround: true,
+  flapTimer: 0,        // cooldown
+  flapAnimTime: 0,     // visual: how long since last flap (drives wing animation)
+  alive: true,
+  respawnTimer: 0,
+  invulnTimer: 0,      // brief invulnerability after respawn
+  wasSkidding: false,  // state flag for skid sound (fires once on transition into skid)
+  lastAbsVx: 0,        // |vx| from previous frame, for deceleration-based skid detection
+};
+
+//── Enemies ──────────────────────────────────────────────────────────────────
+const enemies = [];
+
+//── Eggs ─────────────────────────────────────────────────────────────────────
+const EGG_W = 18;
+const EGG_H = 22;
+const EGG_HATCH_TIME = 10.0;    // sec on a platform before hatching
+const EGG_RESTING_SCORE = 250;  // flat for picking up a landed egg
+const EGG_CHAIN_VALUES = [250, 500, 750, 1000];  // in-air consecutive catches
+const EGG_AIR_DRAG = 0.997;     // very gentle horizontal drag — eggs glide far
+const EGG_GRAVITY = 200;        // anti-gravity — eggs float as they fall
+const EGG_TERMINAL_VY = 160;    // slow fall cap
+
+const eggs = [];  // each: { x, y, vx, vy, state, timer, alive }
+let eggCatchChain = 0;  // consecutive in-air catches; resets on death/wave
+
+// Spawn an egg from a dying enemy. Egg shoots AWAY from player with modest
+// horizontal velocity and a small upward bounce, then floats down. Player
+// should NOT be able to grab it immediately — has to chase.
+function spawnEgg(enemyX, enemyY, awayFromX) {
+  const eggCenterX = enemyX + BIRD_W / 2;
+  const dirAway = eggCenterX >= awayFromX ? 1 : -1;
+  eggs.push({
+    x: enemyX + (BIRD_W - EGG_W) / 2,
+    y: enemyY + (BIRD_H - EGG_H) / 2,
+    vx: dirAway * (220 + Math.random() * 60),   // 220-280 px/sec — moderate
+    vy: -110 - Math.random() * 50,              // small upward bounce
+    state: 'falling',
+    timer: 0,
+    alive: true,
+  });
+}
+
+// Hatch: replace egg with a new enemy at the egg's position.
+function spawnEnemyAtEgg(egg) {
+  enemies.push({
+    x: egg.x - (BIRD_W - EGG_W) / 2,
+    y: egg.y - (BIRD_H - EGG_H),
+    vx: (Math.random() < 0.5 ? -80 : 80),
+    vy: -60,                    // small lift as the buzzard picks it up
+    facingLeft: Math.random() < 0.5,
+    flapTimer: 0,
+    flapAnimTime: 0,
+    aiTimer: 0,
+    alive: true,
+  });
+}
+
+//── Score popups (floating text after egg pickup, etc.) ──────────────────────
+const scorePops = [];  // each: { x, y, vy, text, age, lifetime }
+
+function spawnScorePop(x, y, text, color) {
+  scorePops.push({
+    x, y,
+    vy: -40,         // floats upward
+    text,
+    color: color || '#ffdc64',  // default golden yellow
+    age: 0,
+    lifetime: 1.3,   // visible for 1.3 sec then fades out
+  });
+}
+
+function spawnEnemy() {
+  // Spawn from the corner ledges and mid-side areas — avoiding the base
+  // platform where the player materializes.
+  const spawnPoints = [
+    { x: 40,  y: 60 },   // top-left ledge area
+    { x: 720, y: 60 },   // top-right ledge area
+    { x: 50,  y: 280 },  // left side, mid height
+    { x: 700, y: 280 },  // right side, mid height
+  ];
+  const sp = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+  enemies.push({
+    x: sp.x, y: sp.y,
+    vx: (Math.random() < 0.5 ? -80 : 80),
+    vy: 0,
+    facingLeft: Math.random() < 0.5,
+    flapTimer: 0,
+    flapAnimTime: 0,
+    aiTimer: 0,
+    alive: true,
+  });
+}
+
+//── Input ────────────────────────────────────────────────────────────────────
+const keys = { left: false, right: false, flapPressed: false };
+
+window.addEventListener('keydown', (ev) => {
+  const k = ev.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') { keys.left = true; ev.preventDefault(); }
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') { keys.right = true; ev.preventDefault(); }
+  else if (k === ' ' || k === 'w' || k === 'W' || k === 'ArrowUp') {
+    keys.flapPressed = true;  // edge-triggered flap; consumed in update
+    ev.preventDefault();
+  }
+});
+window.addEventListener('keyup', (ev) => {
+  const k = ev.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+});
+
+//── Audio ────────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = { _broken: true }; }
+  }
+  return audioCtx;
+}
+
+function tone(freq, dur, type='square', vol=0.12, decay=true) {
+  const ac = getAudio(); if (ac._broken) return;
+  const osc = ac.createOscillator(); const g = ac.createGain();
+  osc.type = type; osc.frequency.value = freq;
+  g.gain.value = vol;
+  if (decay) {
+    g.gain.setValueAtTime(vol, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+  }
+  osc.connect(g); g.connect(ac.destination);
+  osc.start(); osc.stop(ac.currentTime + dur);
+}
+function noiseBurst(dur, vol=0.08) {
+  const ac = getAudio(); if (ac._broken) return;
+  const bufSize = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const g = ac.createGain(); g.gain.value = vol;
+  src.connect(g); g.connect(ac.destination); src.start();
+}
+
+//── Sound file loading (WAV/MP3 → AudioBuffer cache) ─────────────────────────
+// Loaded files live here. null means not loaded yet OR failed to load —
+// either way, the corresponding snd.* function falls back to synth.
+const audioBuffers = {
+  flap: null,
+  egg: null,
+};
+
+function loadAudioBuffer(name, url) {
+  fetch(url)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.arrayBuffer();
+    })
+    .then(buf => getAudio().decodeAudioData(buf))
+    .then(decoded => {
+      audioBuffers[name] = decoded;
+      console.log('[audio] loaded "' + name + '" (' + decoded.duration.toFixed(2) + 's)');
+    })
+    .catch(err => {
+      console.log('[audio] failed to load "' + name + '": ' + err.message);
+    });
+}
+
+// Kick off loads on script start (browsers will fetch in parallel with sprites)
+loadAudioBuffer('flap', '../assets/joust/sounds/flap.wav');
+loadAudioBuffer('egg',  '../assets/joust/sounds/egg.wav');
+
+// Play a loaded buffer with optional pitch + volume variation. Returns true
+// if the buffer played, false if it wasn't loaded (caller can synth-fallback).
+function playBuffer(name, opts) {
+  opts = opts || {};
+  const buf = audioBuffers[name];
+  if (!buf) return false;
+  const ac = getAudio();
+  if (ac._broken) return false;
+  if (ac.state === 'suspended') ac.resume();
+
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  if (opts.playbackRate !== undefined) src.playbackRate.value = opts.playbackRate;
+
+  const g = ac.createGain();
+  g.gain.value = opts.volume !== undefined ? opts.volume : 1.0;
+
+  src.connect(g); g.connect(ac.destination);
+  src.start();
+  return true;
+}
+
+// Cartoon descending whistle skid. Triangle wave, frequency 800 Hz → 80 Hz.
+// Duration scales with intensity — fast skid = long slide = long sound.
+function skidSound(intensity) {
+  console.log('[SKID] firing, intensity=' + intensity.toFixed(2));
+  const ac = getAudio();
+  if (ac._broken) { console.log('[SKID] audio broken'); return; }
+  if (ac.state === 'suspended') {
+    console.log('[SKID] audio suspended - trying to resume');
+    ac.resume();
+  }
+
+  const t0 = ac.currentTime;
+  // Match the actual slide duration: vx / GROUND_DECEL ≈ intensity * (HORIZ_MAX / GROUND_DECEL)
+  // With HORIZ_MAX=240 and GROUND_DECEL=300, full speed gives 0.8 sec.
+  const dur = Math.max(0.18, intensity * 0.80);
+
+  // Descending whistle — triangle wave is softer than square
+  const osc = ac.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(800, t0);
+  osc.frequency.exponentialRampToValueAtTime(80, t0 + dur);
+
+  // Volume envelope — louder for stronger skid
+  const peakGain = 0.22 + 0.12 * intensity;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peakGain, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+
+  osc.connect(g); g.connect(ac.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur);
+}
+
+const snd = {
+  flap:   () => {
+    // Try the loaded WAV first, with subtle pitch variation so rapid flaps
+    // don't sound robotic. Fall back to synth if WAV didn't load.
+    const played = playBuffer('flap', {
+      playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
+      volume: 0.06,
+    });
+    if (!played) {
+      noiseBurst(0.08, 0.06);
+      tone(280, 0.08, 'square', 0.08);
+    }
+  },
+  jousthit: () => { tone(660, 0.08, 'square', 0.14); setTimeout(() => tone(880, 0.12, 'square', 0.14), 60); },
+  death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
+  spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
+  egg:      () => {
+    const played = playBuffer('egg', { volume: 0.15 });
+    if (!played) {
+      // Fallback: bright ascending blip
+      tone(880, 0.06, 'triangle', 0.14);
+      setTimeout(() => tone(1320, 0.10, 'triangle', 0.14), 60);
+    }
+  },
+  skid:     (intensity) => skidSound(intensity),
+  wave:     () => {
+    tone(523, 0.12, 'square', 0.14);
+    setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
+    setTimeout(() => tone(784, 0.20, 'square', 0.14), 260);
+  },
+};
+
+//── Helpers ──────────────────────────────────────────────────────────────────
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function birdBox(b) {
+  return { x: b.x, y: b.y, w: BIRD_W, h: BIRD_H };
+}
+// Tighter body box used for joust (bird-vs-bird) collisions only.
+// Excludes the lance tip (one side) and tail feathers (other side).
+// Birds must actually be body-to-body close to trigger a joust.
+function birdJoustBox(b) {
+  return {
+    x: b.x + BIRD_JOUST_INSET_X,
+    y: b.y,
+    w: BIRD_W - BIRD_JOUST_INSET_X * 2,
+    h: BIRD_H,
+  };
+}
+function lanceY(b) {
+  return b.y + LANCE_OFFSET_Y;
+}
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function updateLivesHUD() {
+  hudLives.innerHTML = '';
+  for (let i = 0; i < lives; i++) {
+    const span = document.createElement('span');
+    span.className = 'life-icon';
+    span.innerHTML = `<svg viewBox="0 0 12 12" width="12" height="12"><circle cx="6" cy="6" r="5" fill="#ffdb4a"/></svg>`;
+    hudLives.appendChild(span);
+  }
+}
+
+// Resolve horizontal collisions for a bird against all platforms.
+// Call AFTER updating b.x with vx * dt. Pushes the bird back out the
+// side it came from.
+function resolveHorizontalPlatformCollisions(b) {
+  const allP = getAllPlatforms();
+  for (const p of allP) {
+    const bb = birdBox(b);
+    const pb = { x: p.x, y: p.y, w: p.w, h: PLATFORM_THICKNESS };
+    if (rectOverlap(bb, pb)) {
+      if (b.vx > 0)       b.x = p.x - BIRD_W;       // moving right → hit left side
+      else if (b.vx < 0)  b.x = p.x + p.w;          // moving left  → hit right side
+      b.vx = 0;
+    }
+  }
+}
+
+function resolveVerticalPlatformCollisions(b) {
+  let onGround = false;
+  const allP = getAllPlatforms();
+  for (const p of allP) {
+    const bb = birdBox(b);
+    const pb = { x: p.x, y: p.y, w: p.w, h: PLATFORM_THICKNESS };
+    if (rectOverlap(bb, pb)) {
+      if (b.vy > 0) {
+        // Falling → land on top
+        b.y = p.y - BIRD_H;
+        b.vy = 0;
+        onGround = true;
+      } else if (b.vy < 0) {
+        // Flapping up into the bottom → bonk
+        b.y = p.y + PLATFORM_THICKNESS;
+        b.vy = 0;
+      }
+    }
+  }
+  return onGround;
+}
+
+//── Particles (for materialize / spawn effect) ───────────────────────────────
+const particles = [];
+function spawnMaterializeParticles(x, y) {
+  for (let i = 0; i < 18; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 80;
+    particles.push({
+      x: x + BIRD_W / 2, y: y + BIRD_H / 2,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 30,  // bias upward
+      life: 0.6, maxLife: 0.6,
+    });
+  }
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+  }
+}
+function drawParticles() {
+  for (const p of particles) {
+    const t = p.life / p.maxLife;
+    ctx.fillStyle = `rgba(255, 219, 74, ${t})`;
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+}
+
+//── Game flow ────────────────────────────────────────────────────────────────
+function startGame() {
+  state = 'PLAYING';
+  score = 0;
+  wave = 1;
+  lives = STARTING_LIVES;
+  enemiesKilledThisWave = 0;
+  enemies.length = 0;
+  eggs.length = 0;
+  scorePops.length = 0;
+  eggCatchChain = 0;
+  spawnTimer = 1.0; // first spawn after 1 sec
+  player.x = SPAWN_X; player.y = SPAWN_Y;
+  player.vx = 0; player.vy = 0;
+  player.facingLeft = false; player.onGround = true;
+  player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
+  player.wasSkidding = false;
+  player.lastAbsVx = 0;
+  spawnMaterializeParticles(player.x, player.y);
+  hudScore.textContent = score;
+  hudWave.textContent = wave;
+  updateLivesHUD();
+  overlay.classList.add('hidden');
+}
+
+function gameOver() {
+  state = 'GAME_OVER';
+  overlay.classList.remove('hidden');
+  overlay.innerHTML = `
+    <h2>GAME OVER</h2>
+    <p>Final Score</p>
+    <div class="big-score">${score}</div>
+    <p>Wave reached: ${wave}</p>
+    <button id="restartBtn">PLAY AGAIN</button>
+  `;
+  document.getElementById('restartBtn').addEventListener('click', startGame);
+}
+
+function loseLife() {
+  snd.death();
+  lives--;
+  updateLivesHUD();
+  if (lives <= 0) {
+    setTimeout(gameOver, 800);
+    return;
+  }
+  // Respawn after delay
+  player.alive = false;
+  player.respawnTimer = 1.0;
+  eggCatchChain = 0;  // death breaks the chain
+}
+
+function respawnPlayer() {
+  player.x = SPAWN_X; player.y = SPAWN_Y;
+  player.vx = 0; player.vy = 0;
+  player.facingLeft = false; player.onGround = true;
+  player.alive = true; player.invulnTimer = 1.5;
+  player.wasSkidding = false;
+  player.lastAbsVx = 0;
+  spawnMaterializeParticles(player.x, player.y);
+}
+
+function advanceWave() {
+  wave++;
+  hudWave.textContent = wave;
+  enemiesKilledThisWave = 0;
+  eggCatchChain = 0;  // new wave breaks the chain
+  snd.wave();
+  // Clear enemies to make wave transition feel clean
+  enemies.length = 0;
+  eggs.length = 0;
+  spawnTimer = 1.2;
+}
+
+//── Update ───────────────────────────────────────────────────────────────────
+function update(dt) {
+  // Player input + physics
+  if (player.alive) {
+    // Flap (edge-triggered, single impulse per press)
+    // Horizontal speed amplifies vertical lift: standing flap is gentle,
+    // running flap is powerful. This is the real Joust mechanic.
+    if (keys.flapPressed && player.flapTimer <= 0) {
+      const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(player.vx) / HORIZ_MAX);
+      const impulse = FLAP_IMPULSE * speedFactor;
+      player.vy = Math.max(MAX_VY_UP, player.vy + impulse);
+      player.flapTimer = FLAP_COOLDOWN;
+      player.flapAnimTime = 0;
+      player.onGround = false;
+      snd.flap();
+    }
+    keys.flapPressed = false;
+    player.flapTimer -= dt;
+    player.flapAnimTime += dt;
+
+    // Horizontal input — pressing a direction accelerates that way, but the
+    // bird only FLIPS facing once it's actually moving (or stopped) that way.
+    // On the ground, the bird commits to its current direction and only flips
+    // after braking to zero. This makes turn-arounds feel weighty, like Joust.
+    if (keys.left) {
+      player.vx -= HORIZ_ACCEL * dt;
+      // Only flip facing if we're already going left OR fully stopped.
+      // In the air, more responsive — flip immediately for flying control.
+      if (!player.onGround || player.vx <= 0) player.facingLeft = true;
+    }
+    if (keys.right) {
+      player.vx += HORIZ_ACCEL * dt;
+      if (!player.onGround || player.vx >= 0) player.facingLeft = false;
+    }
+    if (!keys.left && !keys.right) {
+      if (player.onGround) {
+        // Linear deceleration: constant force, like real friction.
+        // Slide distance scales as the SQUARE of initial speed.
+        const decelAmount = GROUND_DECEL * dt;
+        if (Math.abs(player.vx) <= decelAmount) {
+          player.vx = 0;
+        } else {
+          player.vx -= Math.sign(player.vx) * decelAmount;
+        }
+      } else {
+        // Air: gentle exponential drag (keeps drift between flaps)
+        player.vx *= AIR_FRICTION;
+      }
+    }
+    player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
+
+    // Gravity
+    player.vy += GRAVITY * dt;
+    player.vy = Math.min(player.vy, TERMINAL_VY);
+
+    // Apply movement and resolve collisions axis-by-axis so platforms are
+    // solid on all four sides.
+    player.x += player.vx * dt;
+    resolveHorizontalPlatformCollisions(player);
+    // Horizontal wrap (after collision resolution)
+    if (player.x + BIRD_W < 0) player.x = W;
+    if (player.x > W) player.x = -BIRD_W;
+
+    player.y += player.vy * dt;
+    player.onGround = resolveVerticalPlatformCollisions(player);
+
+    // Ceiling
+    if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
+
+    // Skid sound — DECELERATION-based. Fires when the bird is on the ground
+    // AND was moving with significant speed AND is currently slowing down hard.
+    // This catches all braking cases:
+    //   - Release direction key (friction decelerates)
+    //   - Press OPPOSITE direction to brake (Joust-style turnaround)
+    //   - Land with horizontal momentum (friction kicks in on touchdown)
+    //   - Slam into a wall
+    const SKID_MIN_PREV_SPEED = 50;     // were moving at least this fast last frame
+    const SKID_MIN_DECEL = 4;           // pixels/frame dropoff to count as "braking"
+    const absVx = Math.abs(player.vx);
+    const decel = player.lastAbsVx - absVx;  // positive = slowing
+    const skiddingNow = player.onGround &&
+                        player.lastAbsVx > SKID_MIN_PREV_SPEED &&
+                        decel > SKID_MIN_DECEL;
+    if (skiddingNow && !player.wasSkidding) {
+      console.log(`[SKID-TRIGGER] decel=${decel.toFixed(1)} prevVx=${player.lastAbsVx.toFixed(1)} vx=${absVx.toFixed(1)} keys=${keys.left?'L':''}${keys.right?'R':''} ground=${player.onGround}`);
+      snd.skid(player.lastAbsVx / HORIZ_MAX);
+      lastSkidFireTime = performance.now() / 1000;
+    }
+    player.wasSkidding = skiddingNow;
+    player.lastAbsVx = absVx;
+
+    // Lava — only the LEFT and RIGHT corner zones (sides of the base platform)
+    {
+      const bx = player.x;
+      const bbottom = player.y + BIRD_H;
+      const inLavaZone = bbottom > LAVA_TOP &&
+                         (bx + BIRD_W < LAVA_LEFT_END + 10 || bx > LAVA_RIGHT_START - 10);
+      if (inLavaZone && !player.onGround && player.invulnTimer <= 0) {
+        loseLife();
+      }
+    }
+
+    player.invulnTimer = Math.max(0, player.invulnTimer - dt);
+  } else {
+    // Player dead, count down respawn
+    player.respawnTimer -= dt;
+    if (player.respawnTimer <= 0 && lives > 0) {
+      respawnPlayer();
+    }
+  }
+
+  // Enemies
+  for (const e of enemies) {
+    if (!e.alive) continue;
+
+    // Simple AI: occasionally flap toward player's height if below, drift toward player horizontally
+    e.aiTimer -= dt;
+    e.flapTimer -= dt;
+    e.flapAnimTime += dt;
+    if (e.aiTimer <= 0) {
+      e.aiTimer = 0.18 + Math.random() * 0.25;
+      // Flap if we should gain altitude (below player or low)
+      const wantAlt = player.alive ? player.y : H / 2;
+      if (e.y > wantAlt + 30 && e.flapTimer <= 0) {
+        const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+        const impulse = FLAP_IMPULSE * 0.9 * speedFactor;
+        e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+        e.flapTimer = FLAP_COOLDOWN * 1.2;
+        e.flapAnimTime = 0;
+      }
+      // Steer horizontally toward player
+      if (player.alive) {
+        const dx = player.x - e.x;
+        if (Math.abs(dx) > BIRD_W) {
+          e.vx += (dx > 0 ? 1 : -1) * HORIZ_ACCEL * 0.5 * 0.18;
+          e.facingLeft = (dx < 0);
+        }
+      }
+    }
+
+    e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
+    e.vy += GRAVITY * dt;
+    e.vy = Math.min(e.vy, TERMINAL_VY);
+
+    e.x += e.vx * dt;
+    resolveHorizontalPlatformCollisions(e);
+    // Wrap
+    if (e.x + BIRD_W < 0) e.x = W;
+    if (e.x > W) e.x = -BIRD_W;
+
+    e.y += e.vy * dt;
+    resolveVerticalPlatformCollisions(e);
+    if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
+
+    // Lava (only the LEFT/RIGHT corner zones — enemies just die in it)
+    {
+      const ex = e.x;
+      const ebottom = e.y + BIRD_H;
+      if (ebottom > LAVA_TOP &&
+          (ex + BIRD_W < LAVA_LEFT_END + 10 || ex > LAVA_RIGHT_START - 10)) {
+        e.alive = false;
+      }
+    }
+  }
+
+  // Eggs: gravity, platform landing, lava destruction, hatch timer
+  for (const egg of eggs) {
+    if (!egg.alive) continue;
+
+    if (egg.state === 'falling') {
+      egg.vy += EGG_GRAVITY * dt;
+      egg.vy = Math.min(egg.vy, EGG_TERMINAL_VY);
+      egg.vx *= EGG_AIR_DRAG;
+      egg.x += egg.vx * dt;
+      egg.y += egg.vy * dt;
+
+      // Horizontal wrap
+      if (egg.x + EGG_W < 0) egg.x = W;
+      if (egg.x > W) egg.x = -EGG_W;
+
+      // Try to land on a platform
+      const allP = getAllPlatforms();
+      for (const p of allP) {
+        if (egg.vy >= 0 &&
+            egg.x + EGG_W > p.x && egg.x < p.x + p.w &&
+            egg.y + EGG_H >= p.y && egg.y + EGG_H <= p.y + PLATFORM_THICKNESS + Math.abs(egg.vy * dt) + 2) {
+          egg.y = p.y - EGG_H;
+          egg.vy = 0;
+          egg.vx = 0;
+          egg.state = 'resting';
+          egg.timer = EGG_HATCH_TIME;
+          eggCatchChain = 0;  // egg landed — chain broken
+          break;
+        }
+      }
+
+      // Lava destroys the egg
+      if (egg.y + EGG_H > LAVA_TOP &&
+          (egg.x + EGG_W < LAVA_LEFT_END + 10 || egg.x > LAVA_RIGHT_START - 10)) {
+        egg.alive = false;
+      }
+
+      // Safety: gone off the bottom
+      if (egg.y > H + 50) egg.alive = false;
+    } else if (egg.state === 'resting') {
+      egg.timer -= dt;
+      if (egg.timer <= 0) {
+        // Hatch into a new enemy
+        spawnEnemyAtEgg(egg);
+        egg.alive = false;
+      }
+    }
+  }
+
+  // Player picks up eggs by touching them.
+  // IN-AIR catch:  chain bonus (250, 500, 750, 1000 — caps at 1000).
+  //                Chain resets when an egg lands, on death, or on new wave.
+  // RESTING catch: flat 250 (no chain — separate "settled" pickup).
+  if (player.alive && player.invulnTimer <= 0) {
+    const pb = birdBox(player);
+    for (const egg of eggs) {
+      if (!egg.alive) continue;
+      const eb = { x: egg.x, y: egg.y, w: EGG_W, h: EGG_H };
+      if (rectOverlap(pb, eb)) {
+        egg.alive = false;
+        let pickupScore;
+        if (egg.state === 'falling') {
+          // Air catch — chain bonus
+          const chainIdx = Math.min(eggCatchChain, EGG_CHAIN_VALUES.length - 1);
+          pickupScore = EGG_CHAIN_VALUES[chainIdx];
+          eggCatchChain++;
+          // Show chain count + value (two-tier popup like the original)
+          spawnScorePop(egg.x + EGG_W + 10, egg.y - 14,
+                        'CHAIN x' + eggCatchChain, '#ff9050');
+          spawnScorePop(egg.x + EGG_W + 10, egg.y + 4,  '+' + pickupScore);
+        } else {
+          // Resting catch — flat score, no chain bonus
+          pickupScore = EGG_RESTING_SCORE;
+          spawnScorePop(egg.x + EGG_W + 10, egg.y, '+' + pickupScore);
+        }
+        score += pickupScore;
+        hudScore.textContent = score;
+        snd.egg();
+      }
+    }
+  }
+
+  // Clean up dead eggs
+  for (let i = eggs.length - 1; i >= 0; i--) {
+    if (!eggs[i].alive) eggs.splice(i, 1);
+  }
+
+  // Update score popups (float upward, fade out)
+  for (const pop of scorePops) {
+    pop.age += dt;
+    pop.y += pop.vy * dt;
+  }
+  for (let i = scorePops.length - 1; i >= 0; i--) {
+    if (scorePops[i].age >= scorePops[i].lifetime) scorePops.splice(i, 1);
+  }
+
+  // Bird-bird collisions: player vs enemies
+  if (player.alive && player.invulnTimer <= 0) {
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      if (rectOverlap(birdJoustBox(player), birdJoustBox(e))) {
+        const pl = lanceY(player);
+        const el = lanceY(e);
+        const diff = pl - el; // negative = player's lance is higher (better)
+        if (Math.abs(diff) < LANCE_TOLERANCE) {
+          // Bounce off each other
+          const sep = (player.x < e.x ? -1 : 1);
+          player.vx += sep * 180;
+          e.vx       -= sep * 180;
+        } else if (diff < 0) {
+          // Player's lance higher → player wins
+          e.alive = false;
+          spawnEgg(e.x, e.y, player.x + BIRD_W / 2);  // shoot away from player center
+          score += 750;
+          hudScore.textContent = score;
+          enemiesKilledThisWave++;
+          snd.jousthit();
+          // Small bounce so player isn't sitting on dead enemy
+          player.vy = -120;
+        } else {
+          // Enemy's lance higher → player dies
+          loseLife();
+          break;
+        }
+      }
+    }
+  }
+
+  // Enemy-vs-enemy collisions: bounce off each other and flip direction.
+  // Doesn't kill (would make the game too easy if enemies took each other
+  // out for free). Just deflects so they don't pass through or stack up.
+  for (let i = 0; i < enemies.length; i++) {
+    for (let j = i + 1; j < enemies.length; j++) {
+      const a = enemies[i];
+      const b = enemies[j];
+      if (!a.alive || !b.alive) continue;
+      if (rectOverlap(birdJoustBox(a), birdJoustBox(b))) {
+        // Push apart based on which is left/right
+        const sep = a.x < b.x ? -1 : 1;
+        a.vx = sep * 120;
+        b.vx = -sep * 120;
+        a.facingLeft = sep < 0;
+        b.facingLeft = sep > 0;
+      }
+    }
+  }
+
+  // Clean up dead enemies
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    if (!enemies[i].alive) enemies.splice(i, 1);
+  }
+
+  // Spawning
+  if (state === 'PLAYING' && enemies.length < MAX_ENEMIES_ON_SCREEN) {
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      const needed = ENEMIES_PER_WAVE - enemiesKilledThisWave - enemies.length;
+      if (needed > 0) {
+        spawnEnemy();
+        snd.spawn();
+      }
+      // Spawn faster as the wave progresses
+      spawnTimer = Math.max(1.2, ENEMY_SPAWN_INTERVAL - (wave - 1) * 0.3);
+    }
+  }
+
+  // Wave progression — wait for all enemies dead AND all eggs collected/hatched/destroyed
+  if (enemiesKilledThisWave >= ENEMIES_PER_WAVE && enemies.length === 0 && eggs.length === 0) {
+    advanceWave();
+  }
+}
+
+//── Rendering ────────────────────────────────────────────────────────────────
+// Background stars (precomputed)
+const stars = [];
+for (let i = 0; i < 80; i++) {
+  stars.push({
+    x: Math.random() * W,
+    y: Math.random() * (H - 80),
+    bright: Math.random() < 0.4,
+  });
+}
+
+function drawBackground() {
+  ctx.fillStyle = COLOR_BG;
+  ctx.fillRect(0, 0, W, H);
+  // Stars
+  for (const s of stars) {
+    ctx.fillStyle = s.bright ? COLOR_STAR : COLOR_STAR_DIM;
+    ctx.fillRect(s.x, s.y, 1.5, 1.5);
+  }
+}
+
+function drawPlatforms() {
+  // First the base — rendered at BASE_DRAW_W_PCT of canvas width, centered
+  const baseS = sprites.base;
+  if (baseS && baseS.complete && baseS.naturalWidth > 0) {
+    const baseW = baseS.naturalWidth;
+    const baseH = baseS.naturalHeight;
+    const drawW = W * BASE_DRAW_W_PCT;
+    const drawH = baseH * (drawW / baseW);
+    const drawX = (W - drawW) / 2;
+    ctx.drawImage(baseS, drawX, H - drawH, drawW, drawH);
+    drawBaseScoreOverlay(drawH, drawW, drawX);
+  } else {
+    // Fallback: dark slab
+    ctx.fillStyle = COLOR_PLATFORM;
+    const fx = W * (1 - BASE_DRAW_W_PCT) / 2;
+    ctx.fillRect(fx, H - 80, W * BASE_DRAW_W_PCT, 80);
+    ctx.fillStyle = COLOR_PLATFORM_EDGE;
+    ctx.fillRect(W * BASE_WALK_X_START_PCT, H - 80,
+                 W * (BASE_WALK_X_END_PCT - BASE_WALK_X_START_PCT), 2);
+  }
+
+  // Then the floating platforms — scaled down by PLATFORM_DRAW_SCALE
+  for (const p of platforms) {
+    const s = sprites[p.sprite];
+    const w = platformWidth(p);
+    const h = platformHeight(p);
+    const x = platformX(p);
+    if (s && s.complete && s.naturalWidth > 0) {
+      ctx.drawImage(s, x, p.y, w, h);
+    } else {
+      // Fallback colored rect while sprite loads
+      ctx.fillStyle = COLOR_PLATFORM;
+      ctx.fillRect(x, p.y, w, PLATFORM_THICKNESS);
+      ctx.fillStyle = COLOR_PLATFORM_EDGE;
+      ctx.fillRect(x, p.y, w, 2);
+    }
+  }
+}
+
+// Draws the score INSIDE the base's built-in score window. Covers the
+// "0123456789" placeholder digits so they don't show through.
+// drawnBaseH = rendered base height, drawnBaseW = rendered base width,
+// drawnBaseX = base sprite's left x-coord on canvas.
+//
+// TUNE these proportions if the score doesn't sit perfectly over the
+// placeholder digits in your base.png:
+function drawBaseScoreOverlay(drawnBaseH, drawnBaseW, drawnBaseX) {
+  // For base.png 1143x140, the placeholder "0123456789" sits in the
+  // dark score window. Position estimates as fractions of base sprite:
+  const winX_PCT = 0.21;  // fraction of BASE width (not canvas)
+  const winW_PCT = 0.27;
+  const winY_PCT = 0.55;  // fraction of BASE height (from base top)
+  const winH_PCT = 0.22;
+
+  const winX = drawnBaseX + drawnBaseW * winX_PCT;
+  const winW = drawnBaseW * winW_PCT;
+  const winY = (H - drawnBaseH) + drawnBaseH * winY_PCT;
+  const winH = drawnBaseH * winH_PCT;
+
+  // Dark fill over the placeholder digits
+  ctx.fillStyle = 'rgba(20, 8, 4, 0.95)';
+  ctx.fillRect(winX, winY, winW, winH);
+
+  // Real score in golden yellow
+  ctx.save();
+  ctx.fillStyle = '#ffd040';
+  ctx.font = `bold ${Math.floor(winH * 0.65)}px "JoustArcade", "Press Start 2P", monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(score.toString().padStart(6, '0'),
+               winX + winW - 8,
+               winY + winH / 2);
+  ctx.restore();
+}
+
+// drawLava is no longer needed — the base sprite has built-in flame lanterns
+// at the corners. Kept as a no-op so existing render-loop call doesn't break.
+function drawLava(dt) {
+  // intentionally empty
+}
+
+// Find the Y coordinate of the highest platform top directly below the bird.
+// Used for casting a dynamic shadow. Returns null if no platform is below.
+function findShadowY(b) {
+  let bestY = null;
+  const allP = getAllPlatforms();
+  for (const p of allP) {
+    if (p.x < b.x + BIRD_W && p.x + p.w > b.x && p.y >= b.y + BIRD_H) {
+      if (bestY === null || p.y < bestY) bestY = p.y;
+    }
+  }
+  return bestY;
+}
+
+// Cast a small ellipse shadow on the platform below the bird. Alpha fades
+// with altitude — darker when close, fainter when high.
+function drawShadow(b) {
+  const sy = findShadowY(b);
+  if (sy === null) return;
+  const distance = sy - (b.y + BIRD_H);
+  if (distance < 0) return;
+  const alpha = Math.max(0.06, 0.45 - distance / 220);
+  const widthScale = Math.max(0.55, 1 - distance / 400);
+  ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+  ctx.beginPath();
+  ctx.ellipse(b.x + BIRD_W / 2, sy + 1, (BIRD_W * 0.36) * widthScale, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Draw a bird+rider using the sprite image, flipping horizontally if facing
+// left. Falls back to a simple placeholder rect if the sprite hasn't loaded.
+function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
+  // Sprite ready check
+  if (!sprite || !sprite.complete || sprite.naturalWidth === 0) {
+    // Fallback placeholder so the game is still playable while sprites load
+    ctx.fillStyle = (sprite === sprites.buzzard) ? '#ff4a4a' : '#ffdb4a';
+    ctx.fillRect(b.x, b.y, BIRD_W, BIRD_H);
+    return;
+  }
+
+  const inAir     = !b.onGround;
+  const isWalking = b.onGround && Math.abs(b.vx) > 30;
+
+  // Pick the active sprite based on state:
+  //   In air     → cycle fly + fly2 (wings flapping)
+  //   Walking    → cycle ostrich + ostrichMove (legs stepping)
+  //   Standing   → base sprite (no animation)
+  let activeSprite = sprite;
+  const flyReady  = flySprite  && flySprite.complete  && flySprite.naturalWidth  > 0;
+  const fly2Ready = fly2Sprite && fly2Sprite.complete && fly2Sprite.naturalWidth > 0;
+  const walkReady = walkSprite && walkSprite.complete && walkSprite.naturalWidth > 0;
+
+  if (inAir && flyReady && fly2Ready) {
+    // Wing flap cycle — faster = more motion. ~12 fps reads as vigorous flapping.
+    const flyFrame = Math.floor(performance.now() / 80) % 2;
+    activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
+  } else if (isWalking && walkReady) {
+    const walkFrame = Math.floor(performance.now() / 160) % 2;
+    activeSprite = walkFrame === 0 ? sprite : walkSprite;
+  }
+
+  // Vertical bob — DIFFERENT motion for walking vs flying:
+  //   Walking: slow sine, body bobs as legs cycle
+  //   Flying:  fast cosine synced to flap (body rises on downstroke)
+  let bobY = 0;
+  if (isWalking) {
+    bobY = Math.sin(performance.now() / 80) * 2;
+  } else if (inAir) {
+    bobY = Math.cos(performance.now() / 25) * 2.5;  // ~157ms period syncs to 80ms flap swap
+  }
+  const drawY = b.y + bobY;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (b.facingLeft) {
+    ctx.translate(b.x + BIRD_W, drawY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(activeSprite, 0, 0, BIRD_W, BIRD_H);
+  } else {
+    ctx.drawImage(activeSprite, b.x, drawY, BIRD_W, BIRD_H);
+  }
+  ctx.restore();
+}
+
+function drawPlayer() {
+  if (!player.alive) return;
+  // Flicker during invulnerability
+  if (player.invulnTimer > 0 && Math.floor(player.invulnTimer * 12) % 2 === 0) return;
+  drawShadow(player);
+  drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2);
+}
+
+// Render floating score popups (after egg pickups, etc.) — fade out over time
+function drawScorePops() {
+  ctx.save();
+  ctx.font = 'bold 18px "JoustArcade", "Press Start 2P", monospace';
+  ctx.textAlign = 'left';
+  for (const pop of scorePops) {
+    const alpha = 1 - (pop.age / pop.lifetime);
+    // Shadow for legibility
+    ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.7})`;
+    ctx.fillText(pop.text, pop.x + 1, pop.y + 1);
+    // Main text
+    const c = pop.color;
+    // Convert hex to rgba with alpha
+    const r = parseInt(c.slice(1, 3), 16);
+    const g = parseInt(c.slice(3, 5), 16);
+    const b = parseInt(c.slice(5, 7), 16);
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    ctx.fillText(pop.text, pop.x, pop.y);
+  }
+  ctx.restore();
+}
+
+function drawEnemies() {
+  for (const e of enemies) {
+    if (e.alive) {
+      drawShadow(e);
+      drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2);
+    }
+  }
+}
+
+// Render all eggs. Eggs falling rotate slightly with horizontal velocity.
+// Eggs resting near hatch time pulse to warn the player.
+function drawEggs() {
+  for (const egg of eggs) {
+    if (!egg.alive) continue;
+
+    ctx.save();
+    ctx.translate(egg.x + EGG_W / 2, egg.y + EGG_H / 2);
+    if (egg.state === 'falling') {
+      ctx.rotate(egg.vx * 0.004 + egg.vy * 0.002);
+    }
+
+    // Warning pulse if near hatching
+    if (egg.state === 'resting' && egg.timer < 2.0) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 80);
+      ctx.strokeStyle = `rgba(255, 140, 60, ${pulse * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, EGG_W / 2 + 3, EGG_H / 2 + 3, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Egg body — cream tan
+    ctx.fillStyle = '#f0e0c0';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, EGG_W / 2, EGG_H / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Shading line
+    ctx.strokeStyle = '#a08060';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // Specks for character
+    ctx.fillStyle = '#8c6b48';
+    ctx.beginPath(); ctx.arc(-2.5, -3.5, 1.0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 3.0,  3.5, 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 1.0, -5.5, 0.7, 0, Math.PI * 2); ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+//── Main loop ────────────────────────────────────────────────────────────────
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(0.033, (now - lastT) / 1000); // clamp to 30fps min step
+  lastT = now;
+
+  if (state === 'PLAYING') {
+    update(dt);
+  }
+  updateParticles(dt);
+
+  drawBackground();
+  drawPlatforms();
+  drawLava(dt);
+  drawParticles();
+  drawEggs();
+  drawEnemies();
+  drawPlayer();
+  drawScorePops();
+  drawSkidDebugFlash();
+
+  requestAnimationFrame(frame);
+}
+
+// Temporary debug — flashes "SKID!" on screen when the skid trigger fires.
+// Helps confirm whether the issue is the trigger logic or the audio output.
+// Remove once we've verified the skid is reliably firing.
+function drawSkidDebugFlash() {
+  const t = performance.now() / 1000;
+  const since = t - lastSkidFireTime;
+  if (since < 0.5) {
+    const alpha = 1 - (since / 0.5);
+    ctx.fillStyle = `rgba(255, 200, 60, ${alpha})`;
+    ctx.font = 'bold 14px "JetBrains Mono", monospace';
+    ctx.fillText('SKID!', 14, H - 14);
+  }
+}
+
+//── Boot ─────────────────────────────────────────────────────────────────────
+updateLivesHUD();
+startBtn.addEventListener('click', startGame);
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
