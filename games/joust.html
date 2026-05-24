@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.36 — Arcade Reactor</title>
+<title>JOUST v0.38 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.36</div>
+    <div class="version-tag" id="versionTag">v0.38</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.36 — Arcade Reactor
+// JOUST v0.38 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -132,10 +132,12 @@ const sprites = {
   ostrichMove: new Image(),
   ostrichFly: new Image(),
   ostrichFly2: new Image(),
+  ostrichBrake: new Image(),
   buzzard: new Image(),
   buzzardMove: new Image(),
   buzzardFly: new Image(),
   buzzardFly2: new Image(),
+  buzzardBrake: new Image(),
   // Platform sprites
   base: new Image(),
   floorone: new Image(),
@@ -153,10 +155,12 @@ sprites.ostrich.src     = '../assets/joust/ostrich.png';
 sprites.ostrichMove.src = '../assets/joust/ostrichmove.png';
 sprites.ostrichFly.src  = '../assets/joust/fly.png';
 sprites.ostrichFly2.src = '../assets/joust/fly2.png';
+sprites.ostrichBrake.src = '../assets/joust/ostrichbrake.png';
 sprites.buzzard.src     = '../assets/joust/buzzard.png';
 sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
 sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
 sprites.buzzardFly2.src = '../assets/joust/buzzardfly2.png';
+sprites.buzzardBrake.src = '../assets/joust/buzzardbrake.png';
 sprites.base.src              = '../assets/joust/base.png';
 sprites.floorone.src          = '../assets/joust/floorone.png';
 sprites.floortwoleft.src      = '../assets/joust/floortwoleft.png';
@@ -202,10 +206,11 @@ const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
 // LAVA + FLOOR system. The floor is a thin rocky strip at the SAME level as
 // the base's walking surface — together they form one continuous walkable
-// ground. Lava fills everything below them. The floor burns from outside-in
-// starting at wave 3 (arcade authentic). Set TEST_BURN_FROM_WAVE_1 to see
-// the burn from the start.
-const FLOOR_STRIP_HEIGHT  = 8;        // thin rocky walkable strip (was 18 — Mike said 1/3 thick)
+// ground. Below the floor is a GAP where the flame body sits, then the
+// lava surface. The floor burns from outside-in starting at wave 3 (arcade
+// authentic). Set TEST_BURN_FROM_WAVE_1 to see the burn from the start.
+const FLOOR_STRIP_HEIGHT  = 8;        // thin rocky walkable strip
+const LAVA_GAP            = 22;       // vertical space where flames sit (between floor bottom and lava surface)
 const TEST_BURN_FROM_WAVE_1 = true;   // false = arcade authentic (burn starts wave 3)
 const FLOOR_BURN_PER_WAVE = 90;       // pixels burned from each side per wave
 const FLOOR_BURN_RATE     = 50;       // pixels/sec animation speed during transition
@@ -213,8 +218,9 @@ const CEILING        = 28;     // hard ceiling near top
 
 // Floor + lava Y positions are dynamic — they follow the base sprite so
 // everything stays aligned even if BASE_WALK_Y_PCT is tuned.
-function getFloorStripY() { return getBaseCollisionRect().y; }
-function getLavaTopY()    { return getFloorStripY() + FLOOR_STRIP_HEIGHT; }
+function getFloorStripY()  { return getBaseCollisionRect().y; }
+function getFloorBottomY() { return getFloorStripY() + FLOOR_STRIP_HEIGHT; }
+function getLavaTopY()     { return getFloorBottomY() + LAVA_GAP; }
 
 // Burn state — updated each frame to smoothly animate toward the target
 let floorBurnAmount = 0;
@@ -343,14 +349,17 @@ function getAllPlatforms() {
   }
   out.push(getBaseCollisionRect());
 
-  // Floor strips on either side of base (these BURN AWAY by wave)
+  // Floor strips on either side of base (these BURN AWAY by wave).
+  // We extend them 6px INTO the base area so they connect flush — the base
+  // sprite renders on top and hides the overlap.
   const baseDrawW = W * BASE_DRAW_W_PCT;
   const baseLeftX = (W - baseDrawW) / 2;
   const baseRightX = baseLeftX + baseDrawW;
   const floorY = getFloorStripY();
+  const STRIP_BASE_OVERLAP = 6;
 
-  // Left strip — from burn edge to left of base
-  const leftStripW = baseLeftX - floorBurnAmount;
+  // Left strip — from burn edge to (slightly past base left edge)
+  const leftStripW = (baseLeftX + STRIP_BASE_OVERLAP) - floorBurnAmount;
   if (leftStripW > 4) {
     out.push({
       x: floorBurnAmount,
@@ -360,11 +369,11 @@ function getAllPlatforms() {
     });
   }
 
-  // Right strip — from right of base to (W - burn edge)
-  const rightStripW = (W - floorBurnAmount) - baseRightX;
+  // Right strip — from (slightly before base right edge) to (W - burn edge)
+  const rightStripW = (W - floorBurnAmount) - (baseRightX - STRIP_BASE_OVERLAP);
   if (rightStripW > 4) {
     out.push({
-      x: baseRightX,
+      x: baseRightX - STRIP_BASE_OVERLAP,
       y: floorY,
       w: rightStripW,
       sprite: 'floor',
@@ -400,8 +409,9 @@ const player = {
   alive: true,
   respawnTimer: 0,
   invulnTimer: 0,      // brief invulnerability after respawn
-  wasSkidding: false,  // state flag for skid sound (fires once on transition into skid)
-  lastAbsVx: 0,        // |vx| from previous frame, for deceleration-based skid detection
+  isSkidding: false,   // hard-brake state — set when reversing at speed, exits at vx≈0
+  wasSkidding: false,  // edge detection for sound trigger (deprecated, kept for compatibility)
+  lastAbsVx: 0,        // |vx| from previous frame, for skid detection
 };
 
 //── Enemies ──────────────────────────────────────────────────────────────────
@@ -853,7 +863,7 @@ function startGame() {
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.respawnTimer = 0; player.invulnTimer = 1.0;
-  player.wasSkidding = false;
+  player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
   hudScore.textContent = score;
@@ -894,7 +904,7 @@ function respawnPlayer() {
   player.vx = 0; player.vy = 0;
   player.facingLeft = false; player.onGround = true;
   player.alive = true; player.invulnTimer = 1.5;
-  player.wasSkidding = false;
+  player.wasSkidding = false; player.isSkidding = false;
   player.lastAbsVx = 0;
   spawnMaterializeParticles(player.x, player.y);
 }
@@ -939,29 +949,65 @@ function update(dt) {
     // bird only FLIPS facing once it's actually moving (or stopped) that way.
     // On the ground, the bird commits to its current direction and only flips
     // after braking to zero. This makes turn-arounds feel weighty, like Joust.
-    if (keys.left) {
-      player.vx -= HORIZ_ACCEL * dt;
-      // Only flip facing if we're already going left OR fully stopped.
-      // In the air, more responsive — flip immediately for flying control.
-      if (!player.onGround || player.vx <= 0) player.facingLeft = true;
+    //
+    // SKID STATE MACHINE (real arcade Joust):
+    // - If running fast and player presses opposite direction → enter SKID
+    // - During SKID: hard constant deceleration, ignore input until vx ≈ 0
+    // - On exit (vx ≈ 0): held key resumes accelerating in new direction
+    // - Tap or low-speed reverse: no skid, just normal turnaround
+    const SKID_ENTER_SPEED_PCT = 0.55;   // need 55% of max speed to enter skid
+    const SKID_DECEL = 850;              // px/sec² hard brake during skid (vs GROUND_DECEL=300)
+    const SKID_EXIT_SPEED = 4;           // when |vx| drops below this, exit skid
+
+    // Detect skid entry: on ground + at speed + opposite direction key pressed
+    if (!player.isSkidding && player.onGround) {
+      const speedHi = Math.abs(player.vx) > HORIZ_MAX * SKID_ENTER_SPEED_PCT;
+      const reversingRight = player.vx > 0 && keys.left  && !keys.right;
+      const reversingLeft  = player.vx < 0 && keys.right && !keys.left;
+      if (speedHi && (reversingRight || reversingLeft)) {
+        player.isSkidding = true;
+        snd.skid(Math.abs(player.vx) / HORIZ_MAX);
+      }
     }
-    if (keys.right) {
-      player.vx += HORIZ_ACCEL * dt;
-      if (!player.onGround || player.vx >= 0) player.facingLeft = false;
-    }
-    if (!keys.left && !keys.right) {
-      if (player.onGround) {
-        // Linear deceleration: constant force, like real friction.
-        // Slide distance scales as the SQUARE of initial speed.
-        const decelAmount = GROUND_DECEL * dt;
-        if (Math.abs(player.vx) <= decelAmount) {
-          player.vx = 0;
-        } else {
-          player.vx -= Math.sign(player.vx) * decelAmount;
-        }
+
+    if (player.isSkidding) {
+      // SKIDDING — apply hard linear deceleration, ignore movement input.
+      // Bird MUST come to a stop before it can turn. The facing stays in the
+      // movement direction (commits to looking the way it's sliding).
+      const skidAmt = SKID_DECEL * dt;
+      if (Math.abs(player.vx) <= skidAmt + SKID_EXIT_SPEED) {
+        player.vx = 0;
+        player.isSkidding = false;
       } else {
-        // Air: gentle exponential drag (keeps drift between flaps)
-        player.vx *= AIR_FRICTION;
+        player.vx -= Math.sign(player.vx) * skidAmt;
+      }
+      // Also exit skid if bird leaves the ground (e.g. floor burned away under)
+      if (!player.onGround) {
+        player.isSkidding = false;
+      }
+    } else {
+      // NORMAL ground / air movement
+      if (keys.left) {
+        player.vx -= HORIZ_ACCEL * dt;
+        if (!player.onGround || player.vx <= 0) player.facingLeft = true;
+      }
+      if (keys.right) {
+        player.vx += HORIZ_ACCEL * dt;
+        if (!player.onGround || player.vx >= 0) player.facingLeft = false;
+      }
+      if (!keys.left && !keys.right) {
+        if (player.onGround) {
+          // Linear friction deceleration — gentle, slow stop. No skid sound.
+          const decelAmount = GROUND_DECEL * dt;
+          if (Math.abs(player.vx) <= decelAmount) {
+            player.vx = 0;
+          } else {
+            player.vx -= Math.sign(player.vx) * decelAmount;
+          }
+        } else {
+          // Air: gentle exponential drag (keeps drift between flaps)
+          player.vx *= AIR_FRICTION;
+        }
       }
     }
     player.vx = clamp(player.vx, -HORIZ_MAX, HORIZ_MAX);
@@ -984,27 +1030,8 @@ function update(dt) {
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
 
-    // Skid sound — DECELERATION-based. Fires when the bird is on the ground
-    // AND was moving with significant speed AND is currently slowing down hard.
-    // This catches all braking cases:
-    //   - Release direction key (friction decelerates)
-    //   - Press OPPOSITE direction to brake (Joust-style turnaround)
-    //   - Land with horizontal momentum (friction kicks in on touchdown)
-    //   - Slam into a wall
-    const SKID_MIN_PREV_SPEED = 50;     // were moving at least this fast last frame
-    const SKID_MIN_DECEL = 4;           // pixels/frame dropoff to count as "braking"
-    const absVx = Math.abs(player.vx);
-    const decel = player.lastAbsVx - absVx;  // positive = slowing
-    const skiddingNow = player.onGround &&
-                        player.lastAbsVx > SKID_MIN_PREV_SPEED &&
-                        decel > SKID_MIN_DECEL;
-    if (skiddingNow && !player.wasSkidding) {
-      console.log(`[SKID-TRIGGER] decel=${decel.toFixed(1)} prevVx=${player.lastAbsVx.toFixed(1)} vx=${absVx.toFixed(1)} keys=${keys.left?'L':''}${keys.right?'R':''} ground=${player.onGround}`);
-      snd.skid(player.lastAbsVx / HORIZ_MAX);
-      lastSkidFireTime = performance.now() / 1000;
-    }
-    player.wasSkidding = skiddingNow;
-    player.lastAbsVx = absVx;
+    // Track |vx| for any other consumers (debug, animations).
+    player.lastAbsVx = Math.abs(player.vx);
 
     // Lava — only the LEFT and RIGHT corner zones (sides of the base platform)
     {
@@ -1371,24 +1398,36 @@ function drawLava(dt) {
   }
 }
 
-// Render floor strips on either side of base + flames at burn edges.
-// Called AFTER base sprite so the strips visually connect with the base top.
+// Render floor strips on either side of base. Strips extend 6px INTO the
+// base area so they connect flush — the base sprite renders on top after
+// this and hides the overlap, leaving no visible gap.
 function drawFloorStrips() {
+  const floorY = getFloorStripY();
+  const baseDrawW = W * BASE_DRAW_W_PCT;
+  const baseLeftX = (W - baseDrawW) / 2;
+  const baseRightX = baseLeftX + baseDrawW;
+  const STRIP_BASE_OVERLAP = 6;
+
+  const leftStripW = (baseLeftX + STRIP_BASE_OVERLAP) - floorBurnAmount;
+  if (leftStripW > 0) {
+    drawFloorStrip(floorBurnAmount, floorY, leftStripW);
+  }
+  const rightStripW = (W - floorBurnAmount) - (baseRightX - STRIP_BASE_OVERLAP);
+  if (rightStripW > 0) {
+    drawFloorStrip(baseRightX - STRIP_BASE_OVERLAP, floorY, rightStripW);
+  }
+}
+
+// Render flames at burn edges. Called LAST so flames render on top of
+// everything (including the base sprite and floor strips).
+function drawBurnFlamesAtEdges() {
   const floorY = getFloorStripY();
   const baseDrawW = W * BASE_DRAW_W_PCT;
   const baseLeftX = (W - baseDrawW) / 2;
   const baseRightX = baseLeftX + baseDrawW;
 
   const leftStripW = baseLeftX - floorBurnAmount;
-  if (leftStripW > 0) {
-    drawFloorStrip(floorBurnAmount, floorY, leftStripW);
-  }
   const rightStripW = (W - floorBurnAmount) - baseRightX;
-  if (rightStripW > 0) {
-    drawFloorStrip(baseRightX, floorY, rightStripW);
-  }
-
-  // Flames burning the floor from below — dramatic 3-tongue cluster
   if (leftStripW > 4)  drawBurnFlames(floorBurnAmount, floorY);
   if (rightStripW > 4) drawBurnFlames(W - floorBurnAmount, floorY);
 }
@@ -1403,43 +1442,91 @@ function drawFloorStrip(x, y, w) {
   ctx.fillRect(x, y + FLOOR_STRIP_HEIGHT - 1, w, 1);
 }
 
-// Cluster of 3 animated flames eating the floor edge from below.
-// `x` is the burn point (where floor ends and lava begins).
+// Cluster of 5 animated flame tongues + base glow + rising embers at a burn
+// edge. Flames sit ON the lava surface, tips reach UP just past floor bottom.
+// `x` is the burn point (where floor ends, lava begins).
 function drawBurnFlames(x, floorTopY) {
-  const lavaY = floorTopY + FLOOR_STRIP_HEIGHT;
-  drawFlameTongue(x - 6, lavaY, 28, 0);
-  drawFlameTongue(x + 0, lavaY, 38, 0.7);
-  drawFlameTongue(x + 6, lavaY, 24, 1.4);
+  const floorBottomY = floorTopY + FLOOR_STRIP_HEIGHT;
+  const lavaY = floorBottomY + LAVA_GAP;
+  // Flame height = gap + a few px of overlap so tips "lick" the floor
+  const flameH = LAVA_GAP + 4;
+
+  // Base glow ellipse on lava — soft warm aura where flames meet the surface
+  const grad = ctx.createRadialGradient(x, lavaY, 0, x, lavaY, 22);
+  grad.addColorStop(0, 'rgba(255, 180, 50, 0.55)');
+  grad.addColorStop(1, 'rgba(255, 100, 30, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(x - 22, lavaY - 12, 44, 18);
+
+  // 5 flame tongues at horizontal offsets, varying heights (tallest in middle)
+  drawFlameTongue(x - 9, lavaY, flameH * 0.75, 0.0);
+  drawFlameTongue(x - 4, lavaY, flameH * 0.92, 0.5);
+  drawFlameTongue(x + 0, lavaY, flameH * 1.05, 1.0);
+  drawFlameTongue(x + 4, lavaY, flameH * 0.92, 1.5);
+  drawFlameTongue(x + 9, lavaY, flameH * 0.75, 2.0);
+
+  // Rising embers — 3 small particles drifting up
+  for (let i = 0; i < 3; i++) {
+    drawEmber(x, lavaY, lavaWavePhase + i * 0.7);
+  }
 }
 
 // Single animated upward flame, base at (x, baseY), peak height h.
+// 4-layer color buildup: dark red → red-orange → orange → yellow tip.
 function drawFlameTongue(x, baseY, h, phaseOff) {
   const t = lavaWavePhase * 1.5 + phaseOff;
-  const flicker = 1 + Math.sin(t * 4) * 0.15;
+  const flicker = 1 + Math.sin(t * 4) * 0.18 + Math.sin(t * 7.3) * 0.08;
   const ht = h * flicker;
-  // Outer flame (red-orange)
-  ctx.fillStyle = 'rgba(255, 100, 30, 0.9)';
+  const sway = Math.sin(t * 2.5) * 3;
+
+  // Layer 1: dark red outer (widest, softest)
+  ctx.fillStyle = 'rgba(180, 40, 10, 0.75)';
   ctx.beginPath();
-  ctx.moveTo(x - 7, baseY);
-  ctx.quadraticCurveTo(x - 9 + Math.sin(t * 2.5) * 3, baseY - ht * 0.5, x, baseY - ht);
-  ctx.quadraticCurveTo(x + 9 + Math.sin(t * 2.5 + 1.5) * 3, baseY - ht * 0.5, x + 7, baseY);
+  ctx.moveTo(x - 9, baseY);
+  ctx.quadraticCurveTo(x - 11 + sway, baseY - ht * 0.5, x + sway * 0.5, baseY - ht * 1.05);
+  ctx.quadraticCurveTo(x + 11 + sway, baseY - ht * 0.5, x + 9, baseY);
   ctx.closePath();
   ctx.fill();
-  // Mid flame (orange)
-  ctx.fillStyle = 'rgba(255, 180, 60, 0.92)';
+
+  // Layer 2: red-orange
+  ctx.fillStyle = 'rgba(255, 90, 25, 0.88)';
+  ctx.beginPath();
+  ctx.moveTo(x - 7, baseY - 1);
+  ctx.quadraticCurveTo(x - 8 + sway, baseY - ht * 0.5, x + sway * 0.4, baseY - ht * 0.92);
+  ctx.quadraticCurveTo(x + 8 + sway, baseY - ht * 0.5, x + 7, baseY - 1);
+  ctx.closePath();
+  ctx.fill();
+
+  // Layer 3: orange mid
+  ctx.fillStyle = 'rgba(255, 165, 50, 0.92)';
   ctx.beginPath();
   ctx.moveTo(x - 4, baseY - 1);
-  ctx.quadraticCurveTo(x - 5 + Math.sin(t * 3) * 2, baseY - ht * 0.5, x, baseY - ht * 0.85);
-  ctx.quadraticCurveTo(x + 5 + Math.sin(t * 3 + 1.5) * 2, baseY - ht * 0.5, x + 4, baseY - 1);
+  ctx.quadraticCurveTo(x - 5 + sway * 0.7, baseY - ht * 0.55, x + sway * 0.3, baseY - ht * 0.80);
+  ctx.quadraticCurveTo(x + 5 + sway * 0.7, baseY - ht * 0.55, x + 4, baseY - 1);
   ctx.closePath();
   ctx.fill();
-  // Inner flame (bright yellow tip)
+
+  // Layer 4: bright yellow inner tip
   ctx.fillStyle = 'rgba(255, 230, 130, 0.95)';
   ctx.beginPath();
   ctx.moveTo(x - 2, baseY - 2);
-  ctx.quadraticCurveTo(x - 3 + Math.sin(t * 3.5) * 1, baseY - ht * 0.55, x, baseY - ht * 0.7);
-  ctx.quadraticCurveTo(x + 3 + Math.sin(t * 3.5 + 2) * 1, baseY - ht * 0.55, x + 2, baseY - 2);
+  ctx.quadraticCurveTo(x - 3 + sway * 0.5, baseY - ht * 0.55, x + sway * 0.2, baseY - ht * 0.65);
+  ctx.quadraticCurveTo(x + 3 + sway * 0.5, baseY - ht * 0.55, x + 2, baseY - 2);
   ctx.closePath();
+  ctx.fill();
+}
+
+// Single rising ember — small particle that drifts upward and fades.
+// Loops every 1.8 seconds. Phase offset spaces embers out over the cycle.
+function drawEmber(x, baseY, time) {
+  const cycle = (time % 1.8) / 1.8;        // 0 to 1
+  const dy = -cycle * 50;                  // rise 50px
+  const dx = Math.sin(time * 3) * 5 + Math.sin(time * 8) * 2;
+  const alpha = (1 - cycle) * 0.8;
+  const size = 1.6 - cycle * 0.6;
+  ctx.fillStyle = `rgba(255, 200, 80, ${alpha})`;
+  ctx.beginPath();
+  ctx.arc(x + dx, baseY + dy, Math.max(0.3, size), 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -1473,7 +1560,8 @@ function drawShadow(b) {
 
 // Draw a bird+rider using the sprite image, flipping horizontally if facing
 // left. Falls back to a simple placeholder rect if the sprite hasn't loaded.
-function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
+// If brakeSprite is provided and the bird is in skid state, uses it.
+function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   // Sprite ready check
   if (!sprite || !sprite.complete || sprite.naturalWidth === 0) {
     // Fallback placeholder so the game is still playable while sprites load
@@ -1483,18 +1571,23 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
   }
 
   const inAir     = !b.onGround;
-  const isWalking = b.onGround && Math.abs(b.vx) > 30;
+  const isSkidding = b.isSkidding === true;
+  const isWalking = b.onGround && !isSkidding && Math.abs(b.vx) > 30;
 
   // Pick the active sprite based on state:
+  //   Skidding   → brake sprite (legs forward) if available, fallback to ostrich
   //   In air     → cycle fly + fly2 (wings flapping)
   //   Walking    → cycle ostrich + ostrichMove (legs stepping)
   //   Standing   → base sprite (no animation)
   let activeSprite = sprite;
-  const flyReady  = flySprite  && flySprite.complete  && flySprite.naturalWidth  > 0;
-  const fly2Ready = fly2Sprite && fly2Sprite.complete && fly2Sprite.naturalWidth > 0;
-  const walkReady = walkSprite && walkSprite.complete && walkSprite.naturalWidth > 0;
+  const flyReady   = flySprite   && flySprite.complete   && flySprite.naturalWidth   > 0;
+  const fly2Ready  = fly2Sprite  && fly2Sprite.complete  && fly2Sprite.naturalWidth  > 0;
+  const walkReady  = walkSprite  && walkSprite.complete  && walkSprite.naturalWidth  > 0;
+  const brakeReady = brakeSprite && brakeSprite.complete && brakeSprite.naturalWidth > 0;
 
-  if (inAir && flyReady && fly2Ready) {
+  if (isSkidding && brakeReady) {
+    activeSprite = brakeSprite;
+  } else if (inAir && flyReady && fly2Ready) {
     // Wing flap cycle — faster = more motion. ~12 fps reads as vigorous flapping.
     const flyFrame = Math.floor(performance.now() / 80) % 2;
     activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
@@ -1506,11 +1599,14 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite) {
   // Vertical bob — DIFFERENT motion for walking vs flying:
   //   Walking: slow sine, body bobs as legs cycle
   //   Flying:  fast cosine synced to flap (body rises on downstroke)
+  //   Skidding: no bob, bird is committed to the slide
   let bobY = 0;
-  if (isWalking) {
+  if (isSkidding) {
+    bobY = 0;
+  } else if (isWalking) {
     bobY = Math.sin(performance.now() / 80) * 2;
   } else if (inAir) {
-    bobY = Math.cos(performance.now() / 25) * 2.5;  // ~157ms period syncs to 80ms flap swap
+    bobY = Math.cos(performance.now() / 25) * 2.5;
   }
   const drawY = b.y + bobY;
 
@@ -1531,7 +1627,7 @@ function drawPlayer() {
   // Flicker during invulnerability
   if (player.invulnTimer > 0 && Math.floor(player.invulnTimer * 12) % 2 === 0) return;
   drawShadow(player);
-  drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2);
+  drawBird(player, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, sprites.ostrichBrake);
 }
 
 // Render floating score popups (after egg pickups, etc.) — fade out over time
@@ -1560,7 +1656,7 @@ function drawEnemies() {
   for (const e of enemies) {
     if (e.alive) {
       drawShadow(e);
-      drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2);
+      drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2, sprites.buzzardBrake);
     }
   }
 }
@@ -1620,9 +1716,10 @@ function frame(now) {
   updateParticles(dt);
 
   drawBackground();
-  drawLava(dt);          // lava body — behind everything
-  drawPlatforms();       // base sprite renders ON TOP of lava (score window visible)
-  drawFloorStrips();     // floor strips connect to base top, flames burn from below
+  drawLava(dt);             // lava body — behind everything
+  drawFloorStrips();        // floor strips extend into base area
+  drawPlatforms();          // base + floats render ON TOP, hiding floor overlap
+  drawBurnFlamesAtEdges();  // flames on top of floor + base for vivid burn effect
   drawParticles();
   drawEggs();
   drawEnemies();
