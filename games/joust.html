@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.45 — Arcade Reactor</title>
+<title>JOUST v0.46 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.45</div>
+    <div class="version-tag" id="versionTag">v0.46</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.45 — Arcade Reactor
+// JOUST v0.46 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -278,6 +278,8 @@ const platforms = [
   // Top row (small side ledges) — was floor 4 in original layout
   { sprite: 'floorfourleft',     cx: 0.20, y: 130 },
   { sprite: 'floorfourright',    cx: 0.80, y: 130 },
+  // Far right top edge — partial platform extending off-screen (per pic 1)
+  { sprite: 'floorfourfarright', cx: 0.97, y: 130 },
   // Middle row (single)
   { sprite: 'floorthreemiddle',  cx: 0.50, y: 250 },
   // Lower row (left + right)
@@ -432,7 +434,9 @@ const EGG_GRAVITY = 200;        // anti-gravity — eggs float as they fall
 const EGG_TERMINAL_VY = 160;    // slow fall cap
 
 const eggs = [];  // each: { x, y, vx, vy, state, timer, alive }
-let eggCatchChain = 0;  // consecutive in-air catches; resets on death/wave
+let eggCatchChain = 0;        // current chain step (0..N). Awards EGG_CHAIN_VALUES[min(chain, max)].
+let eggChainTimer = 0;        // seconds since last egg pickup. Resets chain when > EGG_CHAIN_TIMEOUT.
+const EGG_CHAIN_TIMEOUT = 5.0; // arcade-feel: ~5s without a catch and chain resets
 
 // Spawn an egg from a dying enemy. Egg shoots AWAY from player with modest
 // horizontal velocity and a small upward bounce, then floats down. Player
@@ -578,16 +582,18 @@ function noiseBurst(dur, vol=0.08) {
 // To add a new sound: just drop the WAV at the listed path. Page refresh
 // picks it up automatically. No code change needed.
 const audioBuffers = {
-  flap:      null,  // wing flap
-  egg:       null,  // enemy turns into egg
-  skid:      null,  // ostrich braking slide (ROM: $24 OSTRICH STOP)
-  jousthit:  null,  // lance-on-lance impact (ROM: KNOCK)
-  death:     null,  // player loses a life
-  spawn:     null,  // bird materialization (ROM: $1D LITE / appear)
-  wave:      null,  // new wave starts
-  hundred:   null,  // 100-pt sound (ROM: HBTSND — could be used for egg catch)
-  pterodactyl: null, // pterodactyl scream (ROM: $22 SCREMW)
-  lavatroll: null,  // lava troll grab (ROM: WHIST whistle)
+  flap:         null,
+  egg:          null,
+  skid:         null,
+  jousthit:     null,  // lance-on-lance kill impact
+  enemycollide: null,  // any bird-vs-bird contact (broader than jousthit)
+  floorbump:    null,  // bird vs platform side/underside (not landing)
+  death:        null,
+  spawn:        null,
+  wave:         null,
+  hundred:      null,
+  pterodactyl:  null,
+  lavatroll:    null,
 };
 
 function loadAudioBuffer(name, url) {
@@ -608,16 +614,18 @@ function loadAudioBuffer(name, url) {
 
 // Kick off loads on script start. Missing files fail silently and the
 // corresponding snd.* function falls back to its built-in synth.
-loadAudioBuffer('flap',        '../assets/joust/sounds/flap.wav');
-loadAudioBuffer('egg',         '../assets/joust/sounds/egg.wav');
-loadAudioBuffer('skid',        '../assets/joust/sounds/skid.wav');
-loadAudioBuffer('jousthit',    '../assets/joust/sounds/jousthit.wav');
-loadAudioBuffer('death',       '../assets/joust/sounds/death.wav');
-loadAudioBuffer('spawn',       '../assets/joust/sounds/spawn.wav');
-loadAudioBuffer('wave',        '../assets/joust/sounds/wave.wav');
-loadAudioBuffer('hundred',     '../assets/joust/sounds/hundred.wav');
-loadAudioBuffer('pterodactyl', '../assets/joust/sounds/pterodactyl.wav');
-loadAudioBuffer('lavatroll',   '../assets/joust/sounds/lavatroll.wav');
+loadAudioBuffer('flap',         '../assets/joust/sounds/flap.wav');
+loadAudioBuffer('egg',          '../assets/joust/sounds/egg.wav');
+loadAudioBuffer('skid',         '../assets/joust/sounds/skid.wav');
+loadAudioBuffer('jousthit',     '../assets/joust/sounds/jousthit.wav');
+loadAudioBuffer('enemycollide', '../assets/joust/sounds/enemycollide.wav');
+loadAudioBuffer('floorbump',    '../assets/joust/sounds/floorbump.wav');
+loadAudioBuffer('death',        '../assets/joust/sounds/death.wav');
+loadAudioBuffer('spawn',        '../assets/joust/sounds/spawn.wav');
+loadAudioBuffer('wave',         '../assets/joust/sounds/wave.wav');
+loadAudioBuffer('hundred',      '../assets/joust/sounds/hundred.wav');
+loadAudioBuffer('pterodactyl',  '../assets/joust/sounds/pterodactyl.wav');
+loadAudioBuffer('lavatroll',    '../assets/joust/sounds/lavatroll.wav');
 
 // Play a loaded buffer with optional pitch + volume variation. Returns true
 // if the buffer played, false if it wasn't loaded (caller can synth-fallback).
@@ -692,6 +700,22 @@ const snd = {
     if (!played) {
       tone(660, 0.08, 'square', 0.14);
       setTimeout(() => tone(880, 0.12, 'square', 0.14), 60);
+    }
+  },
+  // Bird vs bird contact — fires on ANY bird-vs-bird collision (joust kill OR
+  // even-height bounce). Plays alongside jousthit on actual kills.
+  enemycollide: () => {
+    const played = playBuffer('enemycollide', { volume: 0.45 });
+    if (!played) {
+      tone(440, 0.05, 'square', 0.12);
+    }
+  },
+  // Bird vs platform side or underside (NOT landing on top — that's silent).
+  // Common: flying into the side of a platform during ascent or hitting head.
+  floorbump: () => {
+    const played = playBuffer('floorbump', { volume: 0.35 });
+    if (!played) {
+      tone(160, 0.06, 'square', 0.12);
     }
   },
   death:    () => {
@@ -800,21 +824,28 @@ function updateLivesHUD() {
 // Resolve horizontal collisions for a bird against all platforms.
 // Call AFTER updating b.x with vx * dt. Pushes the bird back out the
 // side it came from.
+// Returns true if a side-bump happened (for sound triggering by caller)
 function resolveHorizontalPlatformCollisions(b) {
   const allP = getAllPlatforms();
+  let bumped = false;
   for (const p of allP) {
     const bb = birdBox(b);
     const pb = { x: p.x, y: p.y, w: p.w, h: PLATFORM_THICKNESS };
     if (rectOverlap(bb, pb)) {
       if (b.vx > 0)       b.x = p.x - BIRD_W;       // moving right → hit left side
       else if (b.vx < 0)  b.x = p.x + p.w;          // moving left  → hit right side
+      if (Math.abs(b.vx) > 30) bumped = true;       // ignore tiny grazes
       b.vx = 0;
     }
   }
+  return bumped;
 }
 
+// Returns { onGround, bumpedHead } so caller can play sounds appropriately.
+// bumpedHead = bird's head hit the underside of a platform during ascent.
 function resolveVerticalPlatformCollisions(b) {
   let onGround = false;
+  let bumpedHead = false;
   const allP = getAllPlatforms();
   for (const p of allP) {
     const bb = birdBox(b);
@@ -828,11 +859,12 @@ function resolveVerticalPlatformCollisions(b) {
       } else if (b.vy < 0) {
         // Flapping up into the bottom → bonk
         b.y = p.y + PLATFORM_THICKNESS;
+        if (b.vy < -60) bumpedHead = true;     // only count real bonks
         b.vy = 0;
       }
     }
   }
-  return onGround;
+  return { onGround, bumpedHead };
 }
 
 //── Particles (for materialize / spawn effect) ───────────────────────────────
@@ -968,7 +1000,7 @@ function startGame() {
   enemies.length = 0;
   eggs.length = 0;
   scorePops.length = 0;
-  eggCatchChain = 0;
+  eggCatchChain = 0; eggChainTimer = 0;
   riderlessBirds.length = 0;
   floorBurnAmount = 0;
   setFloorBurnTarget(wave);
@@ -1013,7 +1045,7 @@ function loseLife() {
   // Respawn after delay
   player.alive = false;
   player.respawnTimer = 1.0;
-  eggCatchChain = 0;  // death breaks the chain
+  eggCatchChain = 0; eggChainTimer = 0;  // death breaks the chain
 }
 
 function respawnPlayer() {
@@ -1030,7 +1062,7 @@ function advanceWave() {
   wave++;
   hudWave.textContent = wave;
   enemiesKilledThisWave = 0;
-  eggCatchChain = 0;  // new wave breaks the chain
+  eggCatchChain = 0; eggChainTimer = 0;  // new wave breaks the chain
   setFloorBurnTarget(wave);   // floor burns more this wave
   snd.wave();
   // Clear enemies to make wave transition feel clean
@@ -1150,13 +1182,15 @@ function update(dt) {
     // Apply movement and resolve collisions axis-by-axis so platforms are
     // solid on all four sides.
     player.x += player.vx * dt;
-    resolveHorizontalPlatformCollisions(player);
+    const sideBumped = resolveHorizontalPlatformCollisions(player);
     // Horizontal wrap (after collision resolution)
     if (player.x + BIRD_W < 0) player.x = W;
     if (player.x > W) player.x = -BIRD_W;
 
     player.y += player.vy * dt;
-    player.onGround = resolveVerticalPlatformCollisions(player);
+    const vRes = resolveVerticalPlatformCollisions(player);
+    player.onGround = vRes.onGround;
+    if (sideBumped || vRes.bumpedHead) snd.floorbump();
 
     // Ceiling
     if (player.y < CEILING) { player.y = CEILING; player.vy = Math.max(0, player.vy); }
@@ -1224,7 +1258,8 @@ function update(dt) {
     if (e.x > W) e.x = -BIRD_W;
 
     e.y += e.vy * dt;
-    resolveVerticalPlatformCollisions(e);
+    const eVRes = resolveVerticalPlatformCollisions(e);
+    e.onGround = eVRes.onGround;
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
     // Lava death — enemies die instantly if they touch the lava surface
@@ -1262,7 +1297,8 @@ function update(dt) {
           egg.vx = 0;
           egg.state = 'resting';
           egg.timer = EGG_HATCH_TIME;
-          eggCatchChain = 0;  // egg landed — chain broken
+          // Chain does NOT reset on egg landing (per real arcade behavior —
+          // chain decays by TIME, not by ground contact).
           break;
         }
       }
@@ -1284,10 +1320,19 @@ function update(dt) {
     }
   }
 
+  // Egg chain decay — if no catch within timeout window, chain resets.
+  if (eggCatchChain > 0) {
+    eggChainTimer += dt;
+    if (eggChainTimer >= EGG_CHAIN_TIMEOUT) {
+      eggCatchChain = 0;
+      eggChainTimer = 0;
+    }
+  }
+
   // Player picks up eggs by touching them.
-  // IN-AIR catch:  chain bonus (250, 500, 750, 1000 — caps at 1000).
-  //                Chain resets when an egg lands, on death, or on new wave.
-  // RESTING catch: flat 250 (no chain — separate "settled" pickup).
+  // CHAIN works on ALL pickups (air + ground). Per arcade Joust behavior,
+  // the chain stays alive as long as you keep catching eggs within
+  // EGG_CHAIN_TIMEOUT seconds. Caps at 1000 points after 4th egg.
   if (player.alive && player.invulnTimer <= 0) {
     const pb = birdBox(player);
     for (const egg of eggs) {
@@ -1295,19 +1340,16 @@ function update(dt) {
       const eb = { x: egg.x, y: egg.y, w: EGG_W, h: EGG_H };
       if (rectOverlap(pb, eb)) {
         egg.alive = false;
-        let pickupScore;
-        if (egg.state === 'falling') {
-          // Air catch — chain bonus
-          const chainIdx = Math.min(eggCatchChain, EGG_CHAIN_VALUES.length - 1);
-          pickupScore = EGG_CHAIN_VALUES[chainIdx];
-          eggCatchChain++;
-          // Show chain count + value (two-tier popup like the original)
+        const chainIdx = Math.min(eggCatchChain, EGG_CHAIN_VALUES.length - 1);
+        const pickupScore = EGG_CHAIN_VALUES[chainIdx];
+        eggCatchChain++;
+        eggChainTimer = 0;   // reset decay timer
+        // Show chain count + value (two-tier popup like the original)
+        if (eggCatchChain > 1) {
           spawnScorePop(egg.x + EGG_W + 10, egg.y - 14,
                         'CHAIN x' + eggCatchChain, '#ff9050');
           spawnScorePop(egg.x + EGG_W + 10, egg.y + 4,  '+' + pickupScore);
         } else {
-          // Resting catch — flat score, no chain bonus
-          pickupScore = EGG_RESTING_SCORE;
           spawnScorePop(egg.x + EGG_W + 10, egg.y, '+' + pickupScore);
         }
         score += pickupScore;
@@ -1339,6 +1381,8 @@ function update(dt) {
         const pl = lanceY(player);
         const el = lanceY(e);
         const diff = pl - el; // negative = player's lance is higher (better)
+        // ANY contact fires the enemycollide sound (broader than jousthit)
+        snd.enemycollide();
         if (Math.abs(diff) < LANCE_TOLERANCE) {
           // Bounce off each other
           const sep = (player.x < e.x ? -1 : 1);
@@ -1372,6 +1416,7 @@ function update(dt) {
       const b = enemies[j];
       if (!a.alive || !b.alive) continue;
       if (rectOverlap(birdJoustBox(a), birdJoustBox(b))) {
+        snd.enemycollide();  // enemies thumping each other also makes the sound
         // Push apart based on which is left/right
         const sep = a.x < b.x ? -1 : 1;
         a.vx = sep * 120;
