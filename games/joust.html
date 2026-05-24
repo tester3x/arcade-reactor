@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.35 — Arcade Reactor</title>
+<title>JOUST v0.36 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.35</div>
+    <div class="version-tag" id="versionTag">v0.36</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.35 — Arcade Reactor
+// JOUST v0.36 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -542,9 +542,19 @@ function noiseBurst(dur, vol=0.08) {
 //── Sound file loading (WAV/MP3 → AudioBuffer cache) ─────────────────────────
 // Loaded files live here. null means not loaded yet OR failed to load —
 // either way, the corresponding snd.* function falls back to synth.
+// To add a new sound: just drop the WAV at the listed path. Page refresh
+// picks it up automatically. No code change needed.
 const audioBuffers = {
-  flap: null,
-  egg: null,
+  flap:      null,  // wing flap
+  egg:       null,  // enemy turns into egg
+  skid:      null,  // ostrich braking slide (ROM: $24 OSTRICH STOP)
+  jousthit:  null,  // lance-on-lance impact (ROM: KNOCK)
+  death:     null,  // player loses a life
+  spawn:     null,  // bird materialization (ROM: $1D LITE / appear)
+  wave:      null,  // new wave starts
+  hundred:   null,  // 100-pt sound (ROM: HBTSND — could be used for egg catch)
+  pterodactyl: null, // pterodactyl scream (ROM: $22 SCREMW)
+  lavatroll: null,  // lava troll grab (ROM: WHIST whistle)
 };
 
 function loadAudioBuffer(name, url) {
@@ -559,13 +569,22 @@ function loadAudioBuffer(name, url) {
       console.log('[audio] loaded "' + name + '" (' + decoded.duration.toFixed(2) + 's)');
     })
     .catch(err => {
-      console.log('[audio] failed to load "' + name + '": ' + err.message);
+      console.log('[audio] no "' + name + '" wav (using synth) — ' + err.message);
     });
 }
 
-// Kick off loads on script start (browsers will fetch in parallel with sprites)
-loadAudioBuffer('flap', '../assets/joust/sounds/flap.wav');
-loadAudioBuffer('egg',  '../assets/joust/sounds/egg.wav');
+// Kick off loads on script start. Missing files fail silently and the
+// corresponding snd.* function falls back to its built-in synth.
+loadAudioBuffer('flap',        '../assets/joust/sounds/flap.wav');
+loadAudioBuffer('egg',         '../assets/joust/sounds/egg.wav');
+loadAudioBuffer('skid',        '../assets/joust/sounds/skid.wav');
+loadAudioBuffer('jousthit',    '../assets/joust/sounds/jousthit.wav');
+loadAudioBuffer('death',       '../assets/joust/sounds/death.wav');
+loadAudioBuffer('spawn',       '../assets/joust/sounds/spawn.wav');
+loadAudioBuffer('wave',        '../assets/joust/sounds/wave.wav');
+loadAudioBuffer('hundred',     '../assets/joust/sounds/hundred.wav');
+loadAudioBuffer('pterodactyl', '../assets/joust/sounds/pterodactyl.wav');
+loadAudioBuffer('lavatroll',   '../assets/joust/sounds/lavatroll.wav');
 
 // Play a loaded buffer with optional pitch + volume variation. Returns true
 // if the buffer played, false if it wasn't loaded (caller can synth-fallback).
@@ -625,8 +644,7 @@ function skidSound(intensity) {
 
 const snd = {
   flap:   () => {
-    // Try the loaded WAV first, with subtle pitch variation so rapid flaps
-    // don't sound robotic. Fall back to synth if WAV didn't load.
+    // Subtle pitch variation so rapid flaps don't sound robotic.
     const played = playBuffer('flap', {
       playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
       volume: 0.06,
@@ -636,9 +654,27 @@ const snd = {
       tone(280, 0.08, 'square', 0.08);
     }
   },
-  jousthit: () => { tone(660, 0.08, 'square', 0.14); setTimeout(() => tone(880, 0.12, 'square', 0.14), 60); },
-  death:    () => { tone(220, 0.15, 'sawtooth', 0.18); setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150); },
-  spawn:    () => { tone(180, 0.06, 'triangle', 0.10); setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60); },
+  jousthit: () => {
+    const played = playBuffer('jousthit', { volume: 0.5 });
+    if (!played) {
+      tone(660, 0.08, 'square', 0.14);
+      setTimeout(() => tone(880, 0.12, 'square', 0.14), 60);
+    }
+  },
+  death:    () => {
+    const played = playBuffer('death', { volume: 0.6 });
+    if (!played) {
+      tone(220, 0.15, 'sawtooth', 0.18);
+      setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150);
+    }
+  },
+  spawn:    () => {
+    const played = playBuffer('spawn', { volume: 0.4 });
+    if (!played) {
+      tone(180, 0.06, 'triangle', 0.10);
+      setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60);
+    }
+  },
   egg:      () => {
     const played = playBuffer('egg', { volume: 0.15 });
     if (!played) {
@@ -647,11 +683,50 @@ const snd = {
       setTimeout(() => tone(1320, 0.10, 'triangle', 0.14), 60);
     }
   },
-  skid:     (intensity) => skidSound(intensity),
+  // 100-point pickup (used when player catches a resting egg or chain bonus).
+  // Falls back to a brighter version of egg sound if no dedicated wav exists.
+  hundred:  () => {
+    const played = playBuffer('hundred', { volume: 0.3 });
+    if (!played) {
+      tone(1320, 0.05, 'triangle', 0.18);
+      setTimeout(() => tone(1760, 0.08, 'triangle', 0.18), 50);
+    }
+  },
+  skid:     (intensity) => {
+    // Pass intensity as playback rate so longer skids = lower pitch via
+    // slight slowdown. Volume scales with intensity too.
+    const played = playBuffer('skid', {
+      playbackRate: 0.9 + intensity * 0.2,  // 0.9 → 1.1
+      volume: 0.3 + intensity * 0.4,
+    });
+    if (!played) skidSound(intensity);
+  },
   wave:     () => {
-    tone(523, 0.12, 'square', 0.14);
-    setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
-    setTimeout(() => tone(784, 0.20, 'square', 0.14), 260);
+    const played = playBuffer('wave', { volume: 0.5 });
+    if (!played) {
+      tone(523, 0.12, 'square', 0.14);
+      setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
+      setTimeout(() => tone(784, 0.20, 'square', 0.14), 260);
+    }
+  },
+  // Pterodactyl scream — for future use when pterodactyl enemy is added.
+  pterodactyl: () => {
+    const played = playBuffer('pterodactyl', { volume: 0.5 });
+    if (!played) {
+      // Fallback: descending sawtooth screech
+      tone(1200, 0.08, 'sawtooth', 0.18);
+      setTimeout(() => tone(800, 0.10, 'sawtooth', 0.18), 80);
+      setTimeout(() => tone(500, 0.15, 'sawtooth', 0.18), 180);
+    }
+  },
+  // Lava troll grab — for future use when lava troll mechanic is added.
+  lavatroll: () => {
+    const played = playBuffer('lavatroll', { volume: 0.5 });
+    if (!played) {
+      // Fallback: bubbly low rumble + rising menace
+      tone(80, 0.20, 'sawtooth', 0.20);
+      setTimeout(() => tone(140, 0.25, 'sawtooth', 0.20), 100);
+    }
   },
 };
 
