@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.38 — Arcade Reactor</title>
+<title>JOUST v0.39 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.38</div>
+    <div class="version-tag" id="versionTag">v0.39</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.38 — Arcade Reactor
+// JOUST v0.39 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -823,9 +823,45 @@ function spawnMaterializeParticles(x, y) {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed - 30,  // bias upward
       life: 0.6, maxLife: 0.6,
+      color: '255, 219, 74',  // yellow (Joust signature)
+      size: 3,
     });
   }
 }
+
+// Knight disintegration burst — the rider "pixel-bangs" into sparkle stars
+// when the player dies. Bird flies off separately as a riderless entity.
+function spawnKnightBurst(x, y) {
+  // Big radial burst of bright sparkles from the saddle position
+  for (let i = 0; i < 28; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 70 + Math.random() * 140;
+    // Alternate cool-white and silver-blue for "armor pixels"
+    const isCool = Math.random() < 0.5;
+    particles.push({
+      x: x + BIRD_W / 2, y: y + BIRD_H * 0.4,  // saddle area, not bird body
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 40,  // bias upward more
+      life: 0.9, maxLife: 0.9,
+      color: isCool ? '230, 240, 255' : '180, 210, 255',
+      size: 4,
+    });
+  }
+  // A few brighter "star" particles for emphasis
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 50 + Math.random() * 80;
+    particles.push({
+      x: x + BIRD_W / 2, y: y + BIRD_H * 0.4,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 50,
+      life: 1.1, maxLife: 1.1,
+      color: '255, 255, 255',
+      size: 5,
+    });
+  }
+}
+
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -840,8 +876,61 @@ function updateParticles(dt) {
 function drawParticles() {
   for (const p of particles) {
     const t = p.life / p.maxLife;
-    ctx.fillStyle = `rgba(255, 219, 74, ${t})`;
-    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    const color = p.color || '255, 219, 74';
+    const size = p.size || 3;
+    ctx.fillStyle = `rgba(${color}, ${t})`;
+    ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+  }
+}
+
+// Riderless birds — when player dies, the ostrich (now empty) flies off on its
+// own. Tracks position, velocity, gravity-fighting flap, and a despawn check.
+const riderlessBirds = [];
+
+function spawnRiderlessBird(x, y, vx, vy, facingLeft) {
+  riderlessBirds.push({
+    x: x, y: y,
+    // Inherit the player's velocity but give it an upward kick — bird is
+    // panicking and escapes after the rider vanishes.
+    vx: vx * 0.8 + (facingLeft ? -40 : 40),
+    vy: vy - 120,
+    facingLeft: facingLeft,
+    flapTimer: 0,
+    flapAnimTime: 0,
+    onGround: false,
+    isSkidding: false,
+    life: 4.0,  // safety despawn after 4 seconds
+  });
+}
+
+function updateRiderlessBirds(dt) {
+  for (let i = riderlessBirds.length - 1; i >= 0; i--) {
+    const b = riderlessBirds[i];
+    b.life -= dt;
+    // Auto-flap every ~0.4s to stay aloft (panic flapping)
+    b.flapTimer -= dt;
+    b.flapAnimTime += dt;
+    if (b.flapTimer <= 0) {
+      b.vy = Math.max(-180, b.vy - 110);  // upward thrust
+      b.flapTimer = 0.35 + Math.random() * 0.15;
+    }
+    // Gravity
+    b.vy += GRAVITY * dt;
+    b.vy = Math.min(b.vy, TERMINAL_VY);
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    // Despawn when offscreen or timed out
+    if (b.life <= 0 || b.x < -BIRD_W - 40 || b.x > W + 40 || b.y > H + 40) {
+      riderlessBirds.splice(i, 1);
+    }
+  }
+}
+
+function drawRiderlessBirds() {
+  for (const b of riderlessBirds) {
+    // Use the regular fly sprites — without a brake variant.
+    // If you make riderlessOstrichFly sprites later, swap them in here.
+    drawBird(b, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, null);
   }
 }
 
@@ -856,6 +945,7 @@ function startGame() {
   eggs.length = 0;
   scorePops.length = 0;
   eggCatchChain = 0;
+  riderlessBirds.length = 0;
   floorBurnAmount = 0;
   setFloorBurnTarget(wave);
   spawnTimer = 1.0; // first spawn after 1 sec
@@ -887,6 +977,9 @@ function gameOver() {
 
 function loseLife() {
   snd.death();
+  // Knight pixel-burst at the rider position + riderless bird escapes
+  spawnKnightBurst(player.x, player.y);
+  spawnRiderlessBird(player.x, player.y, player.vx, player.vy, player.facingLeft);
   lives--;
   updateLivesHUD();
   if (lives <= 0) {
@@ -1714,13 +1807,15 @@ function frame(now) {
     update(dt);
   }
   updateParticles(dt);
+  updateRiderlessBirds(dt);
 
   drawBackground();
   drawLava(dt);             // lava body — behind everything
   drawFloorStrips();        // floor strips extend into base area
   drawPlatforms();          // base + floats render ON TOP, hiding floor overlap
   drawBurnFlamesAtEdges();  // flames on top of floor + base for vivid burn effect
-  drawParticles();
+  drawRiderlessBirds();     // escaping unmounted ostriches
+  drawParticles();          // knight-burst sparkles + materialize particles
   drawEggs();
   drawEnemies();
   drawPlayer();
