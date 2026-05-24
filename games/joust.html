@@ -3,9 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.31 — Arcade Reactor</title>
+<title>JOUST v0.33 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
+  @font-face {
+    font-family: 'JoustArcade';
+    src: url('../assets/joust/joust.otf') format('opentype'),
+         url('../assets/joust/joust.ttf') format('truetype');
+    font-display: swap;
+  }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; background: #050813; color: #e6edf3;
@@ -27,11 +33,12 @@
     position: absolute; top: 0; left: 0; right: 0;
     display: flex; justify-content: space-between; align-items: center;
     padding: 10px 16px; pointer-events: none;
-    color: #ffdb4a; font-size: 14px; letter-spacing: 0.18em;
+    color: #ffdb4a; font-size: 16px; letter-spacing: 0.18em;
     text-shadow: 0 0 8px rgba(255, 219, 74, 0.4);
+    font-family: 'JoustArcade', 'JetBrains Mono', monospace;
   }
   .hud-section { display: flex; gap: 24px; }
-  .hud-label { color: rgba(255, 219, 74, 0.55); font-size: 11px; letter-spacing: 0.22em; margin-right: 6px; }
+  .hud-label { color: rgba(255, 219, 74, 0.55); font-size: 13px; letter-spacing: 0.22em; margin-right: 6px; }
   .hud-value { color: #ffdb4a; }
   .lives-icons { display: inline-flex; gap: 4px; vertical-align: middle; }
   .life-icon { width: 12px; height: 12px; }
@@ -102,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.31</div>
+    <div class="version-tag" id="versionTag">v0.33</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.31 — Arcade Reactor
+// JOUST v0.33 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -286,7 +293,10 @@ const BASE_TOP_Y_FALLBACK = H - BASE_HEIGHT_GUESS;
 const BASE_DRAW_W_PCT = 0.78;        // base sprite renders at this fraction of canvas width
 const BASE_WALK_X_START_PCT = 0.18;  // safe walking area as fraction of width
 const BASE_WALK_X_END_PCT   = 0.82;
-const BASE_WALK_TOP_Y_INSET = 24;    // top of walkable strip below sprite top
+const BASE_WALK_Y_PCT  = 0.05;       // walking surface as fraction of base height from sprite TOP
+                                     // For base.png 1143x140, 0.05 = 7px from top.
+                                     // SMALLER = walking surface higher (closer to sprite top)
+                                     // LARGER  = walking surface lower (closer to score window)
 
 function getBaseCollisionRect() {
   const baseS = sprites.base;
@@ -295,7 +305,7 @@ function getBaseCollisionRect() {
   if (baseS && baseS.complete && baseS.naturalWidth > 0) {
     drawH = baseS.naturalHeight * (drawW / baseS.naturalWidth);
   }
-  const topY = H - drawH + BASE_WALK_TOP_Y_INSET;
+  const topY = (H - drawH) + drawH * BASE_WALK_Y_PCT;
   return {
     x: W * BASE_WALK_X_START_PCT,
     y: topY,
@@ -321,7 +331,7 @@ function getAllPlatforms() {
 
 // Spawn position — center of the base platform's safe walking area.
 const SPAWN_X = W * 0.5 - BIRD_W / 2;
-const SPAWN_Y = BASE_TOP_Y_FALLBACK + BASE_WALK_TOP_Y_INSET - BIRD_H;
+const SPAWN_Y = BASE_TOP_Y_FALLBACK + (BASE_HEIGHT_GUESS * BASE_WALK_Y_PCT) - BIRD_H;
 
 //── Player ───────────────────────────────────────────────────────────────────
 const player = {
@@ -1173,10 +1183,12 @@ function drawPlatforms() {
 // TUNE these proportions if the score doesn't sit perfectly over the
 // placeholder digits in your base.png:
 function drawBaseScoreOverlay(drawnBaseH, drawnBaseW, drawnBaseX) {
+  // For base.png 1143x140, the placeholder "0123456789" sits in the
+  // dark score window. Position estimates as fractions of base sprite:
   const winX_PCT = 0.21;  // fraction of BASE width (not canvas)
   const winW_PCT = 0.27;
-  const winY_PCT = 0.40;  // fraction of BASE height (from base top)
-  const winH_PCT = 0.20;
+  const winY_PCT = 0.55;  // fraction of BASE height (from base top)
+  const winH_PCT = 0.22;
 
   const winX = drawnBaseX + drawnBaseW * winX_PCT;
   const winW = drawnBaseW * winW_PCT;
@@ -1190,7 +1202,7 @@ function drawBaseScoreOverlay(drawnBaseH, drawnBaseW, drawnBaseX) {
   // Real score in golden yellow
   ctx.save();
   ctx.fillStyle = '#ffd040';
-  ctx.font = `bold ${Math.floor(winH * 0.65)}px "Press Start 2P", monospace`;
+  ctx.font = `bold ${Math.floor(winH * 0.65)}px "JoustArcade", "Press Start 2P", monospace`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   ctx.fillText(score.toString().padStart(6, '0'),
@@ -1299,7 +1311,7 @@ function drawPlayer() {
 // Render floating score popups (after egg pickups, etc.) — fade out over time
 function drawScorePops() {
   ctx.save();
-  ctx.font = 'bold 18px "Press Start 2P", monospace';
+  ctx.font = 'bold 18px "JoustArcade", "Press Start 2P", monospace';
   ctx.textAlign = 'left';
   for (const pop of scorePops) {
     const alpha = 1 - (pop.age / pop.lifetime);
