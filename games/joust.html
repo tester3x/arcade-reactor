@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.50 — Arcade Reactor</title>
+<title>JOUST v0.51 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.50</div>
+    <div class="version-tag" id="versionTag">v0.51</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.50 — Arcade Reactor
+// JOUST v0.51 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -133,11 +133,13 @@ const sprites = {
   ostrichFly: new Image(),
   ostrichFly2: new Image(),
   ostrichBrake: new Image(),
-  buzzard: new Image(),
+  buzzard: new Image(),       // Shadow Lord — 1000 pts (currently purple, will be blue)
   buzzardMove: new Image(),
   buzzardFly: new Image(),
   buzzardFly2: new Image(),
   buzzardBrake: new Image(),
+  bounder: new Image(),       // Bounder — 500 pts (red, weakest)
+  hunter: new Image(),         // Hunter — 750 pts (white, middle)
   // Platform sprites
   base: new Image(),
   floorone: new Image(),
@@ -161,6 +163,8 @@ sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
 sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
 sprites.buzzardFly2.src = '../assets/joust/buzzardfly2.png';
 sprites.buzzardBrake.src = '../assets/joust/buzzardbrake.png';
+sprites.bounder.src      = '../assets/joust/bounder.png';
+sprites.hunter.src       = '../assets/joust/hunter.png';
 sprites.base.src              = '../assets/joust/base.png';
 sprites.floorone.src          = '../assets/joust/floorone.png';
 sprites.floortwoleft.src      = '../assets/joust/floortwoleft.png';
@@ -246,6 +250,50 @@ function enemiesForWave(waveNum) {
   return Math.min(2 + waveNum, 5);        // wave 1=3, wave 2=4, wave 3+=5
 }
 const WAVE_SPAWN_SPREAD = 1.2;            // seconds between staggered births at wave start
+
+// Knight tiers — three enemy types with distinct sprites, score values, and
+// (eventually) speed/agility. Egg hatch promotes one tier (Bounder → Hunter
+// → Shadow Lord → Bounder). For now they all share AI behavior and birth code.
+const KNIGHT_TIERS = {
+  bounder: {
+    sprite: 'bounder',           // red, weakest, 500 pts
+    score: 500,
+    flapPower: 0.75,             // weakest flap
+    aiAggression: 0.7,           // less aggressive
+    birthSound: 'enemybirth',    // placeholder until specific WAV exists
+  },
+  hunter: {
+    sprite: 'hunter',            // white, middle, 750 pts
+    score: 750,
+    flapPower: 0.90,
+    aiAggression: 1.0,
+    birthSound: 'enemybirth',    // placeholder
+  },
+  shadowlord: {
+    sprite: 'buzzard',           // purple-blue (legacy name), toughest, 1000 pts
+    score: 1000,
+    flapPower: 1.00,             // strongest flap, fastest climber
+    aiAggression: 1.3,
+    birthSound: 'bluebirth',     // Mike's confirmed WAV
+  },
+};
+// Egg hatching chain — wraps around at the top
+const NEXT_TIER = {
+  bounder:    'hunter',
+  hunter:     'shadowlord',
+  shadowlord: 'bounder',
+};
+// Wave-based enemy mix. Wave 1 = all bounders, harder waves mix in tougher tiers.
+function pickEnemyTierForWave(waveNum) {
+  const r = Math.random();
+  if (waveNum === 1) return 'bounder';
+  if (waveNum === 2) return r < 0.5 ? 'bounder' : 'hunter';
+  if (waveNum === 3) return r < 0.4 ? 'bounder' : (r < 0.8 ? 'hunter' : 'shadowlord');
+  // Wave 4+: mostly hunters/shadowlords
+  if (r < 0.2) return 'bounder';
+  if (r < 0.6) return 'hunter';
+  return 'shadowlord';
+}
 
 // Spawn pads: the four small platforms with silver "birth strips" on top.
 // Enemies materialize from these at wave start. Player materializes from the
@@ -480,7 +528,7 @@ const EGG_CHAIN_TIMEOUT = 10.0; // ~10s without a catch and chain resets
 // Spawn an egg from a dying enemy. Egg shoots AWAY from player with modest
 // horizontal velocity and a small upward bounce, then floats down. Player
 // should NOT be able to grab it immediately — has to chase.
-function spawnEgg(enemyX, enemyY, awayFromX) {
+function spawnEgg(enemyX, enemyY, awayFromX, tierName) {
   const eggCenterX = enemyX + BIRD_W / 2;
   const dirAway = eggCenterX >= awayFromX ? 1 : -1;
   eggs.push({
@@ -490,23 +538,27 @@ function spawnEgg(enemyX, enemyY, awayFromX) {
     vy: -110 - Math.random() * 50,              // small upward bounce
     state: 'falling',
     timer: 0,
+    tier: tierName || 'bounder',                // who this egg came from
     alive: true,
   });
 }
 
-// Hatch: replace egg with a new enemy at the egg's position.
+// Hatch: egg promotes to the NEXT tier and spawns a new enemy of that tier.
+// Bounder → Hunter → Shadow Lord → Bounder (wraps around).
 function spawnEnemyAtEgg(egg) {
-  enemies.push({
-    x: egg.x - (BIRD_W - EGG_W) / 2,
-    y: egg.y - (BIRD_H - EGG_H),
-    vx: (Math.random() < 0.5 ? -80 : 80),
-    vy: -60,                    // small lift as the buzzard picks it up
-    facingLeft: Math.random() < 0.5,
-    flapTimer: 0,
-    flapAnimTime: 0,
-    aiTimer: 0,
-    alive: true,
-  });
+  const fromTier = egg.tier || 'bounder';
+  const nextTier = NEXT_TIER[fromTier];
+  const x = egg.x - (BIRD_W - EGG_W) / 2;
+  const y = egg.y - (BIRD_H - EGG_H);
+  spawnEnemyOfTier(nextTier, x, y, null);
+  // The hatched enemy already has birthTimer set; we want it to fly off
+  // immediately, not stay frozen on a pad. Override the birth state:
+  const e = enemies[enemies.length - 1];
+  e.birthTimer = 0;
+  e.invulnTimer = 0.6;        // brief invuln so player can't double-tap kill it
+  e.vx = (Math.random() < 0.5 ? -80 : 80);
+  e.vy = -60;                  // small lift as the buzzard picks it up
+  e.onGround = false;
 }
 
 //── Score popups (floating text after egg pickup, etc.) ──────────────────────
@@ -527,27 +579,40 @@ function spawnEnemy() {
   // Pick a random spawn pad — these are the 4 small platforms with silver
   // "birth strips" on top. Enemy materializes ON the pad, not in the sky.
   const pads = getSpawnPads();
-  if (pads.length === 0) return;       // safety: no pads = no spawn
+  if (pads.length === 0) return;
   const pad = pads[Math.floor(Math.random() * pads.length)];
-  // Birth duration matches the actual WAV length (whatever bluebirth.wav is)
-  const dur = getBirthDuration('bluebirth');
+  // Pick a knight tier weighted by wave difficulty
+  const tierName = pickEnemyTierForWave(wave);
+  spawnEnemyOfTier(tierName, pad.x, pad.y, pad.platform);
+}
+
+// Spawn a specific tier at a given position. Used by both wave-start spawning
+// (from a pad) and egg-hatch spawning (at egg position, no pad).
+function spawnEnemyOfTier(tierName, x, y, birthPad) {
+  const tier = KNIGHT_TIERS[tierName];
+  const dur  = getBirthDuration(tier.birthSound);
   enemies.push({
-    x: pad.x, y: pad.y,
+    x, y,
     vx: 0,
     vy: 0,
     facingLeft: Math.random() < 0.5,
     flapTimer: 0,
-    flapAnimTime: 999,                   // not currently flapping
+    flapAnimTime: 999,
     aiTimer: 0.5,
-    onGround: true,                      // standing on pad during birth
+    onGround: true,
+    tier: tierName,                   // 'bounder' | 'hunter' | 'shadowlord'
+    flapPower: tier.flapPower,        // multiplier on flap impulse
+    aiAggression: tier.aiAggression,  // multiplier on AI reaction speed
     birthTimer: dur,
-    birthDuration: dur,                  // remember total for progress math
-    birthMode: 'enemy',                  // 'enemy' = solid white throughout
-    birthPad: pad.platform,              // for pad-flash effect
-    invulnTimer: dur,                    // invuln = full birth duration, no leftover
+    birthDuration: dur,
+    birthMode: 'enemy',               // solid white silhouette during birth
+    birthPad: birthPad || null,       // for pad-flash effect
+    invulnTimer: dur,
     alive: true,
   });
-  snd.bluebirth();
+  // Play the tier's birth sound (falls back to enemybirth synth if WAV missing)
+  if (snd[tier.birthSound]) snd[tier.birthSound]();
+  else snd.enemybirth();
 }
 
 //── Input ────────────────────────────────────────────────────────────────────
@@ -1362,11 +1427,13 @@ function update(dt) {
     e.flapAnimTime += dt;
     if (e.aiTimer <= 0) {
       e.aiTimer = 0.18 + Math.random() * 0.25;
-      // Flap if we should gain altitude (below player or low)
+      // Flap if we should gain altitude. Tier's flapPower scales the impulse:
+      // Bounder (0.75) = weak; Hunter (0.90) = medium; Shadow Lord (1.00) = strong.
       const wantAlt = player.alive ? player.y : H / 2;
       if (e.y > wantAlt + 30 && e.flapTimer <= 0) {
         const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-        const impulse = FLAP_IMPULSE * 0.9 * speedFactor;
+        const tierFlap = e.flapPower || 0.9;
+        const impulse = FLAP_IMPULSE * tierFlap * speedFactor;
         e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
         e.flapTimer = FLAP_COOLDOWN * 1.2;
         e.flapAnimTime = 0;
@@ -1525,10 +1592,12 @@ function update(dt) {
           player.vx += sep * 180;
           e.vx       -= sep * 180;
         } else if (diff < 0) {
-          // Player's lance higher → player wins
+          // Player's lance higher → player wins. Score depends on tier killed.
+          const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.shadowlord;
           e.alive = false;
-          spawnEgg(e.x, e.y, player.x + BIRD_W / 2);  // shoot away from player center
-          score += 750;
+          spawnEgg(e.x, e.y, player.x + BIRD_W / 2, e.tier);
+          score += tier.score;
+          spawnScorePop(e.x + BIRD_W, e.y, '+' + tier.score, '#ffe040');
           hudScore.textContent = score;
           enemiesKilledThisWave++;
           snd.jousthit();
@@ -2083,11 +2152,21 @@ function drawEnemies() {
   for (const e of enemies) {
     if (!e.alive) continue;
     drawShadow(e);
+    // Pick sprite set for this enemy's tier.
+    const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.shadowlord;
+    const baseSprite = sprites[tier.sprite];
+    // Bounder + Hunter only have a single sprite right now — fall back to
+    // baseSprite for walk/fly/brake until tier-specific frames exist.
+    const moveSprite  = sprites[tier.sprite + 'Move']  || baseSprite;
+    const flySprite   = sprites[tier.sprite + 'Fly']   || baseSprite;
+    const fly2Sprite  = sprites[tier.sprite + 'Fly2']  || baseSprite;
+    const brakeSprite = sprites[tier.sprite + 'Brake'] || null;
+
     if (e.birthTimer && e.birthTimer > 0) {
-      drawBirthSilhouette(e, sprites.buzzard, e.birthDuration, e.birthMode);
+      drawBirthSilhouette(e, baseSprite, e.birthDuration, e.birthMode);
       drawPadBirthFlash(e);
     } else {
-      drawBird(e, sprites.buzzard, sprites.buzzardMove, sprites.buzzardFly, sprites.buzzardFly2, sprites.buzzardBrake);
+      drawBird(e, baseSprite, moveSprite, flySprite, fly2Sprite, brakeSprite);
     }
   }
 }
