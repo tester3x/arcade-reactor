@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.42 — Arcade Reactor</title>
+<title>JOUST v0.43 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.42</div>
+    <div class="version-tag" id="versionTag">v0.43</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.42 — Arcade Reactor
+// JOUST v0.43 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -248,6 +248,7 @@ const COLOR_LANCE    = '#e6edf3';
 
 //── State ─────────────────────────────────────────────────────────────────────
 let state = 'MENU'; // MENU, PLAYING, GAME_OVER
+let paused = false; // can pause during PLAYING via P key
 let score = 0;
 let wave = 1;
 let lives = STARTING_LIVES;
@@ -509,6 +510,12 @@ window.addEventListener('keydown', (ev) => {
   else if (k === ' ' || k === 'w' || k === 'W' || k === 'ArrowUp') {
     keys.flapPressed = true;  // edge-triggered flap; consumed in update
     ev.preventDefault();
+  }
+  else if (k === 'p' || k === 'P' || k === 'Escape') {
+    if (state === 'PLAYING') {
+      paused = !paused;
+      ev.preventDefault();
+    }
   }
 });
 window.addEventListener('keyup', (ev) => {
@@ -938,6 +945,7 @@ function drawRiderlessBirds() {
 //── Game flow ────────────────────────────────────────────────────────────────
 function startGame() {
   state = 'PLAYING';
+  paused = false;
   score = 0;
   wave = 1;
   lives = STARTING_LIVES;
@@ -1525,33 +1533,17 @@ function drawBurnFlamesAtEdges() {
   if (rightStripW > 4) drawBurnFlames(W - floorBurnAmount, floorY);
 }
 
-// Render a chunk of rocky floor — the full BRIDGE thickness from the walking
-// surface (top) down to the lava surface (bottom). Only the top FLOOR_STRIP_HEIGHT
-// px are the actual walkable collision surface; the rest is decorative rock
-// matching the base sprite's orange-brown palette so it visually connects.
+// Render a chunk of rocky floor — JUST the thin walkable strip in brown-orange
+// matching the base sprite. No rocky body below; the gap fills with flames
+// at burn edges and lava beyond.
 function drawFloorStrip(x, y, w) {
-  const totalH = FLOOR_STRIP_HEIGHT + LAVA_GAP;
-
-  // Rocky body — solid orange-brown matching the base sprite.
-  // Slight horizontal banding for "rock face" variation, not a gradient.
-  ctx.fillStyle = '#a35028';   // main orange-brown (matches base body)
-  ctx.fillRect(x, y, w, totalH);
-
-  // Brighter top band (sunlit rock face)
-  ctx.fillStyle = '#c47038';
-  ctx.fillRect(x, y, w, totalH * 0.35);
-
-  // Slightly darker middle band for depth
-  ctx.fillStyle = '#8a3e1c';
-  ctx.fillRect(x, y + totalH * 0.5, w, totalH * 0.25);
-
-  // Silver walking surface on top (the actual collision area, top 8px)
-  ctx.fillStyle = '#7c7c84';   // walking strip body (gray)
-  ctx.fillRect(x, y, w, FLOOR_STRIP_HEIGHT);
-  ctx.fillStyle = '#c4c4cc';   // top highlight (bright silver)
+  // Brown-orange thin strip (matches base palette)
+  ctx.fillStyle = '#c47038';   // top highlight (bright)
   ctx.fillRect(x, y, w, 2);
-  ctx.fillStyle = '#3a3a44';   // shadow line under silver strip
-  ctx.fillRect(x, y + FLOOR_STRIP_HEIGHT - 1, w, 1);
+  ctx.fillStyle = '#a35028';   // main body (mid orange-brown)
+  ctx.fillRect(x, y + 2, w, FLOOR_STRIP_HEIGHT - 4);
+  ctx.fillStyle = '#7c3818';   // bottom shadow (darker)
+  ctx.fillRect(x, y + FLOOR_STRIP_HEIGHT - 2, w, 2);
 }
 
 // Cluster of 5 animated flame tongues + base glow + rising embers at a burn
@@ -1822,11 +1814,14 @@ function frame(now) {
   const dt = Math.min(0.033, (now - lastT) / 1000); // clamp to 30fps min step
   lastT = now;
 
-  if (state === 'PLAYING') {
+  // Pause freezes game logic but keeps rendering
+  if (state === 'PLAYING' && !paused) {
     update(dt);
   }
-  updateParticles(dt);
-  updateRiderlessBirds(dt);
+  if (!paused) {
+    updateParticles(dt);
+    updateRiderlessBirds(dt);
+  }
 
   drawBackground();
   drawLava(dt);             // lava body — behind everything
@@ -1840,8 +1835,30 @@ function frame(now) {
   drawPlayer();
   drawScorePops();
   drawSkidDebugFlash();
+  if (paused) drawPausedOverlay();
 
   requestAnimationFrame(frame);
+}
+
+// Dim everything and show large PAUSED text in the center
+function drawPausedOverlay() {
+  ctx.save();
+  // Dim the playfield
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, W, H);
+  // PAUSED text
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffdb4a';
+  ctx.shadowColor = 'rgba(255, 219, 74, 0.6)';
+  ctx.shadowBlur = 20;
+  ctx.font = 'bold 64px "JoustArcade", "Press Start 2P", monospace';
+  ctx.fillText('PAUSED', W / 2, H / 2 - 20);
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 18px "JoustArcade", "Press Start 2P", monospace';
+  ctx.fillStyle = 'rgba(255, 219, 74, 0.7)';
+  ctx.fillText('PRESS P TO RESUME', W / 2, H / 2 + 40);
+  ctx.restore();
 }
 
 // Temporary debug — flashes "SKID!" on screen when the skid trigger fires.
