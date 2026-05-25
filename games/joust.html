@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.53 — Arcade Reactor</title>
+<title>JOUST v0.54 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.53</div>
+    <div class="version-tag" id="versionTag">v0.54</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.53 — Arcade Reactor
+// JOUST v0.54 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -594,11 +594,10 @@ function spawnEnemy() {
 function spawnEnemyOfTier(tierName, x, y, birthPad) {
   const tier = KNIGHT_TIERS[tierName];
   const dur  = getBirthDuration(tier.birthSound);
-  // cruiseY = ~50px below spawn position. This drops the enemy's target
-  // altitude into the GAP below the spawn pad rather than ON a platform,
-  // so they fly through airspace between platforms instead of intercepting
-  // standing players at exactly platform-height. Clamped well above lava
-  // as a safety.
+  // v0.54: enemies cruise on a pure sine path, not physics. cruiseY puts
+  // their altitude band in the GAP below their spawn pad (safe airspace).
+  // phase + bobFreq drive the smooth up-down bob. Random initial phase so
+  // a wave's worth of enemies don't all bob in lockstep.
   const cruiseY = Math.min(y + 50, getLavaTopY() - 100);
   enemies.push({
     x, y,
@@ -610,10 +609,12 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     aiTimer: 0.5,
     onGround: true,
     tier: tierName,                   // 'bounder' | 'hunter' | 'shadowlord'
-    flapPower: tier.flapPower,        // multiplier on flap impulse
-    aiAggression: tier.aiAggression,  // multiplier on AI reaction speed
+    flapPower: tier.flapPower,        // multiplier on flap impulse (unused in v0.54 but kept for compatibility)
+    aiAggression: tier.aiAggression,  // scales cruise speed + bob frequency
     cruiseY: cruiseY,                 // v0.53: tight altitude band target
-    walkTimer: 0,                     // v0.53: commit-to-walk seconds after landing
+    walkTimer: 0,                     // v0.53 legacy; unused in v0.54 pure-sine motion
+    phase: Math.random() * Math.PI * 2,                // v0.54: sine motion phase (rad)
+    bobFreq: 4.0 + 0.5 * tier.aiAggression,            // v0.54: bob speed (rad/s)
     birthTimer: dur,
     birthDuration: dur,
     birthMode: 'enemy',               // solid white silhouette during birth
@@ -1432,105 +1433,60 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Canonical Joust AI (v0.53):
-    // Enemies cruise at a tight altitude (cruiseY) in the airspace GAPS
-    // between platforms — they never sink toward the lava because they
-    // bob in a tight band (~25px) using soft maintenance flaps. They only
-    // do a full-strength dive flap when the player is in their tier-defined
-    // SIGHT WINDOW *and* meaningfully below them. Dive depth is hard-clamped
-    // to a safe altitude above lava — they cannot suicide chasing.
-    // When they land on a platform, walkTimer commits them to ground walking
-    // for ~1.2s (no flap allowed), giving the player a clear flap-and-dive
-    // joust opportunity instead of an instant bounce-off.
-    e.aiTimer    -= dt;
-    e.flapTimer  -= dt;
-    e.flapAnimTime += dt;
-    e.walkTimer  = Math.max(0, (e.walkTimer || 0) - dt);
+    // Canonical Joust AI (v0.54): pure sine motion, NO physics.
+    // Enemies drag horizontally at constant speed and bob vertically with
+    // y = cruiseY + sin(phase) * AMP. No gravity, no flap impulses, no
+    // momentum integration — Mike pointed out the previous physics-based
+    // AI looked like "chickens and pheasants" (twitchy, asymmetric). This
+    // is how canonical arcade Joust actually drew enemies: smooth fixed
+    // paths with direction-flip on bumps. Wing-flap animation continues
+    // to cycle via flapAnimTime; it's purely visual now.
+    //
+    // No engagement-altitude tracking yet: enemies stay in their spawn
+    // lane forever. If you stand at a different altitude, they fly past.
+    // Add cruiseY drift-toward-player in a future version if needed.
+    const AMP = 12;   // ~24px peak-to-peak bob
 
-    // Legacy-safe fallback: if an enemy from before v0.53 is still flying
-    // (hot reload), give it a cruiseY now so it doesn't sink.
+    e.aiTimer       -= dt;
+    e.flapTimer     -= dt;
+    e.flapAnimTime  += dt;
+    e.phase = (e.phase || 0) + dt * (e.bobFreq || 4.5);
+
+    // Legacy-safe fallback for hot-reloaded enemies from pre-v0.54
     if (typeof e.cruiseY !== 'number') {
       e.cruiseY = Math.min(e.y + 30, getLavaTopY() - 100);
     }
 
-    const eTier        = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.hunter;
-    const sightWindowX = eTier.sightWindowX || 250;
-    const inSight      = player.alive && Math.abs(player.x - e.x) < sightWindowX;
-    const aggro        = e.aiAggression || 1.0;
-    const isWalking    = (e.walkTimer > 0) && e.onGround;
+    const aggro = e.aiAggression || 1.0;
 
     if (e.aiTimer <= 0) {
-      e.aiTimer = 0.15 + Math.random() * 0.20;   // 0.15-0.35s think cycle
-
-      // VERTICAL — pick target altitude. Bobbing toward cruiseY by default;
-      // diving toward player.y only when in sight AND player is well below.
-      // (Walking enemies never flap until their walkTimer expires.)
-      if (!isWalking) {
-        let targetY = e.cruiseY;
-        let isDive  = false;
-        if (inSight && player.y > targetY + 40) {
-          const safeMaxY = getLavaTopY() - 100;
-          targetY = Math.min(player.y, safeMaxY);
-          isDive  = true;
-        }
-        if (e.y > targetY + 10 && e.flapTimer <= 0) {
-          // Dive uses probabilistic lock-on with full impulse.
-          // Cruise-bob always fires but at HALF impulse, keeping the
-          // altitude band tight (~25px peak-to-peak).
-          const shouldFlap = isDive ? (Math.random() < (0.5 + 0.2 * aggro)) : true;
-          if (shouldFlap) {
-            const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-            const tierFlap    = e.flapPower || 0.9;
-            const softness    = isDive ? 1.0 : 0.5;
-            const impulse     = FLAP_IMPULSE * tierFlap * softness * speedFactor;
-            e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-            e.flapTimer    = FLAP_COOLDOWN * 1.2;
-            e.flapAnimTime = 0;
-          }
-        }
-      }
-
-      // HORIZONTAL — ballistic cruise. Walking enemies use a slower walk
-      // speed (matches player walk feel). Direction only changes on bumps.
-      const speedMul    = isWalking ? 0.45 : (0.50 + 0.20 * aggro);
-      const cruiseSpeed = HORIZ_MAX * speedMul;
-      const wantedVx    = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
-      if (Math.abs(e.vx) < Math.abs(wantedVx) - 10) {
-        e.vx += (wantedVx > e.vx ? 1 : -1) * HORIZ_ACCEL * 0.5 * 0.18;
-      }
+      e.aiTimer = 0.20 + Math.random() * 0.15;
+      // Lock cruise speed in current facing direction. No accel curves.
+      // Bounder ~121 px/s, hunter ~132, shadow lord ~143 — full screen
+      // crossing in 8-10s, very canonical.
+      const cruiseSpeed = HORIZ_MAX * (0.40 + 0.15 * aggro);
+      e.vx = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
     }
 
-    e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
-    e.vy += GRAVITY * dt;
-    e.vy = Math.min(e.vy, TERMINAL_VY);
-
+    // HORIZONTAL — ballistic. Side-bumps flip direction (no momentum).
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
-    // Canonical Joust: side bump REVERSES direction (doesn't just halt). This
-    // is what makes enemies wander corridor-style between platforms instead
-    // of grinding into walls.
     if (eSideBumped) {
       e.facingLeft = !e.facingLeft;
-      e.vx = e.facingLeft ? -80 : 80;   // small kick into the new direction
+      e.vx = -e.vx;
     }
-    // Wrap
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
 
-    e.y += e.vy * dt;
-    const wasGrounded = e.onGround;
-    const eVRes = resolveVerticalPlatformCollisions(e);
-    e.onGround = eVRes.onGround;
-    // v0.53: just-landed → commit to walking for 1.2s. While walking, the
-    // enemy can't flap and moves at slow walk speed (45% of HORIZ_MAX).
-    // This gives the player a real flap-and-dive window instead of an
-    // immediate take-off-and-bounce.
-    if (e.onGround && !wasGrounded) {
-      e.walkTimer = 1.2;
-    }
-    if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
+    // VERTICAL — pure sine. Direct y assignment, vy held at 0.
+    // No gravity, no platform collision resolve. cruiseY is in a safe
+    // airspace gap so the bob never intersects a platform.
+    e.y  = e.cruiseY + Math.sin(e.phase) * AMP;
+    e.vy = 0;
+    e.onGround = false;
+    if (e.y < CEILING) { e.y = CEILING; }
 
-    // Lava death — enemies die instantly if they touch the lava surface
+    // Lava death — failsafe; shouldn't trigger with proper cruiseY.
     {
       const ebottom = e.y + BIRD_H;
       if (ebottom > getLavaTopY()) {
