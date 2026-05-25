@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.56 — Arcade Reactor</title>
+<title>JOUST v0.57 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.56</div>
+    <div class="version-tag" id="versionTag">v0.57</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.56 — Arcade Reactor
+// JOUST v0.57 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -254,30 +254,52 @@ const WAVE_SPAWN_SPREAD = 1.2;            // seconds between staggered births at
 // Knight tiers — three enemy types with distinct sprites, score values, and
 // (eventually) speed/agility. Egg hatch promotes one tier (Bounder → Hunter
 // → Shadow Lord → Bounder). For now they all share AI behavior and birth code.
+// Per-tier AI tuning ported from the 1982 ROM (DYTBL initial values for
+// game-adjust level 0). Each value scaled ×3 for our 720-tall world.
+//   dnRange  = BODNRG/HUDNRG/SHDNRG initial — committed dive engages
+//              when player is this far BELOW us in Y.
+//   upRange  = -BOUPRG/HUUPRG/SHUPRG initial — committed climb engages
+//              when player is this far ABOVE us in Y.
+//   levelTime= BOLETM/HULETM/SHLETM — how long we stay in "level flight"
+//              before reconsidering. Shadow Lord decides 2× faster.
+//   dnVyCap  = BODNVY/HUDNVY — fall-speed cap while diving (px/sec).
 const KNIGHT_TIERS = {
   bounder: {
     sprite: 'bounder',           // red, weakest, 500 pts
     score: 500,
     flapPower: 0.75,             // weakest flap
     aiAggression: 0.7,           // less aggressive
-    sightWindowX: 180,           // narrow sight cone — easy to flank
-    birthSound: 'enemybirth',    // placeholder until specific WAV exists
+    sightWindowX: 180,           // legacy, unused in canonical AI
+    birthSound: 'enemybirth',
+    // canonical AI tuning
+    dnRange:   42,               // BODNRG=14 ×3
+    upRange:   45,               // -BOUPRG=15 ×3
+    levelTime: 0.35,             // BOLETM=20+1 ticks @ 60fps
+    dnVyCap:   220,              // BODNVY=$0100 → ~220 px/s in our scale
   },
   hunter: {
     sprite: 'hunter',            // white, middle, 750 pts
     score: 750,
     flapPower: 0.90,
     aiAggression: 1.0,
-    sightWindowX: 280,           // medium sight cone
-    birthSound: 'enemybirth',    // placeholder
+    sightWindowX: 280,
+    birthSound: 'enemybirth',
+    dnRange:   45,               // HUDNRG=15 ×3
+    upRange:   45,
+    levelTime: 0.30,
+    dnVyCap:   340,              // HUDNVY=$0200 → faster fall while diving
   },
   shadowlord: {
     sprite: 'buzzard',           // purple-blue (legacy name), toughest, 1000 pts
     score: 1000,
     flapPower: 1.00,             // strongest flap, fastest climber
     aiAggression: 1.3,
-    sightWindowX: 380,           // wide sight cone — hard to evade once spotted
+    sightWindowX: 380,
     birthSound: 'bluebirth',     // Mike's confirmed WAV
+    dnRange:   60,               // SHDNRG=20 ×3 — wider engagement window
+    upRange:   60,
+    levelTime: 0.15,             // SHLETM=8+1 ticks — 2× more reactive
+    dnVyCap:   180,              // SHDNVY: shadow lord uses gravity, doesn't flap-dive hard
   },
 };
 // Egg hatching chain — wraps around at the top
@@ -341,6 +363,12 @@ let state = 'MENU'; // MENU, PLAYING, GAME_OVER
 let paused = false; // can pause during PLAYING via P key
 let score = 0;
 let wave = 1;
+// Canonical Joust "smart enemy" quota (WSMART in 1982 ROM).
+// Bounders default to LINET (dumb line-tracking wander). One by one, they
+// promote themselves to tier-specific chase AI until nSmart reaches wSmart.
+// Wave 1 only one enemy hunts you at a time; later waves more in parallel.
+// nSmart is recomputed each frame from enemy.isSmart flags.
+let wSmart = 1;
 let lives = STARTING_LIVES;
 let enemiesKilledThisWave = 0;
 let spawnTimer = 0;
@@ -594,11 +622,6 @@ function spawnEnemy() {
 function spawnEnemyOfTier(tierName, x, y, birthPad) {
   const tier = KNIGHT_TIERS[tierName];
   const dur  = getBirthDuration(tier.birthSound);
-  // v0.55: cruiseY base = pad.y + 50 + small random offset (~±15) so two
-  // enemies spawning from the same pad don't share an exact altitude lane
-  // (prevents enemy-enemy bumps ping-ponging them).
-  const laneJitter = (Math.random() - 0.5) * 30;
-  const cruiseY = Math.min(y + 50 + laneJitter, getLavaTopY() - 100);
   enemies.push({
     x, y,
     vx: 0,
@@ -608,15 +631,24 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     flapAnimTime: 999,
     aiTimer: 0.5,
     onGround: true,
-    tier: tierName,                   // 'bounder' | 'hunter' | 'shadowlord'
-    flapPower: tier.flapPower,        // legacy (unused in v0.55)
-    aiAggression: tier.aiAggression,  // scales cruise speed + bob frequency + drift rate
-    cruiseY: cruiseY,                 // current bob center; drifts toward player when in sight
-    baseCruiseY: cruiseY,             // v0.55: home altitude (returns here when player not in sight)
-    walkTimer: 0,                     // legacy
-    phase: Math.random() * Math.PI * 2,                // sine phase (rad)
-    phaseOff: Math.random() * Math.PI * 2,             // v0.55: secondary-wave offset (per-enemy randomness)
-    bobFreq: 4.0 + 0.5 * tier.aiAggression,            // bob speed (rad/s)
+    tier: tierName,
+    flapPower: tier.flapPower,
+    aiAggression: tier.aiAggression,
+    // Canonical Joust AI state (ports the 1982 ROM's per-process AI vars):
+    //   isSmart  → false until LINET promotes us under WSMART quota
+    //   aiMode   → 'level' | 'climb' | 'dive' (set on transitions from BOLEV)
+    //   plavt    → PLAVT, the LINET tick countdown that gates re-checks
+    //   prdir    → PRDIR, debounce counter for copying player's facing
+    //   pdist    → PDIST, remembered target Y for BOLEV level flight
+    //   ppvelx   → PPVELX, remembered player vx for "did they turn?" check
+    //   facingFlipTimer → throttles autonomous direction flips when stuck
+    isSmart:  false,
+    aiMode:   'level',
+    plavt:    0.4 + Math.random() * 0.2,
+    prdir:    0,
+    pdist:    y,
+    ppvelx:   0,
+    facingFlipTimer: 0,
     birthTimer: dur,
     birthDuration: dur,
     birthMode: 'enemy',
@@ -1153,6 +1185,7 @@ function startGame() {
   paused = false;
   score = 0;
   wave = 1;
+  wSmart = 1;            // wave 1: only 1 enemy hunts at a time (canonical)
   lives = STARTING_LIVES;
   enemiesKilledThisWave = 0;
   enemies.length = 0;
@@ -1233,6 +1266,9 @@ function respawnPlayer() {
 function advanceWave() {
   wave++;
   hudWave.textContent = wave;
+  // WSMART scales with wave (mirrors WPERSUE in 1982 wave table). Wave 1 = 1
+  // active hunter; wave 2 = 2; etc., capped at the wave's enemy count.
+  wSmart = Math.min(wave, enemiesForWave(wave));
   enemiesKilledThisWave = 0;
   eggCatchChain = 0; eggChainTimer = 0;  // new wave breaks the chain
   setFloorBurnTarget(wave);              // floor burns more this wave
@@ -1419,6 +1455,15 @@ function update(dt) {
     }
   }
 
+  // Count currently-smart enemies (NSMART in ROM). When this drops below
+  // wSmart (WSMART quota), the next LINET-tick'd enemy promotes itself.
+  // We recompute each frame instead of maintaining a counter because death,
+  // egg-spawn, and re-incarnation paths would all need to keep it correct.
+  let nSmart = 0;
+  for (const e of enemies) {
+    if (e.alive && e.isSmart && (!e.birthTimer || e.birthTimer <= 0)) nSmart++;
+  }
+
   // Enemies
   for (const e of enemies) {
     if (!e.alive) continue;
@@ -1435,75 +1480,192 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Canonical Joust AI (v0.56): physics + smart altitude-aware steering.
-    // This is the original arcade Joust enemy brain, distilled from the 1982
-    // 6809 source (synamaxmusic/joust) and the reverse-engineered heuristic:
+    // ─────────────────────────────────────────────────────────────────────
+    // Canonical Joust enemy AI — direct port of Bill Pfutzenreuter's 1982
+    // 6809 routines (LINET / BOUNDR / B2UNDR / SHADOW / SELPLY / BOLEV)
+    // from JOUSTRV4.ASM in synamaxmusic/joust. All ROM constants are
+    // labeled in comments; values scaled ×3 for our 720-tall world.
     //
-    //   if ENEMY is HIGHER than player → CHASE  toward player (lance advantage)
-    //   if PLAYER is HIGHER than enemy → FLEE  away from player (disadvantage)
+    // The AI has TWO modes per enemy:
     //
-    // Plus the standard physics that made v0.51 actually feel like a game:
-    // gravity pulls them down, flap impulses lift them up, they can land on
-    // platforms and walk. Two flap reasons:
-    //   1. ENGAGEMENT — flap when below player to match their altitude
-    //   2. IDLE       — flap when falling fast even with no player target
-    //                   (this is the v0.51 lava-suicide fix)
-    e.aiTimer      -= dt;
-    e.flapTimer    -= dt;
+    //   1. LINET — dumb line-tracking wander (default). The enemy picks the
+    //      nearest of three horizontal tracking lines (AOFFL1/2/3) and
+    //      flaps to maintain altitude on it while drifting in its current
+    //      facing direction. NSMART < WSMART promotes a wandering enemy
+    //      to smart mode (LNTSMT).
+    //
+    //   2. Smart (BOUNDR / B2UNDR / SHADOW) — tier-specific chase. The
+    //      enemy calls SELPLY to find a valid target, then enters one of
+    //      three sub-states based on relative altitude:
+    //
+    //        dy > dnRange  → DIVE   (BODN: gravity-fall toward player,
+    //                                flap only to cap fall speed)
+    //        dy < -upRange → CLIMB  (BOUP: flap up toward player)
+    //        otherwise     → LEVEL  (BOLEV: match player altitude,
+    //                                mirror direction changes after a
+    //                                debounce, periodically reconsider)
+    //
+    // The smart enemy DOESN'T horizontally home like a missile — it drifts
+    // in its current facing direction and only flips when the player's
+    // velocity changes (after PRDIR debounce ticks) or it hits a cliff.
+    // This is what makes arcade Joust enemies feel like they have a life
+    // of their own. Most encounters happen because the bird wandered into
+    // your space, not because it's locked-on hunting you.
+    //
+    // LAVA PANIC: at any altitude below the lava-warn line (~580 in our
+    // world; CLIF5=$D3=211 in arcade), if we're falling we force-flap up.
+    // This is BODIRL's BOLAVA override that prevents lava-suicide.
+
+    e.aiTimer   -= dt;
+    e.plavt     -= dt;
+    e.flapTimer -= dt;
     e.flapAnimTime += dt;
+    if (e.prdir > 0)            e.prdir -= dt;
+    if (e.facingFlipTimer > 0)  e.facingFlipTimer -= dt;
 
-    const aggro = e.aiAggression || 1.0;
+    const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.bounder;
 
-    if (e.aiTimer <= 0) {
-      e.aiTimer = 0.18 + Math.random() * 0.22;
+    // SELPLY — find a valid target (TARTIM check via invulnTimer).
+    const target = (player.alive && player.invulnTimer <= 0) ? player : null;
 
-      // VERTICAL — decide whether to flap. Two independent triggers:
-      //   engage: player alive AND we're meaningfully below them
-      //   idle:   we're falling fast (anti-suicide failsafe)
-      const engageFlap = player.alive && e.y > player.y + 30;
-      const idleFlap   = e.vy > 80;
-      if ((engageFlap || idleFlap) && e.flapTimer <= 0) {
-        const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-        const tierFlap    = e.flapPower || 0.9;
-        // Idle flaps are slightly softer than engagement flaps so the bird
-        // doesn't shoot wildly upward when not actively hunting.
-        const power = engageFlap ? 1.0 : 0.80;
-        const impulse = FLAP_IMPULSE * tierFlap * power * speedFactor;
-        e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-        e.flapTimer    = FLAP_COOLDOWN * 1.2;
-        e.flapAnimTime = 0;
+    // Tracking lines in our world (AOFFL1/2/3 ×3, tuned to our platforms).
+    // Wide ~100px bands so an enemy can roam vertically a bit on a line.
+    const TRACK_HI  = 120;
+    const TRACK_MID = 380;
+    const TRACK_LO  = 580;
+    const TRACK_BAND = 100;   // AOFFUD ×3
+    const LAVA_PANIC_Y = 600; // CLIF5 lava-panic line ×3
+
+    // Pick this enemy's current tracking line (LINET lines 197–204):
+    //   start with AOFFL1; if PPOSY ≥ AOFFL1+AOFFUD pick AOFFL2; etc.
+    let trackLine = TRACK_HI;
+    if (e.y >= TRACK_HI + TRACK_BAND)  trackLine = TRACK_MID;
+    if (e.y >= TRACK_MID + TRACK_BAND) trackLine = TRACK_LO;
+
+    // ─── Promotion check (LNTSMT): when wave has room for more smart
+    // enemies, the next wandering bird becomes a hunter. PLAVT gates this
+    // so we don't promote every frame.
+    if (!e.isSmart && e.plavt <= 0) {
+      if (nSmart < wSmart) {
+        e.isSmart = true;
+        nSmart++;
+      }
+      e.plavt = 0.4;   // LNTLAV-equivalent re-check interval
+    }
+
+    let wantFlap = false;
+    let steerDir = e.facingLeft ? -1 : 1;
+
+    if (!e.isSmart) {
+      // ─── LINET — dumb line-tracking wander.
+      // If below the tracking line AND not already rising, flap up.
+      if (e.y > trackLine && e.vy >= 0) wantFlap = true;
+      // Otherwise just drift in facing direction. PFACE doesn't change in
+      // LINET unless cliff-bump flips it.
+    } else if (!target) {
+      // Smart but no valid target (player dead/spawning) — fall back to
+      // line-tracking so we don't sit still in the air.
+      if (e.y > trackLine && e.vy >= 0) wantFlap = true;
+    } else {
+      // ─── Smart AI — tier-specific chase.
+      // LAVA PANIC override (BODIRL / BOLAVA): too close to lava, falling,
+      // FORCE flap up regardless of mode. Saves us from suicide dives.
+      if (e.y > LAVA_PANIC_Y && e.vy >= 0) {
+        wantFlap = true;
       }
 
-      // HORIZONTAL — canonical smart heuristic.
-      // dx > 0 = player is to the right of us. Default behavior (no smart):
-      //   chaseDir = sign(dx)  → move toward player
-      // Smart twist:
-      //   if player has lance advantage (player higher by 10+ px), invert →
-      //   enemy flees in the opposite horizontal direction. This is what
-      //   makes arcade enemies feel intelligent — they don't fly into your
-      //   lance like guided missiles.
-      if (player.alive) {
-        const dx = player.x - e.x;
-        const playerHigher = player.y < e.y - 10;
-        const chaseDir = playerHigher ? -Math.sign(dx) : Math.sign(dx);
-        if (Math.abs(dx) > BIRD_W && chaseDir !== 0) {
-          e.vx += chaseDir * HORIZ_ACCEL * 0.5 * 0.18 * (0.75 + 0.35 * aggro);
-          e.facingLeft = (chaseDir < 0);
+      const dy = target.y - e.y;   // positive = player below us
+      const dx = target.x - e.x;
+
+      // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout),
+      // OR on the very first frame after promotion (aiMode default).
+      // BOUNDR's top-level decision: dy >= dnRange → DIVE; dy ≤ -upRange
+      // → CLIMB; otherwise LEVEL.
+      if (e.aiTimer <= 0) {
+        if (dy >= tier.dnRange) {
+          e.aiMode = 'dive';
+        } else if (dy <= -tier.upRange) {
+          e.aiMode = 'climb';
+        } else {
+          e.aiMode = 'level';
+          e.pdist  = target.y;       // PDIST: remember player's Y line
+          e.ppvelx = target.vx;      // PPVELX: remember player's vx
+          e.prdir  = 0.3;             // PRDIR: small debounce before mirror
         }
+        e.aiTimer = tier.levelTime;
+      }
+
+      if (e.aiMode === 'dive') {
+        // BODN1: drop using gravity. Only flap if we're falling TOO fast
+        // (BODNVY cap — keeps the dive controlled, not a missile drop).
+        if (e.vy > tier.dnVyCap) wantFlap = true;
+        // Steer horizontally toward player while diving.
+        steerDir = (dx > 0) ? 1 : -1;
+        if (e.facingFlipTimer <= 0) {
+          e.facingLeft = (dx < 0);
+          e.facingFlipTimer = 0.2;
+        }
+      } else if (e.aiMode === 'climb') {
+        // BOUP1: flap up, steer toward player.
+        wantFlap = true;
+        steerDir = (dx > 0) ? 1 : -1;
+        if (e.facingFlipTimer <= 0) {
+          e.facingLeft = (dx < 0);
+          e.facingFlipTimer = 0.2;
+        }
+      } else {
+        // BOLEV — LEVEL FLIGHT. Match remembered player altitude (pdist),
+        // mirror their facing changes (PPVELX != current → flip after
+        // PRDIR debounce). This is what makes the AI feel intelligent
+        // rather than lock-on: the enemy "decides" to copy you only
+        // occasionally, and only when you've actually changed direction.
+        //
+        // BOLEV1 + BOFAST: if we're below pdist AND falling → BOFAST flap.
+        //                  otherwise leave wings up and let gravity drift.
+        if (e.y > e.pdist && e.vy >= 0) wantFlap = true;
+        // BOLEVB: if target.vx differs from remembered, mirror their facing
+        // (but only after PRDIR debounce expires, so we don't oscillate).
+        if (Math.sign(target.vx) !== Math.sign(e.ppvelx) && e.prdir <= 0) {
+          e.facingLeft = (target.vx < 0);
+          e.ppvelx = target.vx;
+          e.prdir = 0.4;
+          e.facingFlipTimer = 0.3;
+        }
+        steerDir = e.facingLeft ? -1 : 1;
       }
     }
 
-    // Apply physics: clamp velocities, gravity, integration, collisions.
+    // ─── Apply flap (ADDFLP analog).
+    if (wantFlap && e.flapTimer <= 0) {
+      const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+      const tierFlap    = e.flapPower || 0.9;
+      const impulse     = FLAP_IMPULSE * tierFlap * speedFactor;
+      e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+      e.flapTimer    = FLAP_COOLDOWN * 1.2;
+      e.flapAnimTime = 0;
+    }
+
+    // ─── Apply horizontal steer (joystick into PVELX). Mild acceleration
+    // — enemies don't snap to speed, they drift up to it like the player.
+    if (steerDir !== 0) {
+      const accel = HORIZ_ACCEL * 0.45 * (0.85 + 0.25 * (e.aiAggression || 1.0));
+      e.vx += steerDir * accel * dt;
+    }
+    // Light air drag so they don't accumulate forever
+    e.vx *= 0.985;
+
+    // Apply physics: clamp, gravity, integrate, collisions.
     e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
     e.vy += GRAVITY * dt;
     e.vy = Math.min(e.vy, TERMINAL_VY);
 
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
-    // Side bump → flip facing and kick in new direction (corridor wandering).
+    // Cliff bump: flip facing (BOUNDR's B2AV / SHAV cliff-turn behavior).
     if (eSideBumped) {
       e.facingLeft = !e.facingLeft;
       e.vx = e.facingLeft ? -80 : 80;
+      e.facingFlipTimer = 0.4;  // don't re-flip immediately
     }
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
@@ -1513,7 +1675,7 @@ function update(dt) {
     e.onGround = eVRes.onGround;
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Lava death — enemies die instantly if they touch the lava surface.
+    // Lava death — enemy bottom touches lava surface = instant kill.
     {
       const ebottom = e.y + BIRD_H;
       if (ebottom > getLavaTopY()) {
