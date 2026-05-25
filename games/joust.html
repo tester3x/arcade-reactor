@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.55 — Arcade Reactor</title>
+<title>JOUST v0.56 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.55</div>
+    <div class="version-tag" id="versionTag">v0.56</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.55 — Arcade Reactor
+// JOUST v0.56 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1435,73 +1435,85 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Canonical Joust AI (v0.55): pure-math motion + altitude tracking.
-    // No physics for enemies. They cruise horizontally at constant speed
-    // (faster than v0.54) and bob with a DUAL sine for visual variance.
-    // When the player is in their sight window, their cruise altitude
-    // smoothly drifts toward player.y (vertical-only tracking — no
-    // horizontal hunt). Outside sight, drifts back to baseCruiseY.
-    // Direction flips only on physical bumps.
-    const AMP_BASE              = 16;   // primary bob amplitude
-    const AMP_SEC               =  5;   // secondary (faster) sine amplitude
-    const LANE_OFFSET_ABOVE_PLR = 40;   // when tracking, hover N px above player
+    // Canonical Joust AI (v0.56): physics + smart altitude-aware steering.
+    // This is the original arcade Joust enemy brain, distilled from the 1982
+    // 6809 source (synamaxmusic/joust) and the reverse-engineered heuristic:
+    //
+    //   if ENEMY is HIGHER than player → CHASE  toward player (lance advantage)
+    //   if PLAYER is HIGHER than enemy → FLEE  away from player (disadvantage)
+    //
+    // Plus the standard physics that made v0.51 actually feel like a game:
+    // gravity pulls them down, flap impulses lift them up, they can land on
+    // platforms and walk. Two flap reasons:
+    //   1. ENGAGEMENT — flap when below player to match their altitude
+    //   2. IDLE       — flap when falling fast even with no player target
+    //                   (this is the v0.51 lava-suicide fix)
+    e.aiTimer      -= dt;
+    e.flapTimer    -= dt;
+    e.flapAnimTime += dt;
 
-    e.aiTimer       -= dt;
-    e.flapTimer     -= dt;
-    e.flapAnimTime  += dt;
-    e.phase = (e.phase || 0) + dt * (e.bobFreq || 4.5);
-
-    // Legacy-safe fallbacks (hot reload of pre-v0.55 enemies)
-    if (typeof e.cruiseY     !== 'number') e.cruiseY     = Math.min(e.y + 30, getLavaTopY() - 100);
-    if (typeof e.baseCruiseY !== 'number') e.baseCruiseY = e.cruiseY;
-    if (typeof e.phaseOff    !== 'number') e.phaseOff    = Math.random() * Math.PI * 2;
-
-    const eTier        = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.hunter;
-    const sightWindowX = eTier.sightWindowX || 250;
-    const inSight      = player.alive && Math.abs(player.x - e.x) < sightWindowX;
-    const aggro        = e.aiAggression || 1.0;
-
-    // ALTITUDE TRACKING — per-frame smooth lerp toward target.
-    // In sight: hover ~40 px above player (gives player a flap-and-dive window).
-    // Out of sight: drift back to home altitude.
-    const safeMinY = CEILING + 60;
-    const safeMaxY = getLavaTopY() - 100;
-    const trackTarget = inSight
-      ? Math.max(safeMinY, Math.min(player.y - LANE_OFFSET_ABOVE_PLR, safeMaxY))
-      : e.baseCruiseY;
-    const driftRate = 1.5 + 0.5 * aggro;   // bounder ~1.85, hunter ~2.0, shadow lord ~2.15
-    e.cruiseY += (trackTarget - e.cruiseY) * Math.min(1, dt * driftRate);
+    const aggro = e.aiAggression || 1.0;
 
     if (e.aiTimer <= 0) {
-      e.aiTimer = 0.20 + Math.random() * 0.15;
-      // FASTER cruise speeds than v0.54. ~40% faster across the board.
-      // Bounder 174, hunter 192, shadow lord 210 px/s — canonical zip feel.
-      const cruiseSpeed = HORIZ_MAX * (0.55 + 0.25 * aggro);
-      e.vx = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
+      e.aiTimer = 0.18 + Math.random() * 0.22;
+
+      // VERTICAL — decide whether to flap. Two independent triggers:
+      //   engage: player alive AND we're meaningfully below them
+      //   idle:   we're falling fast (anti-suicide failsafe)
+      const engageFlap = player.alive && e.y > player.y + 30;
+      const idleFlap   = e.vy > 80;
+      if ((engageFlap || idleFlap) && e.flapTimer <= 0) {
+        const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+        const tierFlap    = e.flapPower || 0.9;
+        // Idle flaps are slightly softer than engagement flaps so the bird
+        // doesn't shoot wildly upward when not actively hunting.
+        const power = engageFlap ? 1.0 : 0.80;
+        const impulse = FLAP_IMPULSE * tierFlap * power * speedFactor;
+        e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+        e.flapTimer    = FLAP_COOLDOWN * 1.2;
+        e.flapAnimTime = 0;
+      }
+
+      // HORIZONTAL — canonical smart heuristic.
+      // dx > 0 = player is to the right of us. Default behavior (no smart):
+      //   chaseDir = sign(dx)  → move toward player
+      // Smart twist:
+      //   if player has lance advantage (player higher by 10+ px), invert →
+      //   enemy flees in the opposite horizontal direction. This is what
+      //   makes arcade enemies feel intelligent — they don't fly into your
+      //   lance like guided missiles.
+      if (player.alive) {
+        const dx = player.x - e.x;
+        const playerHigher = player.y < e.y - 10;
+        const chaseDir = playerHigher ? -Math.sign(dx) : Math.sign(dx);
+        if (Math.abs(dx) > BIRD_W && chaseDir !== 0) {
+          e.vx += chaseDir * HORIZ_ACCEL * 0.5 * 0.18 * (0.75 + 0.35 * aggro);
+          e.facingLeft = (chaseDir < 0);
+        }
+      }
     }
 
-    // HORIZONTAL — ballistic. Side bumps flip direction (clean snap, no momentum).
+    // Apply physics: clamp velocities, gravity, integration, collisions.
+    e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
+    e.vy += GRAVITY * dt;
+    e.vy = Math.min(e.vy, TERMINAL_VY);
+
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
+    // Side bump → flip facing and kick in new direction (corridor wandering).
     if (eSideBumped) {
       e.facingLeft = !e.facingLeft;
-      e.vx = -e.vx;
+      e.vx = e.facingLeft ? -80 : 80;
     }
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
 
-    // VERTICAL — dual sine for organic-looking variance (not balloon-uniform).
-    // Primary wave: sin(phase) * 16 — the big breathing motion.
-    // Secondary:   sin(phase * 1.7 + phaseOff) * 5 — faster overlay,
-    //              per-enemy random offset breaks group synchrony.
-    const wobble = Math.sin(e.phase) * AMP_BASE
-                 + Math.sin(e.phase * 1.7 + e.phaseOff) * AMP_SEC;
-    e.y  = e.cruiseY + wobble;
-    e.vy = 0;
-    e.onGround = false;
-    if (e.y < CEILING) { e.y = CEILING; }
+    e.y += e.vy * dt;
+    const eVRes = resolveVerticalPlatformCollisions(e);
+    e.onGround = eVRes.onGround;
+    if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Lava failsafe — should never trigger with proper cruiseY.
+    // Lava death — enemies die instantly if they touch the lava surface.
     {
       const ebottom = e.y + BIRD_H;
       if (ebottom > getLavaTopY()) {
