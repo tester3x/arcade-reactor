@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.72 — Arcade Reactor</title>
+<title>JOUST v0.73 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.72 BIRTH SOUND FIX</div>
+    <div class="version-tag" id="versionTag">v0.73 UPPER LANE ESCAPE TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.72 — Arcade Reactor — Birth Sound Fix
+// JOUST v0.73 — Arcade Reactor — Upper Lane Escape Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -408,7 +408,7 @@ const platforms = [
 // v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
 // not on the platform tops. These are guide rails for enemy-only motion;
 // wing flaps are mostly visual now. The player still uses real flap physics.
-const ENEMY_FLIGHT_LANES = [145, 250, 372, 485, 628];
+const ENEMY_FLIGHT_LANES = [120, 250, 372, 485, 628];
 function nearestEnemyFlightLane(y) {
   let best = ENEMY_FLIGHT_LANES[0];
   let bestD = Math.abs(y - best);
@@ -700,6 +700,14 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     lanePhase: Math.random() * Math.PI * 2,
     laneRetargetTimer: 0.8 + Math.random() * 0.8,
     visualFlapTimer: Math.random() * 0.25,
+    // v0.73: anti-trap watcher. If a bird sits/bounces in the same upper
+    // platform pocket too long, force a downward lane escape instead of
+    // letting it ping-pong between Floor 4 platforms forever.
+    trapWatchX: x,
+    trapWatchY: y,
+    trapWatchTimer: 0.7,
+    trapStillTimer: 0,
+    forcedLaneEscapeTimer: 0,
     invulnTimer: dur,
     alive: true,
   });
@@ -1700,6 +1708,7 @@ function update(dt) {
     if (e.facingFlipTimer > 0)  e.facingFlipTimer -= dt;
     if (e.bumpCooldown > 0)     e.bumpCooldown -= dt;
     if (e.bumpEscapeTimer > 0)  e.bumpEscapeTimer -= dt;
+    if (e.forcedLaneEscapeTimer > 0) e.forcedLaneEscapeTimer -= dt;
     if (e.bumpChainTimer > 0)   e.bumpChainTimer -= dt;
     else e.bumpChain = 0;
     if (e.noFlapTimer > 0)      e.noFlapTimer -= dt;
@@ -1730,22 +1739,29 @@ function update(dt) {
     e.laneRetargetTimer = (e.laneRetargetTimer || 0) - dt;
     let trackLine = e.flightLine || nearestEnemyFlightLane(e.y);
     if (e.laneRetargetTimer <= 0 && !e.isSmart) {
-      // LINET wander: mostly keep the same floor-lane path, sometimes
-      // transition down one lane. This is intentionally NOT player-chase.
-      // Mike's target feel: 80% keep this floor/lane, 20% start moving
-      // to the floor below. v0.69 was accidentally front-loaded downward
-      // because birth/takeoff always picked laneBelow(). This is now a true
-      // per-retarget choice with a small anti-streak guard.
+      // LINET wander: mostly hold the current lane, but occasionally migrate
+      // up/down so birds feel alive and controlled-frantic instead of frozen
+      // on rails. This is NOT player chase; facing still does not turn toward
+      // the player. Anti-streak weights prevent a whole wave from choosing
+      // the same downward move repeatedly.
       const i = laneIndexOfNearest(trackLine);
       const canDrop = i < ENEMY_FLIGHT_LANES.length - 1;
       const canRise = i > 0;
       const recentDrop = (e.lastLaneMove === 'down');
-      const dropChance = recentDrop ? 0.06 : 0.20;
-      if (canDrop && Math.random() < dropChance) {
+      const recentRise = (e.lastLaneMove === 'up');
+
+      let dropChance = canDrop ? (recentDrop ? 0.06 : 0.18) : 0;
+      let riseChance = canRise ? (recentRise ? 0.04 : 0.10) : 0;
+      // Bottom lane safety: bias upward near lava so birds don't camp low.
+      if (!canDrop && canRise) riseChance = 0.34;
+      // Top lane safety: allow downward migration from Floor 4 airspace.
+      if (!canRise && canDrop) dropChance = Math.max(dropChance, 0.24);
+
+      const r = Math.random();
+      if (r < dropChance) {
         trackLine = ENEMY_FLIGHT_LANES[i + 1];
         e.lastLaneMove = 'down';
-      } else if (!canDrop && canRise && Math.random() < 0.28) {
-        // Bottom lane safety: don't camp the lava lane forever.
+      } else if (r < dropChance + riseChance) {
         trackLine = ENEMY_FLIGHT_LANES[i - 1];
         e.lastLaneMove = 'up';
       } else {
@@ -1753,7 +1769,41 @@ function update(dt) {
         e.lastLaneMove = 'same';
       }
       e.flightLine = trackLine;
-      e.laneRetargetTimer = 2.0 + Math.random() * 3.0;
+      e.laneRetargetTimer = 1.6 + Math.random() * 2.4;
+    }
+
+    // v0.73 upper-pocket anti-trap. Floor 4 can create a narrow hallway where
+    // enemies reverse forever. If a bird barely changes position for repeated
+    // samples in the upper half, force a one-lane downward escape with a short
+    // no-flap glide. This creates the authentic sudden drop danger without
+    // making the enemy horizontally home toward the player.
+    e.trapWatchTimer = (e.trapWatchTimer || 0) - dt;
+    if (e.trapWatchTimer <= 0) {
+      const sx = (e.trapWatchX !== undefined) ? e.trapWatchX : e.x;
+      const sy = (e.trapWatchY !== undefined) ? e.trapWatchY : e.y;
+      const moved = Math.hypot(e.x - sx, e.y - sy);
+      const upperPocket = e.y < 285 && e.x > W * 0.10 && e.x < W * 0.90;
+      if (upperPocket && moved < 24) e.trapStillTimer = (e.trapStillTimer || 0) + 0.7;
+      else e.trapStillTimer = Math.max(0, (e.trapStillTimer || 0) - 0.35);
+      e.trapWatchX = e.x;
+      e.trapWatchY = e.y;
+      e.trapWatchTimer = 0.7;
+    }
+    if ((e.trapStillTimer || 0) >= 1.4 && e.forcedLaneEscapeTimer <= 0) {
+      const i = laneIndexOfNearest(trackLine);
+      if (i < ENEMY_FLIGHT_LANES.length - 1) {
+        trackLine = ENEMY_FLIGHT_LANES[i + 1];
+        e.flightLine = trackLine;
+        e.lastLaneMove = 'forcedDown';
+        e.laneRetargetTimer = 1.1 + Math.random() * 0.6;
+        e.forcedLaneEscapeTimer = 0.95;
+        e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.70);
+        e.bumpVertBias = 'down';
+        e.noFlapTimer = Math.max(e.noFlapTimer || 0, 0.34);
+        e.vy = Math.max(e.vy, 75);
+        e.vx = (e.facingLeft ? -1 : 1) * Math.max(165, Math.abs(e.vx));
+      }
+      e.trapStillTimer = 0;
     }
 
     // ─── Promotion check (LNTSMT): when wave has room for more smart
@@ -1870,7 +1920,7 @@ function update(dt) {
     // separation after a bump. Same-row platforms can otherwise create a
     // back-and-forth hallway, so a bump gives the bird a short committed escape
     // and a small up/down bias chosen at the moment of contact.
-    if (e.bumpEscapeTimer > 0) {
+    if (e.bumpEscapeTimer > 0 || e.forcedLaneEscapeTimer > 0) {
       steerDir = e.facingLeft ? -1 : 1;
 
       if (e.noFlapTimer > 0) {
@@ -1950,7 +2000,9 @@ function update(dt) {
         const away = e.facingLeft ? -1 : 1;
         e.vx = away * (e.bumpChain >= 2 ? 180 : 145);
 
-        const goUp = Math.random() < 0.5;
+        // In the cramped upper Floor 4 pocket, upward escape just keeps
+        // re-entering the same trap. Bias those bumps downward.
+        const goUp = e.y < 285 ? false : Math.random() < 0.5;
         if (goUp) {
           e.bumpVertBias = 'up';
           e.vy = Math.min(e.vy, e.bumpChain >= 2 ? -65 : -45);
