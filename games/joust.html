@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.68 LANE FLAP TEST</div>
+    <div class="version-tag" id="versionTag">v0.69 LANE SPACE TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.68 — Arcade Reactor — Lane / Flap Test
+// JOUST v0.69 — Arcade Reactor — Lane Space Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -388,19 +388,19 @@ const PLATFORM_THICKNESS  = 14;
 const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
 
 const platforms = [
-  // v0.65: taller playfield + more vertical breathing room.
+  // v0.69: restore lane 2 and lane 4 airspace.
   // Floor names are Mike's building-count: base, floor 1, floor 2,
   // floor 3, floor 4. Birth pads stay on the grey/silver strips.
   // Floor 4 — top left/right pads
   { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
   { sprite: 'floorfourright',    cx: 0.80, y: 185 },
   // Floor 3 — middle shelf
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 257 },
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 330 },
   // Floor 2 — left/right pads
-  { sprite: 'floortwoleft',      cx: 0.20, y: 465 },
-  { sprite: 'floortworight',     cx: 0.80, y: 465 },
+  { sprite: 'floortwoleft',      cx: 0.20, y: 425 },
+  { sprite: 'floortworight',     cx: 0.80, y: 425 },
   // small far-right ledge, slightly below floor 2
-  { sprite: 'floorfourfarright', cx: 0.92, y: 482 },
+  { sprite: 'floorfourfarright', cx: 0.92, y: 442 },
   // Floor 1 — wide shelf above base
   { sprite: 'floorone',          cx: 0.50, y: 537 },
 ];
@@ -408,7 +408,7 @@ const platforms = [
 // v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
 // not on the platform tops. These are guide rails for enemy-only motion;
 // wing flaps are mostly visual now. The player still uses real flap physics.
-const ENEMY_FLIGHT_LANES = [118, 232, 362, 490, 628];
+const ENEMY_FLIGHT_LANES = [145, 255, 380, 485, 628];
 function nearestEnemyFlightLane(y) {
   let best = ENEMY_FLIGHT_LANES[0];
   let bestD = Math.abs(y - best);
