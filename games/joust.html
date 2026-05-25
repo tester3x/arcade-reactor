@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.69 LANE SPACE TEST</div>
+    <div class="version-tag" id="versionTag">v0.70 LANE/ BUMP TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.69 — Arcade Reactor — Lane Space Test
+// JOUST v0.70 — Arcade Reactor — Lane / Floor Bump Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -394,8 +394,8 @@ const platforms = [
   // Floor 4 — top left/right pads
   { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
   { sprite: 'floorfourright',    cx: 0.80, y: 185 },
-  // Floor 3 — middle shelf
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 330 },
+  // Floor 3 — middle shelf (v0.70: up a smidge; v0.69 was too low)
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 318 },
   // Floor 2 — left/right pads
   { sprite: 'floortwoleft',      cx: 0.20, y: 425 },
   { sprite: 'floortworight',     cx: 0.80, y: 425 },
@@ -408,7 +408,7 @@ const platforms = [
 // v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
 // not on the platform tops. These are guide rails for enemy-only motion;
 // wing flaps are mostly visual now. The player still uses real flap physics.
-const ENEMY_FLIGHT_LANES = [145, 255, 380, 485, 628];
+const ENEMY_FLIGHT_LANES = [145, 250, 372, 485, 628];
 function nearestEnemyFlightLane(y) {
   let best = ENEMY_FLIGHT_LANES[0];
   let bestD = Math.abs(y - best);
@@ -693,7 +693,10 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     // transporter birth hands control to flight, not to a long ground walk.
     takeoffStarted: false,
     takeoffTimer: 0,
-    flightLine: birthPad ? laneBelow(y + BIRD_H) : nearestEnemyFlightLane(y),
+    // v0.70: birth starts on the nearest open-air lane for that pad/floor.
+    // v0.69 used laneBelow(y+BIRD_H), which made every birth immediately
+    // choose the lower lane and felt like 100% drop-down behavior.
+    flightLine: birthPad ? nearestEnemyFlightLane(y + BIRD_H / 2) : nearestEnemyFlightLane(y),
     lanePhase: Math.random() * Math.PI * 2,
     laneRetargetTimer: 0.8 + Math.random() * 0.8,
     visualFlapTimer: Math.random() * 0.25,
@@ -1531,7 +1534,9 @@ function update(dt) {
     if (!e.takeoffStarted) {
       e.takeoffStarted = true;
       e.takeoffTimer = 0.45;
-      e.flightLine = e.birthPad ? laneBelow(e.y + BIRD_H) : nearestEnemyFlightLane(e.y);
+      // v0.70: takeoff stays on the pad/floor's own open-air lane;
+      // the 80/20 lane logic below can decide later whether to drop.
+      e.flightLine = e.birthPad ? nearestEnemyFlightLane(e.y + BIRD_H / 2) : nearestEnemyFlightLane(e.y);
       e.vy = 0;
       e.onGround = false;
       e.flapTimer = 0;
@@ -1617,22 +1622,28 @@ function update(dt) {
     if (e.laneRetargetTimer <= 0 && !e.isSmart) {
       // LINET wander: mostly keep the same floor-lane path, sometimes
       // transition down one lane. This is intentionally NOT player-chase.
-      // Mike's target feel: 70/30-ish patrol-current-lane vs. start moving
-      // to the floor below. Use 80/20 for now because v0.67 was still
-      // drifting downward too much.
+      // Mike's target feel: 80% keep this floor/lane, 20% start moving
+      // to the floor below. v0.69 was accidentally front-loaded downward
+      // because birth/takeoff always picked laneBelow(). This is now a true
+      // per-retarget choice with a small anti-streak guard.
       const i = laneIndexOfNearest(trackLine);
       const canDrop = i < ENEMY_FLIGHT_LANES.length - 1;
       const canRise = i > 0;
-      if (canDrop && Math.random() < 0.20) {
+      const recentDrop = (e.lastLaneMove === 'down');
+      const dropChance = recentDrop ? 0.06 : 0.20;
+      if (canDrop && Math.random() < dropChance) {
         trackLine = ENEMY_FLIGHT_LANES[i + 1];
-      } else if (!canDrop && canRise && Math.random() < 0.15) {
+        e.lastLaneMove = 'down';
+      } else if (!canDrop && canRise && Math.random() < 0.28) {
         // Bottom lane safety: don't camp the lava lane forever.
         trackLine = ENEMY_FLIGHT_LANES[i - 1];
+        e.lastLaneMove = 'up';
       } else {
         trackLine = ENEMY_FLIGHT_LANES[i];
+        e.lastLaneMove = 'same';
       }
       e.flightLine = trackLine;
-      e.laneRetargetTimer = 1.8 + Math.random() * 2.6;
+      e.laneRetargetTimer = 2.0 + Math.random() * 3.0;
     }
 
     // ─── Promotion check (LNTSMT): when wave has room for more smart
@@ -1820,6 +1831,7 @@ function update(dt) {
     // to drop out of the lane. Repeated fast bonks get a little stronger bias,
     // but still no player-facing turn.
     if (eSideBumped) {
+      snd.floorbump();
       if (e.bumpCooldown <= 0) {
         e.bumpChain = (e.bumpChainTimer > 0 ? (e.bumpChain || 0) + 1 : 1);
         e.bumpChainTimer = 0.85;
@@ -1857,6 +1869,7 @@ function update(dt) {
     const eVRes = resolveVerticalPlatformCollisions(e);
     e.onGround = eVRes.onGround;
     if (eVRes.bumpedHead) {
+      snd.floorbump();
       // Underside bonks are another shelf-pocket symptom. Don't reverse
       // facing here; just stop the immediate re-flap and drift out.
       e.noFlapTimer = Math.max(e.noFlapTimer || 0, 0.18);
