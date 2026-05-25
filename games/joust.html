@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.52 — Arcade Reactor</title>
+<title>JOUST v0.53 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.52</div>
+    <div class="version-tag" id="versionTag">v0.53</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.52 — Arcade Reactor
+// JOUST v0.53 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -594,6 +594,12 @@ function spawnEnemy() {
 function spawnEnemyOfTier(tierName, x, y, birthPad) {
   const tier = KNIGHT_TIERS[tierName];
   const dur  = getBirthDuration(tier.birthSound);
+  // cruiseY = ~50px below spawn position. This drops the enemy's target
+  // altitude into the GAP below the spawn pad rather than ON a platform,
+  // so they fly through airspace between platforms instead of intercepting
+  // standing players at exactly platform-height. Clamped well above lava
+  // as a safety.
+  const cruiseY = Math.min(y + 50, getLavaTopY() - 100);
   enemies.push({
     x, y,
     vx: 0,
@@ -606,6 +612,8 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     tier: tierName,                   // 'bounder' | 'hunter' | 'shadowlord'
     flapPower: tier.flapPower,        // multiplier on flap impulse
     aiAggression: tier.aiAggression,  // multiplier on AI reaction speed
+    cruiseY: cruiseY,                 // v0.53: tight altitude band target
+    walkTimer: 0,                     // v0.53: commit-to-walk seconds after landing
     birthTimer: dur,
     birthDuration: dur,
     birthMode: 'enemy',               // solid white silhouette during birth
@@ -1424,61 +1432,70 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Canonical Joust AI (v0.52):
-    // Enemies are NOT homing missiles. They cruise on ballistic horizontal
-    // trajectories and only reverse direction on physical bumps (platform
-    // sides or other birds). They only flap toward the player's altitude
-    // when the player is inside a tier-defined horizontal SIGHT WINDOW —
-    // and even then, not every tick (randomized lock-on chance). Outside
-    // the window they just maintain heading and occasionally flap to fight
-    // gravity. This forces the player to GO HUNT them instead of being
-    // swarmed wherever they stand.
-    e.aiTimer -= dt;
-    e.flapTimer -= dt;
+    // Canonical Joust AI (v0.53):
+    // Enemies cruise at a tight altitude (cruiseY) in the airspace GAPS
+    // between platforms — they never sink toward the lava because they
+    // bob in a tight band (~25px) using soft maintenance flaps. They only
+    // do a full-strength dive flap when the player is in their tier-defined
+    // SIGHT WINDOW *and* meaningfully below them. Dive depth is hard-clamped
+    // to a safe altitude above lava — they cannot suicide chasing.
+    // When they land on a platform, walkTimer commits them to ground walking
+    // for ~1.2s (no flap allowed), giving the player a clear flap-and-dive
+    // joust opportunity instead of an instant bounce-off.
+    e.aiTimer    -= dt;
+    e.flapTimer  -= dt;
     e.flapAnimTime += dt;
+    e.walkTimer  = Math.max(0, (e.walkTimer || 0) - dt);
+
+    // Legacy-safe fallback: if an enemy from before v0.53 is still flying
+    // (hot reload), give it a cruiseY now so it doesn't sink.
+    if (typeof e.cruiseY !== 'number') {
+      e.cruiseY = Math.min(e.y + 30, getLavaTopY() - 100);
+    }
 
     const eTier        = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.hunter;
     const sightWindowX = eTier.sightWindowX || 250;
     const inSight      = player.alive && Math.abs(player.x - e.x) < sightWindowX;
     const aggro        = e.aiAggression || 1.0;
+    const isWalking    = (e.walkTimer > 0) && e.onGround;
 
     if (e.aiTimer <= 0) {
-      e.aiTimer = 0.20 + Math.random() * 0.35;
+      e.aiTimer = 0.15 + Math.random() * 0.20;   // 0.15-0.35s think cycle
 
-      if (inSight) {
-        // PLAYER IN SIGHT — consider flapping toward player altitude.
-        // lockOnChance scales with aggression: bounder ~0.64, hunter ~0.70,
-        // shadow lord ~0.76. So even shadow lord misses ~1 in 4 chances,
-        // which gives the player a window to dive on them.
-        const lockOnChance = 0.5 + 0.2 * aggro;
-        if (e.y > player.y + 30 && e.flapTimer <= 0 && Math.random() < lockOnChance) {
-          const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-          const tierFlap    = e.flapPower || 0.9;
-          const impulse     = FLAP_IMPULSE * tierFlap * speedFactor;
-          e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-          e.flapTimer    = FLAP_COOLDOWN * 1.2;
-          e.flapAnimTime = 0;
+      // VERTICAL — pick target altitude. Bobbing toward cruiseY by default;
+      // diving toward player.y only when in sight AND player is well below.
+      // (Walking enemies never flap until their walkTimer expires.)
+      if (!isWalking) {
+        let targetY = e.cruiseY;
+        let isDive  = false;
+        if (inSight && player.y > targetY + 40) {
+          const safeMaxY = getLavaTopY() - 100;
+          targetY = Math.min(player.y, safeMaxY);
+          isDive  = true;
         }
-      } else {
-        // OUT OF SIGHT — occasional idle flap to fight gravity. Roughly
-        // fires when falling. Keeps them cruising at altitude instead of
-        // sinking into the lava on their own.
-        if (e.vy > 60 && e.flapTimer <= 0 && Math.random() < 0.25) {
-          const tierFlap = e.flapPower || 0.9;
-          const impulse  = FLAP_IMPULSE * tierFlap * 0.85;   // softer idle flap
-          e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-          e.flapTimer    = FLAP_COOLDOWN * 1.5;
-          e.flapAnimTime = 0;
+        if (e.y > targetY + 10 && e.flapTimer <= 0) {
+          // Dive uses probabilistic lock-on with full impulse.
+          // Cruise-bob always fires but at HALF impulse, keeping the
+          // altitude band tight (~25px peak-to-peak).
+          const shouldFlap = isDive ? (Math.random() < (0.5 + 0.2 * aggro)) : true;
+          if (shouldFlap) {
+            const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+            const tierFlap    = e.flapPower || 0.9;
+            const softness    = isDive ? 1.0 : 0.5;
+            const impulse     = FLAP_IMPULSE * tierFlap * softness * speedFactor;
+            e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+            e.flapTimer    = FLAP_COOLDOWN * 1.2;
+            e.flapAnimTime = 0;
+          }
         }
       }
 
-      // HORIZONTAL: pick a cruise speed and maintain it in current facing
-      // direction. No tracking. Direction only changes via physical bumps.
-      // Bounder cruises ~155 px/s, hunter ~180, shadow lord ~205.
-      const cruiseSpeed = HORIZ_MAX * (0.50 + 0.20 * aggro);
+      // HORIZONTAL — ballistic cruise. Walking enemies use a slower walk
+      // speed (matches player walk feel). Direction only changes on bumps.
+      const speedMul    = isWalking ? 0.45 : (0.50 + 0.20 * aggro);
+      const cruiseSpeed = HORIZ_MAX * speedMul;
       const wantedVx    = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
       if (Math.abs(e.vx) < Math.abs(wantedVx) - 10) {
-        // Gentle accel toward cruise — don't snap to it, let physics breathe.
         e.vx += (wantedVx > e.vx ? 1 : -1) * HORIZ_ACCEL * 0.5 * 0.18;
       }
     }
@@ -1501,8 +1518,16 @@ function update(dt) {
     if (e.x > W) e.x = -BIRD_W;
 
     e.y += e.vy * dt;
+    const wasGrounded = e.onGround;
     const eVRes = resolveVerticalPlatformCollisions(e);
     e.onGround = eVRes.onGround;
+    // v0.53: just-landed → commit to walking for 1.2s. While walking, the
+    // enemy can't flap and moves at slow walk speed (45% of HORIZ_MAX).
+    // This gives the player a real flap-and-dive window instead of an
+    // immediate take-off-and-bounce.
+    if (e.onGround && !wasGrounded) {
+      e.walkTimer = 1.2;
+    }
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
     // Lava death — enemies die instantly if they touch the lava surface
