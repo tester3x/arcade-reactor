@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.54 — Arcade Reactor</title>
+<title>JOUST v0.55 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.54</div>
+    <div class="version-tag" id="versionTag">v0.55</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.54 — Arcade Reactor
+// JOUST v0.55 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -594,11 +594,11 @@ function spawnEnemy() {
 function spawnEnemyOfTier(tierName, x, y, birthPad) {
   const tier = KNIGHT_TIERS[tierName];
   const dur  = getBirthDuration(tier.birthSound);
-  // v0.54: enemies cruise on a pure sine path, not physics. cruiseY puts
-  // their altitude band in the GAP below their spawn pad (safe airspace).
-  // phase + bobFreq drive the smooth up-down bob. Random initial phase so
-  // a wave's worth of enemies don't all bob in lockstep.
-  const cruiseY = Math.min(y + 50, getLavaTopY() - 100);
+  // v0.55: cruiseY base = pad.y + 50 + small random offset (~±15) so two
+  // enemies spawning from the same pad don't share an exact altitude lane
+  // (prevents enemy-enemy bumps ping-ponging them).
+  const laneJitter = (Math.random() - 0.5) * 30;
+  const cruiseY = Math.min(y + 50 + laneJitter, getLavaTopY() - 100);
   enemies.push({
     x, y,
     vx: 0,
@@ -609,16 +609,18 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     aiTimer: 0.5,
     onGround: true,
     tier: tierName,                   // 'bounder' | 'hunter' | 'shadowlord'
-    flapPower: tier.flapPower,        // multiplier on flap impulse (unused in v0.54 but kept for compatibility)
-    aiAggression: tier.aiAggression,  // scales cruise speed + bob frequency
-    cruiseY: cruiseY,                 // v0.53: tight altitude band target
-    walkTimer: 0,                     // v0.53 legacy; unused in v0.54 pure-sine motion
-    phase: Math.random() * Math.PI * 2,                // v0.54: sine motion phase (rad)
-    bobFreq: 4.0 + 0.5 * tier.aiAggression,            // v0.54: bob speed (rad/s)
+    flapPower: tier.flapPower,        // legacy (unused in v0.55)
+    aiAggression: tier.aiAggression,  // scales cruise speed + bob frequency + drift rate
+    cruiseY: cruiseY,                 // current bob center; drifts toward player when in sight
+    baseCruiseY: cruiseY,             // v0.55: home altitude (returns here when player not in sight)
+    walkTimer: 0,                     // legacy
+    phase: Math.random() * Math.PI * 2,                // sine phase (rad)
+    phaseOff: Math.random() * Math.PI * 2,             // v0.55: secondary-wave offset (per-enemy randomness)
+    bobFreq: 4.0 + 0.5 * tier.aiAggression,            // bob speed (rad/s)
     birthTimer: dur,
     birthDuration: dur,
-    birthMode: 'enemy',               // solid white silhouette during birth
-    birthPad: birthPad || null,       // for pad-flash effect
+    birthMode: 'enemy',
+    birthPad: birthPad || null,
     invulnTimer: dur,
     alive: true,
   });
@@ -1433,42 +1435,52 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Canonical Joust AI (v0.54): pure sine motion, NO physics.
-    // Enemies drag horizontally at constant speed and bob vertically with
-    // y = cruiseY + sin(phase) * AMP. No gravity, no flap impulses, no
-    // momentum integration — Mike pointed out the previous physics-based
-    // AI looked like "chickens and pheasants" (twitchy, asymmetric). This
-    // is how canonical arcade Joust actually drew enemies: smooth fixed
-    // paths with direction-flip on bumps. Wing-flap animation continues
-    // to cycle via flapAnimTime; it's purely visual now.
-    //
-    // No engagement-altitude tracking yet: enemies stay in their spawn
-    // lane forever. If you stand at a different altitude, they fly past.
-    // Add cruiseY drift-toward-player in a future version if needed.
-    const AMP = 12;   // ~24px peak-to-peak bob
+    // Canonical Joust AI (v0.55): pure-math motion + altitude tracking.
+    // No physics for enemies. They cruise horizontally at constant speed
+    // (faster than v0.54) and bob with a DUAL sine for visual variance.
+    // When the player is in their sight window, their cruise altitude
+    // smoothly drifts toward player.y (vertical-only tracking — no
+    // horizontal hunt). Outside sight, drifts back to baseCruiseY.
+    // Direction flips only on physical bumps.
+    const AMP_BASE              = 16;   // primary bob amplitude
+    const AMP_SEC               =  5;   // secondary (faster) sine amplitude
+    const LANE_OFFSET_ABOVE_PLR = 40;   // when tracking, hover N px above player
 
     e.aiTimer       -= dt;
     e.flapTimer     -= dt;
     e.flapAnimTime  += dt;
     e.phase = (e.phase || 0) + dt * (e.bobFreq || 4.5);
 
-    // Legacy-safe fallback for hot-reloaded enemies from pre-v0.54
-    if (typeof e.cruiseY !== 'number') {
-      e.cruiseY = Math.min(e.y + 30, getLavaTopY() - 100);
-    }
+    // Legacy-safe fallbacks (hot reload of pre-v0.55 enemies)
+    if (typeof e.cruiseY     !== 'number') e.cruiseY     = Math.min(e.y + 30, getLavaTopY() - 100);
+    if (typeof e.baseCruiseY !== 'number') e.baseCruiseY = e.cruiseY;
+    if (typeof e.phaseOff    !== 'number') e.phaseOff    = Math.random() * Math.PI * 2;
 
-    const aggro = e.aiAggression || 1.0;
+    const eTier        = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.hunter;
+    const sightWindowX = eTier.sightWindowX || 250;
+    const inSight      = player.alive && Math.abs(player.x - e.x) < sightWindowX;
+    const aggro        = e.aiAggression || 1.0;
+
+    // ALTITUDE TRACKING — per-frame smooth lerp toward target.
+    // In sight: hover ~40 px above player (gives player a flap-and-dive window).
+    // Out of sight: drift back to home altitude.
+    const safeMinY = CEILING + 60;
+    const safeMaxY = getLavaTopY() - 100;
+    const trackTarget = inSight
+      ? Math.max(safeMinY, Math.min(player.y - LANE_OFFSET_ABOVE_PLR, safeMaxY))
+      : e.baseCruiseY;
+    const driftRate = 1.5 + 0.5 * aggro;   // bounder ~1.85, hunter ~2.0, shadow lord ~2.15
+    e.cruiseY += (trackTarget - e.cruiseY) * Math.min(1, dt * driftRate);
 
     if (e.aiTimer <= 0) {
       e.aiTimer = 0.20 + Math.random() * 0.15;
-      // Lock cruise speed in current facing direction. No accel curves.
-      // Bounder ~121 px/s, hunter ~132, shadow lord ~143 — full screen
-      // crossing in 8-10s, very canonical.
-      const cruiseSpeed = HORIZ_MAX * (0.40 + 0.15 * aggro);
+      // FASTER cruise speeds than v0.54. ~40% faster across the board.
+      // Bounder 174, hunter 192, shadow lord 210 px/s — canonical zip feel.
+      const cruiseSpeed = HORIZ_MAX * (0.55 + 0.25 * aggro);
       e.vx = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
     }
 
-    // HORIZONTAL — ballistic. Side-bumps flip direction (no momentum).
+    // HORIZONTAL — ballistic. Side bumps flip direction (clean snap, no momentum).
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
     if (eSideBumped) {
@@ -1478,15 +1490,18 @@ function update(dt) {
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
 
-    // VERTICAL — pure sine. Direct y assignment, vy held at 0.
-    // No gravity, no platform collision resolve. cruiseY is in a safe
-    // airspace gap so the bob never intersects a platform.
-    e.y  = e.cruiseY + Math.sin(e.phase) * AMP;
+    // VERTICAL — dual sine for organic-looking variance (not balloon-uniform).
+    // Primary wave: sin(phase) * 16 — the big breathing motion.
+    // Secondary:   sin(phase * 1.7 + phaseOff) * 5 — faster overlay,
+    //              per-enemy random offset breaks group synchrony.
+    const wobble = Math.sin(e.phase) * AMP_BASE
+                 + Math.sin(e.phase * 1.7 + e.phaseOff) * AMP_SEC;
+    e.y  = e.cruiseY + wobble;
     e.vy = 0;
     e.onGround = false;
     if (e.y < CEILING) { e.y = CEILING; }
 
-    // Lava death — failsafe; shouldn't trigger with proper cruiseY.
+    // Lava failsafe — should never trigger with proper cruiseY.
     {
       const ebottom = e.y + BIRD_H;
       if (ebottom > getLavaTopY()) {
