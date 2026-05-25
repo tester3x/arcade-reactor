@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.62 — Arcade Reactor</title>
+<title>JOUST v0.65 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -23,9 +23,9 @@
     min-height: 100vh;
   }
   .wrap {
-    position: relative; width: 1200px; height: 720px;
+    position: relative; width: 1200px; height: 800px;
     max-width: 100vw; max-height: 100vh;
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 3 / 2;
   }
   canvas { display: block; width: 100%; height: 100%; cursor: default; background: #050813; }
 
@@ -92,7 +92,7 @@
 <body>
   <a href="../index.html" class="back-link">← ARCADE REACTOR</a>
   <div class="wrap">
-    <canvas id="game" width="1200" height="720"></canvas>
+    <canvas id="game" width="1200" height="800"></canvas>
     <div class="hud">
       <div class="hud-section">
         <div><span class="hud-label">SCORE</span><span class="hud-value" id="score">0</span></div>
@@ -109,18 +109,18 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.62</div>
+    <div class="version-tag" id="versionTag">v0.65</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.62 — Arcade Reactor
+// JOUST v0.65 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width;   // 800
-const H = canvas.height;  // 600
+const H = canvas.height;  // 800
 
 // Disable image smoothing so pixel art stays crisp when scaled
 ctx.imageSmoothingEnabled = false;
@@ -220,7 +220,7 @@ const LAVA_GAP            = 22;       // vertical space where flames sit (betwee
 const TEST_BURN_FROM_WAVE_1 = true;   // false = arcade authentic (burn starts wave 3)
 const FLOOR_BURN_PER_WAVE = 90;       // pixels burned from each side per wave
 const FLOOR_BURN_RATE     = 50;       // pixels/sec animation speed during transition
-const CEILING        = 28;     // hard ceiling near top
+const CEILING        = 22;     // hard ceiling near top (v0.65 taller roof)
 
 // Floor + lava Y positions are dynamic — they follow the base sprite so
 // everything stays aligned even if BASE_WALK_Y_PCT is tuned.
@@ -392,18 +392,21 @@ const PLATFORM_THICKNESS  = 14;
 const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
 
 const platforms = [
-  // Top row (small side ledges)
-  { sprite: 'floorfourleft',     cx: 0.20, y: 130 },
-  { sprite: 'floorfourright',    cx: 0.80, y: 130 },
-  // Middle row (single wide)
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 250 },
-  // Lower row (left + right)
-  { sprite: 'floortwoleft',      cx: 0.20, y: 365 },
-  { sprite: 'floortworight',     cx: 0.80, y: 365 },
-  // floorfourfarright — butted right of floortworight, half-height down
-  { sprite: 'floorfourfarright', cx: 0.92, y: 380 },
-  // Bottom row (wide platform just above base)
-  { sprite: 'floorone',          cx: 0.50, y: 480 },
+  // v0.65: taller playfield + more vertical breathing room.
+  // Floor names are Mike's building-count: base, floor 1, floor 2,
+  // floor 3, floor 4. Birth pads stay on the grey/silver strips.
+  // Floor 4 — top left/right pads
+  { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
+  { sprite: 'floorfourright',    cx: 0.80, y: 185 },
+  // Floor 3 — middle shelf
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 330 },
+  // Floor 2 — left/right pads
+  { sprite: 'floortwoleft',      cx: 0.20, y: 465 },
+  { sprite: 'floortworight',     cx: 0.80, y: 465 },
+  // small far-right ledge, slightly below floor 2
+  { sprite: 'floorfourfarright', cx: 0.92, y: 482 },
+  // Floor 1 — wide shelf above base
+  { sprite: 'floorone',          cx: 0.50, y: 610 },
 ];
 
 // Returns the scaled width of a platform (collision + rendering use this)
@@ -655,6 +658,11 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     birthDuration: dur,
     birthMode: 'enemy',
     birthPad: birthPad || null,
+    // v0.65: after materializing, enemies lift off immediately instead of
+    // walking off the pad and falling. This approximates the ROM feel where
+    // transporter birth hands control to flight, not to a long ground walk.
+    takeoffStarted: false,
+    takeoffTimer: 0,
     invulnTimer: dur,
     alive: true,
   });
@@ -1482,6 +1490,22 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
+    // v0.65 enemy launch: once the birth shimmer ends, snap into flight
+    // immediately. Do not let the bird walk off the silver pad and drop.
+    // The sprite gets a tiny leg-lift and upward velocity, then normal LINET
+    // takes over after a short commitment window.
+    if (!e.takeoffStarted) {
+      e.takeoffStarted = true;
+      e.takeoffTimer = 0.72;
+      e.y -= 8;
+      e.vy = Math.min(e.vy, -175);
+      e.onGround = false;
+      e.flapTimer = 0;
+      e.flapAnimTime = 0;
+      e.aiMode = 'level';
+      e.pdist = e.y;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // Canonical Joust enemy AI — direct port of Bill Pfutzenreuter's 1982
     // 6809 routines (LINET / BOUNDR / B2UNDR / SHADOW / SELPLY / BOLEV)
@@ -1496,9 +1520,10 @@ function update(dt) {
     //      facing direction. NSMART < WSMART promotes a wandering enemy
     //      to smart mode (LNTSMT).
     //
-    //   2. Smart (BOUNDR / B2UNDR / SHADOW) — tier-specific chase. The
-    //      enemy calls SELPLY to find a valid target, then enters one of
-    //      three sub-states based on relative altitude:
+    //   2. Smart (BOUNDR / B2UNDR / SHADOW) — tier-specific pressure. The
+    //      enemy calls SELPLY to find a valid target, but v0.64 gates
+    //      player-relative vertical decisions HARD by proximity so it does not
+    //      chase from the top of the board to the bottom.
     //
     //        dy > dnRange  → DIVE   (BODN: gravity-fall toward player,
     //                                flap only to cap fall speed)
@@ -1529,6 +1554,7 @@ function update(dt) {
     if (e.bumpChainTimer > 0)   e.bumpChainTimer -= dt;
     else e.bumpChain = 0;
     if (e.noFlapTimer > 0)      e.noFlapTimer -= dt;
+    if (e.takeoffTimer > 0)     e.takeoffTimer -= dt;
 
     const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.bounder;
 
@@ -1545,13 +1571,14 @@ function update(dt) {
     // SELPLY — find a valid target (TARTIM check via invulnTimer).
     const target = (player.alive && player.invulnTimer <= 0) ? player : null;
 
-    // Tracking lines in our world (AOFFL1/2/3 ×3, tuned to our platforms).
-    // Wide ~100px bands so an enemy can roam vertically a bit on a line.
-    const TRACK_HI  = 120;
-    const TRACK_MID = 380;
-    const TRACK_LO  = 580;
-    const TRACK_BAND = 100;   // AOFFUD ×3
-    const LAVA_PANIC_Y = 600; // CLIF5 lava-panic line ×3
+    // Tracking lines in our world (AOFFL1/2/3 concept from ROM).
+    // v0.65: lines are deliberately BETWEEN our floor rows, not on the pads.
+    // This makes post-birth birds leave the pad and fly through open air.
+    const TRACK_HI  = 240;
+    const TRACK_MID = 430;
+    const TRACK_LO  = 625;
+    const TRACK_BAND = 115;
+    const LAVA_PANIC_Y = getLavaTopY() - 80;
 
     // v0.62: tighten enemy flight. The previous pass corrected horizontal
     // intent, but enemies still flapped the moment they slipped even 1px
@@ -1595,55 +1622,75 @@ function update(dt) {
       // ─── Smart AI — tier-specific chase.
       // LAVA PANIC override (BODIRL / BOLAVA): too close to lava, falling,
       // FORCE flap up regardless of mode. Saves us from suicide dives.
-      if (e.y > LAVA_PANIC_Y && e.vy >= 0) {
+      if ((e.y + BIRD_H > LAVA_PANIC_Y || e.y + BIRD_H > getLavaTopY() - 70) && e.vy >= 0) {
         wantFlap = true;
+        e.aiMode = 'climb';
       }
 
       const dy = target.y - e.y;   // positive = player below us
+      const dxAbsRaw = Math.abs((target.x + BIRD_W / 2) - (e.x + BIRD_W / 2));
+      const dxAbs = Math.min(dxAbsRaw, W - dxAbsRaw); // screen-wrap aware distance
 
-      // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout),
-      // OR on the very first frame after promotion (aiMode default).
-      // BOUNDR's top-level decision: dy >= dnRange → DIVE; dy ≤ -upRange
-      // → CLIMB; otherwise LEVEL.
-      if (e.aiTimer <= 0) {
-        if (dy >= diveRange) {
-          e.aiMode = 'dive';
-        } else if (dy <= -climbRange) {
-          e.aiMode = 'climb';
-        } else {
-          e.aiMode = 'level';
-          e.pdist  = e.y;            // PDIST: remember OUR current Y line (ROM BOLEV uses PPOSY,U)
-          e.ppvelx = target.vx;      // PPVELX: remember player's vx
-          e.prdir  = 0.3;             // PRDIR: small debounce before mirror
-        }
-        e.aiTimer = decideTime;
-      }
+      // v0.64: HARD separation between LINET wander and smart engagement.
+      // WSMART makes only a quota of enemies eligible to hunt, but even those
+      // do NOT globally chase altitude. If a smart enemy is not already close
+      // enough to the player, it immediately falls back to LINET-style lane
+      // tracking and the player must go hunt it.
+      const engageX = Math.min(tier.sightWindowX || 220, 135 + 34 * (e.aiAggression || 1.0) + agePressure * 22);
+      const engageY = 70 + agePressure * 15;
+      const playerIsNearby = dxAbs <= engageX && Math.abs(dy) <= engageY;
+      const playerIsLavaBait = target.y > LAVA_PANIC_Y - 80;
 
-      if (e.aiMode === 'dive') {
-        // BODN/BODIR: vertical decision only. The ROM does NOT turn the enemy
-        // into a horizontal homing missile here; BODIR returns joystick X from
-        // PFACE. Direction changes mostly come from cliff/bump handling and
-        // level-flight reconsideration.
-        if (e.vy > tier.dnVyCap) wantFlap = true;
-        steerDir = e.facingLeft ? -1 : 1;
-      } else if (e.aiMode === 'climb') {
-        // BOUP: climb with short, controlled flap bursts. Do not flap every
-        // frame/cooldown forever; that was the ocean-float problem. Once the
-        // bird already has decent upward velocity, let momentum carry it.
-        wantFlap = e.vy > -115;
+      if (!playerIsNearby) {
+        // Do NOT preserve old dive/climb after the player leaves the nearby
+        // window. This was the v0.63 bug: a bird could stay in dive and keep
+        // falling toward a player who had moved to the bottom/lava.
+        e.aiMode = 'level';
+        e.pdist = trackLine;
+        e.aiTimer = Math.max(e.aiTimer, 0.20);
+
+        // Pure LINET: maintain own lane, drift in current facing direction.
+        if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 14) wantFlap = true;
         steerDir = e.facingLeft ? -1 : 1;
       } else {
-        // BOLEV — LEVEL FLIGHT. On entry, PDIST remembers the enemy's own Y
-        // line, not the player's current Y. If we sag below that line while
-        // falling, flap back up. Otherwise drift and periodically reconsider.
-        if (e.y > e.pdist + LEVEL_FLAP_DEADBAND && e.vy >= 12) wantFlap = true;
+        // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout).
+        // Only now do we use player altitude. This gives the arcade "one of
+        // them is on me" pressure without the whole wave suicide-chasing.
+        if (e.aiTimer <= 0) {
+          if (dy >= diveRange && !playerIsLavaBait) {
+            e.aiMode = 'dive';
+          } else if (dy <= -climbRange) {
+            e.aiMode = 'climb';
+          } else {
+            e.aiMode = 'level';
+            e.pdist = target.y;
+          }
+          e.aiTimer = decideTime;
+        }
 
-        // No intentional horizontal turn here. The real feel comes from
-        // vertical pressure while the rider commits to its current facing.
-        // If it needs to reverse, it must earn that reversal by bouncing off
-        // a platform/bird/edge, producing the classic auto-180 behavior.
-        steerDir = e.facingLeft ? -1 : 1;
+        if (e.aiMode === 'dive') {
+          // Nearby-only dive. Let gravity do the work, but cap runaway fall.
+          if (e.vy > tier.dnVyCap) wantFlap = true;
+          steerDir = e.facingLeft ? -1 : 1;
+        } else if (e.aiMode === 'climb') {
+          // Nearby-only climb with short, controlled bursts.
+          wantFlap = e.vy > -105;
+          steerDir = e.facingLeft ? -1 : 1;
+        } else {
+          // Nearby level flight remembers player's altitude briefly, but with
+          // a deadband so it does not become ocean-bob homing.
+          if (e.y > e.pdist + LEVEL_FLAP_DEADBAND && e.vy >= 16) wantFlap = true;
+          steerDir = e.facingLeft ? -1 : 1;
+        }
       }
+    }
+
+    // v0.65 takeoff commitment: for the first fraction of a second after
+    // materializing, fly immediately away from the pad. This prevents the old
+    // behavior where enemies walked off the platform and fell before flapping.
+    if (e.takeoffTimer > 0) {
+      steerDir = e.facingLeft ? -1 : 1;
+      if (e.vy > -95 && e.flapTimer <= 0) wantFlap = true;
     }
 
     // ─── Cliff/platform escape override.
