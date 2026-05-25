@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.65 — Arcade Reactor</title>
+<title>JOUST v0.71 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.70 LANE/ BUMP TEST</div>
+    <div class="version-tag" id="versionTag">v0.71 AUDIO MIX TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.70 — Arcade Reactor — Lane / Floor Bump Test
+// JOUST v0.71 — Arcade Reactor — Audio Mix Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -802,6 +802,9 @@ const audioBuffers = {
   enemybirth:   null,  // generic/unknown enemy birth (fallback)
 };
 
+const AUDIO_CACHE_VERSION = 'v071-audio-mix-test-2';
+function audioUrl(path) { return path + '?v=' + AUDIO_CACHE_VERSION; }
+
 function loadAudioBuffer(name, url) {
   fetch(url)
     .then(r => {
@@ -820,21 +823,21 @@ function loadAudioBuffer(name, url) {
 
 // Kick off loads on script start. Missing files fail silently and the
 // corresponding snd.* function falls back to its built-in synth.
-loadAudioBuffer('flap',         '../assets/joust/sounds/flap.wav');
-loadAudioBuffer('egg',          '../assets/joust/sounds/egg.wav');
-loadAudioBuffer('skid',         '../assets/joust/sounds/skid.wav');
-loadAudioBuffer('jousthit',     '../assets/joust/sounds/jousthit.wav');
-loadAudioBuffer('enemycollide', '../assets/joust/sounds/enemycollide.wav');
-loadAudioBuffer('floorbump',    '../assets/joust/sounds/floorbump.wav');
-loadAudioBuffer('death',        '../assets/joust/sounds/death.wav');
-loadAudioBuffer('spawn',        '../assets/joust/sounds/spawn.wav');
-loadAudioBuffer('wave',         '../assets/joust/sounds/wave.wav');
-loadAudioBuffer('hundred',      '../assets/joust/sounds/hundred.wav');
-loadAudioBuffer('pterodactyl',  '../assets/joust/sounds/pterodactyl.wav');
-loadAudioBuffer('lavatroll',    '../assets/joust/sounds/lavatroll.wav');
-loadAudioBuffer('mybirth',      '../assets/joust/sounds/mybirth.wav');
-loadAudioBuffer('bluebirth',    '../assets/joust/sounds/bluebirth.wav');
-loadAudioBuffer('enemybirth',   '../assets/joust/sounds/enemybirth.wav');
+loadAudioBuffer('flap', audioUrl('../assets/joust/sounds/flap.wav'));
+loadAudioBuffer('egg', audioUrl('../assets/joust/sounds/egg.wav'));
+loadAudioBuffer('skid', audioUrl('../assets/joust/sounds/skid.wav'));
+loadAudioBuffer('jousthit', audioUrl('../assets/joust/sounds/jousthit.wav'));
+loadAudioBuffer('enemycollide', audioUrl('../assets/joust/sounds/enemycollide.wav'));
+loadAudioBuffer('floorbump', audioUrl('../assets/joust/sounds/floorbump.wav'));
+loadAudioBuffer('death', audioUrl('../assets/joust/sounds/death.wav'));
+loadAudioBuffer('spawn', audioUrl('../assets/joust/sounds/spawn.wav'));
+loadAudioBuffer('wave', audioUrl('../assets/joust/sounds/wave.wav'));
+loadAudioBuffer('hundred', audioUrl('../assets/joust/sounds/hundred.wav'));
+loadAudioBuffer('pterodactyl', audioUrl('../assets/joust/sounds/pterodactyl.wav'));
+loadAudioBuffer('lavatroll', audioUrl('../assets/joust/sounds/lavatroll.wav'));
+loadAudioBuffer('mybirth', audioUrl('../assets/joust/sounds/mybirth.wav'));
+loadAudioBuffer('bluebirth', audioUrl('../assets/joust/sounds/bluebirth.wav'));
+loadAudioBuffer('enemybirth', audioUrl('../assets/joust/sounds/enemybirth.wav'));
 
 //── Central arcade sound mixer ──────────────────────────────────────────────
 // Keep WAV files clean/neutral; this table is the cabinet mix. Volume controls
@@ -847,14 +850,14 @@ const SOUND_MIX = {
   jousthit:     { volume: 0.68, priority: 760,  cooldownMs: 70 },
   enemycollide: { volume: 0.44, priority: 620,  cooldownMs: 80 },
   skid:         { volume: 0.48, priority: 650,  cooldownMs: 120 },
-  egg:          { volume: 0.08, priority: 520,  cooldownMs: 80 },
+  egg:          { volume: 0.05, priority: 520,  cooldownMs: 80 },
   hundred:      { volume: 0.30, priority: 500,  cooldownMs: 80 },
   spawn:        { volume: 0.38, priority: 420,  cooldownMs: 120 },
   wave:         { volume: 0.46, priority: 700,  duckOthers: 0.75, duckMs: 300, cooldownMs: 250 },
   mybirth:      { volume: 0.46, priority: 430,  cooldownMs: 150 },
   bluebirth:    { volume: 0.38, priority: 420,  cooldownMs: 150 },
   enemybirth:   { volume: 0.36, priority: 400,  cooldownMs: 150 },
-  flap:         { volume: 0.08, priority: 220,  cooldownMs: 45 },
+  flap:         { volume: 0.05, priority: 220,  cooldownMs: 45 },
   wingDown:     { volume: 0.20, priority: 220,  cooldownMs: 45 },
   wingUp:       { volume: 0.18, priority: 210,  cooldownMs: 45 },
   floorbump:    { volume: 0.16, priority: 180,  cooldownMs: 90 },
