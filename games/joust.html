@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.71 — Arcade Reactor</title>
+<title>JOUST v0.72 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.71 AUDIO MIX TEST</div>
+    <div class="version-tag" id="versionTag">v0.72 BIRTH SOUND FIX</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.71 — Arcade Reactor — Audio Mix Test
+// JOUST v0.72 — Arcade Reactor — Birth Sound Fix
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -854,8 +854,8 @@ const SOUND_MIX = {
   hundred:      { volume: 0.30, priority: 500,  cooldownMs: 80 },
   spawn:        { volume: 0.38, priority: 420,  cooldownMs: 120 },
   wave:         { volume: 0.46, priority: 700,  duckOthers: 0.75, duckMs: 300, cooldownMs: 250 },
-  mybirth:      { volume: 0.46, priority: 430,  cooldownMs: 150 },
-  bluebirth:    { volume: 0.38, priority: 420,  cooldownMs: 150 },
+  mybirth:      { volume: 0.36, priority: 430,  cooldownMs: 150 },
+  bluebirth:    { volume: 0.30, priority: 420,  cooldownMs: 400 },
   enemybirth:   { volume: 0.36, priority: 400,  cooldownMs: 150 },
   flap:         { volume: 0.05, priority: 220,  cooldownMs: 45 },
   wingDown:     { volume: 0.20, priority: 220,  cooldownMs: 45 },
@@ -871,6 +871,7 @@ const soundState = {
   duckUntil: 0,
   duckAmount: 1,
   duckPriorityFloor: 800,
+  activeByKey: Object.create(null),
 };
 
 function getSoundDef(name) {
@@ -897,8 +898,27 @@ function shouldSkipSound(name, def, now) {
   return false;
 }
 
-// Play a loaded buffer with optional pitch + volume variation. Returns true
-// if the buffer played, false if it wasn't loaded (caller can synth-fallback).
+function stopSound(key, fadeMs) {
+  const handle = soundState.activeByKey[key];
+  if (!handle || !handle.src) return;
+  try {
+    const ac = getAudio();
+    const now = ac.currentTime;
+    const fade = Math.max(0.01, (fadeMs === undefined ? 60 : fadeMs) / 1000);
+    if (handle.gain) {
+      const current = handle.gain.gain.value;
+      handle.gain.gain.cancelScheduledValues(now);
+      handle.gain.gain.setValueAtTime(current, now);
+      handle.gain.gain.linearRampToValueAtTime(0.0001, now + fade);
+    }
+    handle.src.stop(now + fade);
+  } catch (e) {}
+  delete soundState.activeByKey[key];
+}
+
+// Play a loaded buffer with optional pitch + volume variation. Returns the
+// source node if it played, true if intentionally skipped by mixer/singleton,
+// or false if the buffer was not loaded so caller can synth-fallback.
 function playBuffer(name, opts) {
   opts = opts || {};
   const buf = audioBuffers[name];
@@ -910,6 +930,12 @@ function playBuffer(name, opts) {
   const mixKey = opts.mixKey || name;
   const def = getSoundDef(mixKey);
   const now = performance.now();
+  const stopKey = opts.stopKey || mixKey;
+
+  // Single-voice sounds, like blue knight birth, should not stack. Stacking
+  // duplicate birth WAVs on the same pad causes harsh comb-filter/chalkboard
+  // artifacts, so keep the first one and ignore later duplicates until it ends.
+  if (opts.singleton && soundState.activeByKey[stopKey]) return true;
 
   if (!opts.force && shouldSkipSound(mixKey, def, now)) return true;
   soundState.lastPlayed[mixKey] = now;
@@ -923,9 +949,12 @@ function playBuffer(name, opts) {
 
   src.connect(g); g.connect(ac.destination);
 
+  const handle = { src, gain: g, key: stopKey };
+  soundState.activeByKey[stopKey] = handle;
   soundState.activeCount++;
   src.onended = () => {
     soundState.activeCount = Math.max(0, soundState.activeCount - 1);
+    if (soundState.activeByKey[stopKey] === handle) delete soundState.activeByKey[stopKey];
   };
 
   src.start();
@@ -936,7 +965,7 @@ function playBuffer(name, opts) {
     soundState.duckPriorityFloor = def.duckPriorityFloor || 800;
   }
 
-  return true;
+  return src;
 }
 
 // Cartoon descending whistle skid. Triangle wave, frequency 800 Hz → 80 Hz.
@@ -1077,7 +1106,7 @@ const snd = {
   // Player birth/respawn — plays each time the player materializes on the
   // base platform. Cancels if the player moves before the sound finishes.
   mybirth: () => {
-    const played = playBuffer('mybirth');
+    const played = playBuffer('mybirth', { stopKey: 'mybirth' });
     if (!played) {
       tone(440, 0.10, 'square', 0.18);
       setTimeout(() => tone(660, 0.10, 'square', 0.18), 90);
@@ -1087,7 +1116,7 @@ const snd = {
   },
   // Blue knight (Shadow Lord equivalent) birth — currently our only enemy
   bluebirth: () => {
-    const played = playBuffer('bluebirth');
+    const played = playBuffer('bluebirth', { singleton: true, stopKey: 'bluebirth' });
     if (!played) {
       tone(330, 0.08, 'sawtooth', 0.15);
       setTimeout(() => tone(440, 0.12, 'sawtooth', 0.15), 80);
@@ -1430,6 +1459,7 @@ function update(dt) {
       if (keys.flapPressed || keys.left || keys.right) {
         player.birthTimer = 0;
         player.invulnTimer = 0;   // cancel protection too
+        stopSound('mybirth', 60); // movement cancels the long neutral birth audio too
       } else {
         player.birthTimer -= dt;
         break playerBlock;        // skip rest of physics — bird frozen on pad
