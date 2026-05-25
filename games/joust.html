@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.73 — Arcade Reactor</title>
+<title>JOUST v0.74 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.73 UPPER LANE ESCAPE TEST</div>
+    <div class="version-tag" id="versionTag">v0.74 ENEMY LAVA GUARD TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.73 — Arcade Reactor — Upper Lane Escape Test
+// JOUST v0.74 — Arcade Reactor — Enemy Lava Guard Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -2039,11 +2039,22 @@ function update(dt) {
     }
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // Lava death — enemy bottom touches lava surface = instant kill.
+    // v0.74 enemy lava guard: enemies should never commit suicide into
+    // the lava. In real Joust the player can die down here, eggs can burn,
+    // but enemies should panic/recover instead of deleting themselves. If an
+    // enemy falls too low, snap it just above the lava line, force the next
+    // lane upward, and give it a short climb/escape impulse.
     {
+      const lavaTop = getLavaTopY();
       const ebottom = e.y + BIRD_H;
-      if (ebottom > getLavaTopY()) {
-        e.alive = false;
+      if (ebottom > lavaTop - 6) {
+        e.y = lavaTop - BIRD_H - 10;
+        e.vy = Math.min(e.vy, -95);
+        e.flightLine = laneAbove(e.y + BIRD_H / 2);
+        e.aiMode = 'climb';
+        e.noFlapTimer = 0;
+        e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.35);
+        e.laneRetargetTimer = Math.max(e.laneRetargetTimer || 0, 0.9);
       }
     }
   }
