@@ -836,6 +836,64 @@ loadAudioBuffer('mybirth',      '../assets/joust/sounds/mybirth.wav');
 loadAudioBuffer('bluebirth',    '../assets/joust/sounds/bluebirth.wav');
 loadAudioBuffer('enemybirth',   '../assets/joust/sounds/enemybirth.wav');
 
+//── Central arcade sound mixer ──────────────────────────────────────────────
+// Keep WAV files clean/neutral; this table is the cabinet mix. Volume controls
+// loudness, priority controls who wins during crowded moments, duckOthers gives
+// important sounds temporary authority without simply making them obnoxious.
+const SOUND_MIX = {
+  pterodactyl:  { volume: 0.95, priority: 1000, duckOthers: 0.45, duckMs: 450, cooldownMs: 250 },
+  death:        { volume: 0.80, priority: 900,  duckOthers: 0.65, duckMs: 250, cooldownMs: 150 },
+  lavatroll:    { volume: 0.72, priority: 820,  duckOthers: 0.70, duckMs: 250, cooldownMs: 250 },
+  jousthit:     { volume: 0.68, priority: 760,  cooldownMs: 70 },
+  enemycollide: { volume: 0.44, priority: 620,  cooldownMs: 80 },
+  skid:         { volume: 0.48, priority: 650,  cooldownMs: 120 },
+  egg:          { volume: 0.34, priority: 520,  cooldownMs: 80 },
+  hundred:      { volume: 0.30, priority: 500,  cooldownMs: 80 },
+  spawn:        { volume: 0.38, priority: 420,  cooldownMs: 120 },
+  wave:         { volume: 0.46, priority: 700,  duckOthers: 0.75, duckMs: 300, cooldownMs: 250 },
+  mybirth:      { volume: 0.46, priority: 430,  cooldownMs: 150 },
+  bluebirth:    { volume: 0.38, priority: 420,  cooldownMs: 150 },
+  enemybirth:   { volume: 0.36, priority: 400,  cooldownMs: 150 },
+  flap:         { volume: 0.18, priority: 220,  cooldownMs: 45 },
+  wingDown:     { volume: 0.20, priority: 220,  cooldownMs: 45 },
+  wingUp:       { volume: 0.18, priority: 210,  cooldownMs: 45 },
+  floorbump:    { volume: 0.16, priority: 180,  cooldownMs: 90 },
+  clipClop:     { volume: 0.10, priority: 100,  cooldownMs: 70 },
+};
+
+const DEFAULT_SOUND_MIX = { volume: 0.35, priority: 300, cooldownMs: 80 };
+const soundState = {
+  lastPlayed: Object.create(null),
+  activeCount: 0,
+  duckUntil: 0,
+  duckAmount: 1,
+  duckPriorityFloor: 800,
+};
+
+function getSoundDef(name) {
+  return SOUND_MIX[name] || DEFAULT_SOUND_MIX;
+}
+
+function getMixedVolume(name, volumeScale) {
+  const def = getSoundDef(name);
+  const now = performance.now();
+  const duckActive = now < soundState.duckUntil && def.priority < soundState.duckPriorityFloor;
+  const duckMultiplier = duckActive ? soundState.duckAmount : 1;
+  const scale = volumeScale !== undefined ? volumeScale : 1;
+  return clamp(def.volume * scale * duckMultiplier, 0, 1);
+}
+
+function shouldSkipSound(name, def, now) {
+  const last = soundState.lastPlayed[name] || 0;
+  if (def.cooldownMs && now - last < def.cooldownMs) return true;
+
+  // Old arcade-style voice stealing: background texture gives way first.
+  if (soundState.activeCount >= 8 && def.priority < 400) return true;
+  if (soundState.activeCount >= 12 && def.priority < 800) return true;
+
+  return false;
+}
+
 // Play a loaded buffer with optional pitch + volume variation. Returns true
 // if the buffer played, false if it wasn't loaded (caller can synth-fallback).
 function playBuffer(name, opts) {
@@ -846,15 +904,35 @@ function playBuffer(name, opts) {
   if (ac._broken) return false;
   if (ac.state === 'suspended') ac.resume();
 
+  const mixKey = opts.mixKey || name;
+  const def = getSoundDef(mixKey);
+  const now = performance.now();
+
+  if (!opts.force && shouldSkipSound(mixKey, def, now)) return true;
+  soundState.lastPlayed[mixKey] = now;
+
   const src = ac.createBufferSource();
   src.buffer = buf;
   if (opts.playbackRate !== undefined) src.playbackRate.value = opts.playbackRate;
 
   const g = ac.createGain();
-  g.gain.value = opts.volume !== undefined ? opts.volume : 1.0;
+  g.gain.value = getMixedVolume(mixKey, opts.volumeScale);
 
   src.connect(g); g.connect(ac.destination);
+
+  soundState.activeCount++;
+  src.onended = () => {
+    soundState.activeCount = Math.max(0, soundState.activeCount - 1);
+  };
+
   src.start();
+
+  if (def.duckOthers) {
+    soundState.duckUntil = now + (def.duckMs || 400);
+    soundState.duckAmount = def.duckOthers;
+    soundState.duckPriorityFloor = def.duckPriorityFloor || 800;
+  }
+
   return true;
 }
 
@@ -897,7 +975,6 @@ const snd = {
     // Subtle pitch variation so rapid flaps don't sound robotic.
     const played = playBuffer('flap', {
       playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
-      volume: 0.06,
     });
     if (!played) {
       noiseBurst(0.08, 0.06);
@@ -905,7 +982,7 @@ const snd = {
     }
   },
   jousthit: () => {
-    const played = playBuffer('jousthit', { volume: 0.5 });
+    const played = playBuffer('jousthit');
     if (!played) {
       tone(660, 0.08, 'square', 0.14);
       setTimeout(() => tone(880, 0.12, 'square', 0.14), 60);
@@ -914,7 +991,7 @@ const snd = {
   // Bird vs bird contact — fires on ANY bird-vs-bird collision (joust kill OR
   // even-height bounce). Plays alongside jousthit on actual kills.
   enemycollide: () => {
-    const played = playBuffer('enemycollide', { volume: 0.45 });
+    const played = playBuffer('enemycollide');
     if (!played) {
       tone(440, 0.05, 'square', 0.12);
     }
@@ -922,27 +999,27 @@ const snd = {
   // Bird vs platform side or underside (NOT landing on top — that's silent).
   // Common: flying into the side of a platform during ascent or hitting head.
   floorbump: () => {
-    const played = playBuffer('floorbump', { volume: 0.35 });
+    const played = playBuffer('floorbump');
     if (!played) {
       tone(160, 0.06, 'square', 0.12);
     }
   },
   death:    () => {
-    const played = playBuffer('death', { volume: 0.6 });
+    const played = playBuffer('death');
     if (!played) {
       tone(220, 0.15, 'sawtooth', 0.18);
       setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150);
     }
   },
   spawn:    () => {
-    const played = playBuffer('spawn', { volume: 0.4 });
+    const played = playBuffer('spawn');
     if (!played) {
       tone(180, 0.06, 'triangle', 0.10);
       setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60);
     }
   },
   egg:      () => {
-    const played = playBuffer('egg', { volume: 0.15 });
+    const played = playBuffer('egg');
     if (!played) {
       // Fallback: bright ascending blip
       tone(880, 0.06, 'triangle', 0.14);
@@ -952,7 +1029,7 @@ const snd = {
   // 100-point pickup (used when player catches a resting egg or chain bonus).
   // Falls back to a brighter version of egg sound if no dedicated wav exists.
   hundred:  () => {
-    const played = playBuffer('hundred', { volume: 0.3 });
+    const played = playBuffer('hundred');
     if (!played) {
       tone(1320, 0.05, 'triangle', 0.18);
       setTimeout(() => tone(1760, 0.08, 'triangle', 0.18), 50);
@@ -963,12 +1040,12 @@ const snd = {
     // the natural arcade pitch (0.95-1.05).
     const played = playBuffer('skid', {
       playbackRate: 0.95 + intensity * 0.1,
-      volume: 0.3 + intensity * 0.4,
+      volumeScale: 0.75 + intensity * 0.55,
     });
     if (!played) skidSound(intensity);
   },
   wave:     () => {
-    const played = playBuffer('wave', { volume: 0.5 });
+    const played = playBuffer('wave');
     if (!played) {
       tone(523, 0.12, 'square', 0.14);
       setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
@@ -977,7 +1054,7 @@ const snd = {
   },
   // Pterodactyl scream — for future use when pterodactyl enemy is added.
   pterodactyl: () => {
-    const played = playBuffer('pterodactyl', { volume: 0.5 });
+    const played = playBuffer('pterodactyl');
     if (!played) {
       // Fallback: descending sawtooth screech
       tone(1200, 0.08, 'sawtooth', 0.18);
@@ -987,7 +1064,7 @@ const snd = {
   },
   // Lava troll grab — for future use when lava troll mechanic is added.
   lavatroll: () => {
-    const played = playBuffer('lavatroll', { volume: 0.5 });
+    const played = playBuffer('lavatroll');
     if (!played) {
       // Fallback: bubbly low rumble + rising menace
       tone(80, 0.20, 'sawtooth', 0.20);
@@ -997,7 +1074,7 @@ const snd = {
   // Player birth/respawn — plays each time the player materializes on the
   // base platform. Cancels if the player moves before the sound finishes.
   mybirth: () => {
-    const played = playBuffer('mybirth', { volume: 0.5 });
+    const played = playBuffer('mybirth');
     if (!played) {
       tone(440, 0.10, 'square', 0.18);
       setTimeout(() => tone(660, 0.10, 'square', 0.18), 90);
@@ -1007,7 +1084,7 @@ const snd = {
   },
   // Blue knight (Shadow Lord equivalent) birth — currently our only enemy
   bluebirth: () => {
-    const played = playBuffer('bluebirth', { volume: 0.4 });
+    const played = playBuffer('bluebirth');
     if (!played) {
       tone(330, 0.08, 'sawtooth', 0.15);
       setTimeout(() => tone(440, 0.12, 'sawtooth', 0.15), 80);
@@ -1016,7 +1093,7 @@ const snd = {
   },
   // Generic enemy birth — fallback when type isn't determined
   enemybirth: () => {
-    const played = playBuffer('enemybirth', { volume: 0.4 });
+    const played = playBuffer('enemybirth');
     if (!played) {
       tone(280, 0.10, 'sawtooth', 0.15);
     }
