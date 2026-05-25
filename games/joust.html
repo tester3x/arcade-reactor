@@ -634,6 +634,8 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     tier: tierName,
     flapPower: tier.flapPower,
     aiAggression: tier.aiAggression,
+    flightAge: 0,              // seconds since birth ended; raises vertical aggression over time
+    bumpCooldown: 0,           // prevents platform-edge pinball double-flips
     // Canonical Joust AI state (ports the 1982 ROM's per-process AI vars):
     //   isSmart  → false until LINET promotes us under WSMART quota
     //   aiMode   → 'level' | 'climb' | 'dive' (set on transitions from BOLEV)
@@ -1506,11 +1508,10 @@ function update(dt) {
     //                                debounce, periodically reconsider)
     //
     // The smart enemy DOESN'T horizontally home like a missile — it drifts
-    // in its current facing direction and only flips when the player's
-    // velocity changes (after PRDIR debounce ticks) or it hits a cliff.
-    // This is what makes arcade Joust enemies feel like they have a life
-    // of their own. Most encounters happen because the bird wandered into
-    // your space, not because it's locked-on hunting you.
+    // in its current facing direction. It does NOT intentionally turn toward
+    // the player. Direction flips come from collision/cliff/edge responses
+    // (auto-180), while aggression ramps through vertical choices, flap power,
+    // and shorter decision timers.
     //
     // LAVA PANIC: at any altitude below the lava-warn line (~580 in our
     // world; CLIF5=$D3=211 in arcade), if we're falling we force-flap up.
@@ -1520,10 +1521,26 @@ function update(dt) {
     e.plavt     -= dt;
     e.flapTimer -= dt;
     e.flapAnimTime += dt;
+    e.flightAge = (e.flightAge || 0) + dt;
     if (e.prdir > 0)            e.prdir -= dt;
     if (e.facingFlipTimer > 0)  e.facingFlipTimer -= dt;
+    if (e.bumpCooldown > 0)     e.bumpCooldown -= dt;
+    if (e.bumpEscapeTimer > 0)  e.bumpEscapeTimer -= dt;
+    if (e.bumpChainTimer > 0)   e.bumpChainTimer -= dt;
+    else e.bumpChain = 0;
+    if (e.noFlapTimer > 0)      e.noFlapTimer -= dt;
 
     const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.bounder;
+
+    // Arcade-style pressure ramp: the longer a rider lives, the more often
+    // it reconsiders vertical attack and the stronger its flaps get. This is
+    // aggression WITHOUT intentional horizontal turning; facing still only
+    // changes from platform/bird collisions or wrap/edge responses.
+    const agePressure = clamp((e.flightAge || 0) / 28, 0, 1);
+    const aggression  = (e.aiAggression || 1.0) * (1 + agePressure * 0.55);
+    const decideTime  = Math.max(0.08, tier.levelTime / (1 + agePressure * 0.85));
+    const climbRange  = tier.upRange * (1 - agePressure * 0.25);
+    const diveRange   = tier.dnRange * (1 - agePressure * 0.25);
 
     // SELPLY — find a valid target (TARTIM check via invulnTimer).
     const target = (player.alive && player.invulnTimer <= 0) ? player : null;
@@ -1575,16 +1592,15 @@ function update(dt) {
       }
 
       const dy = target.y - e.y;   // positive = player below us
-      const dx = target.x - e.x;
 
       // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout),
       // OR on the very first frame after promotion (aiMode default).
       // BOUNDR's top-level decision: dy >= dnRange → DIVE; dy ≤ -upRange
       // → CLIMB; otherwise LEVEL.
       if (e.aiTimer <= 0) {
-        if (dy >= tier.dnRange) {
+        if (dy >= diveRange) {
           e.aiMode = 'dive';
-        } else if (dy <= -tier.upRange) {
+        } else if (dy <= -climbRange) {
           e.aiMode = 'climb';
         } else {
           e.aiMode = 'level';
@@ -1592,7 +1608,7 @@ function update(dt) {
           e.ppvelx = target.vx;      // PPVELX: remember player's vx
           e.prdir  = 0.3;             // PRDIR: small debounce before mirror
         }
-        e.aiTimer = tier.levelTime;
+        e.aiTimer = decideTime;
       }
 
       if (e.aiMode === 'dive') {
@@ -1614,36 +1630,45 @@ function update(dt) {
         // falling, flap back up. Otherwise drift and periodically reconsider.
         if (e.y > e.pdist && e.vy >= 0) wantFlap = true;
 
-        // BOLEVB/B2LE11-ish facing behavior. The original uses PPVELX/PRDIR
-        // to avoid copying/flipping too often; approximate that by only
-        // allowing occasional turns when the player and enemy are moving the
-        // same way. This creates wandering interceptions instead of lock-on.
-        const targetDir = Math.abs(target.vx) < 15 ? 0 : Math.sign(target.vx);
-        const enemyDir  = Math.abs(e.vx) < 15 ? 0 : Math.sign(e.vx);
-        if (targetDir !== 0 && targetDir === enemyDir && e.prdir <= 0) {
-          e.facingLeft = !e.facingLeft;
-          e.ppvelx = target.vx;
-          e.prdir = 0.45;
-          e.facingFlipTimer = 0.25;
-        }
+        // No intentional horizontal turn here. The real feel comes from
+        // vertical pressure while the rider commits to its current facing.
+        // If it needs to reverse, it must earn that reversal by bouncing off
+        // a platform/bird/edge, producing the classic auto-180 behavior.
         steerDir = e.facingLeft ? -1 : 1;
+      }
+    }
+
+    // ─── Cliff/pocket escape override.
+    // Real Joust reverses on cliff/platform contact, but it does not let the
+    // rider ping-pong in a shelf pocket forever. After a side bonk, commit
+    // horizontally away from the wall for a short window. If it bonks again
+    // quickly, suppress flapping briefly so gravity drops it out of the slot
+    // instead of trapping it between two platform faces.
+    if (e.bumpEscapeTimer > 0) {
+      steerDir = e.facingLeft ? -1 : 1;
+      if (e.noFlapTimer > 0) {
+        wantFlap = false;
+      } else if (e.vy > 40 && e.y > CEILING + 40) {
+        // One soft flap after the escape has some clearance, not a hard
+        // immediate climb back into the same underside.
+        wantFlap = true;
       }
     }
 
     // ─── Apply flap (ADDFLP analog).
     if (wantFlap && e.flapTimer <= 0) {
       const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-      const tierFlap    = e.flapPower || 0.9;
+      const tierFlap    = (e.flapPower || 0.9) * (1 + agePressure * 0.22);
       const impulse     = FLAP_IMPULSE * tierFlap * speedFactor;
       e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-      e.flapTimer    = FLAP_COOLDOWN * 1.2;
+      e.flapTimer    = FLAP_COOLDOWN * Math.max(0.72, 1.2 - agePressure * 0.35);
       e.flapAnimTime = 0;
     }
 
     // ─── Apply horizontal steer (joystick into PVELX). Mild acceleration
     // — enemies don't snap to speed, they drift up to it like the player.
     if (steerDir !== 0) {
-      const accel = HORIZ_ACCEL * 0.45 * (0.85 + 0.25 * (e.aiAggression || 1.0));
+      const accel = HORIZ_ACCEL * 0.45 * (0.85 + 0.25 * aggression);
       e.vx += steerDir * accel * dt;
     }
     // Light air drag so they don't accumulate forever
@@ -1656,11 +1681,40 @@ function update(dt) {
 
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
-    // Cliff bump: flip facing (BOUNDR's B2AV / SHAV cliff-turn behavior).
+    // Cliff/platform side hit = forced auto-180. Important: do NOT keep
+    // flipping every frame while still overlapping an edge. One committed
+    // reverse + an escape window feels much closer to the cabinet behavior.
     if (eSideBumped) {
-      e.facingLeft = !e.facingLeft;
-      e.vx = e.facingLeft ? -80 : 80;
-      e.facingFlipTimer = 0.4;  // don't re-flip immediately
+      if (e.bumpCooldown <= 0) {
+        e.bumpChain = (e.bumpChainTimer > 0 ? (e.bumpChain || 0) + 1 : 1);
+        e.bumpChainTimer = 0.9;
+
+        e.facingLeft = !e.facingLeft;
+        const away = e.facingLeft ? -1 : 1;
+        e.vx = away * (e.bumpChain >= 2 ? 190 : 150);
+
+        if (e.bumpChain >= 2) {
+          // Pocket breaker: second fast bonk means it is trapped between
+          // shelves/walls. Let it fall out for a beat instead of immediately
+          // flapping back into the same platform underside.
+          e.vy = Math.max(e.vy, 120);
+          e.noFlapTimer = 0.34;
+          e.bumpEscapeTimer = 0.62;
+        } else {
+          // First bonk: small upward correction so it clears the face.
+          if (e.vy > -70) e.vy = -70;
+          e.bumpEscapeTimer = 0.38;
+        }
+
+        e.aiTimer = Math.max(e.aiTimer, 0.22);
+        e.facingFlipTimer = 0.45;
+        e.bumpCooldown = 0.26;
+      } else {
+        // Still inside cooldown: keep committing away from the last wall, but
+        // don't auto-180 again. This prevents left-right-left-right chatter.
+        const away = e.facingLeft ? -1 : 1;
+        e.vx = away * Math.max(120, Math.abs(e.vx));
+      }
     }
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
@@ -1668,6 +1722,12 @@ function update(dt) {
     e.y += e.vy * dt;
     const eVRes = resolveVerticalPlatformCollisions(e);
     e.onGround = eVRes.onGround;
+    if (eVRes.bumpedHead) {
+      // Underside bonks are another shelf-pocket symptom. Don't reverse
+      // facing here; just stop the immediate re-flap and drift out.
+      e.noFlapTimer = Math.max(e.noFlapTimer || 0, 0.18);
+      e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.25);
+    }
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
     // Lava death — enemy bottom touches lava surface = instant kill.
