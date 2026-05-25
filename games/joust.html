@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.66</div>
+    <div class="version-tag" id="versionTag">v0.67 SHADOW TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.65 — Arcade Reactor
+// JOUST v0.67 — Arcade Reactor — Shadow Lord Wave 1 Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -310,13 +310,9 @@ const NEXT_TIER = {
 };
 // Wave-based enemy mix. Wave 1 = all bounders, harder waves mix in tougher tiers.
 function pickEnemyTierForWave(waveNum) {
-  const r = Math.random();
-  if (waveNum === 1) return 'bounder';
-  if (waveNum === 2) return r < 0.5 ? 'bounder' : 'hunter';
-  if (waveNum === 3) return r < 0.4 ? 'bounder' : (r < 0.8 ? 'hunter' : 'shadowlord');
-  // Wave 4+: mostly hunters/shadowlords
-  if (r < 0.2) return 'bounder';
-  if (r < 0.6) return 'hunter';
+  // TEST BUILD v0.67:
+  // Force Shadow Lords from wave 1 onward so the blue buzzard sprite set
+  // can be verified immediately without grinding to later waves.
   return 'shadowlord';
 }
 
