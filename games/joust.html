@@ -109,7 +109,7 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.65</div>
+    <div class="version-tag" id="versionTag">v0.66</div>
   </div>
 
 <script>
@@ -399,15 +399,33 @@ const platforms = [
   { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
   { sprite: 'floorfourright',    cx: 0.80, y: 185 },
   // Floor 3 — middle shelf
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 330 },
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 295 },
   // Floor 2 — left/right pads
   { sprite: 'floortwoleft',      cx: 0.20, y: 465 },
   { sprite: 'floortworight',     cx: 0.80, y: 465 },
   // small far-right ledge, slightly below floor 2
   { sprite: 'floorfourfarright', cx: 0.92, y: 482 },
   // Floor 1 — wide shelf above base
-  { sprite: 'floorone',          cx: 0.50, y: 610 },
+  { sprite: 'floorone',          cx: 0.50, y: 575 },
 ];
+
+// v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
+// not on the platform tops. These are guide rails for enemy-only motion;
+// wing flaps are mostly visual now. The player still uses real flap physics.
+const ENEMY_FLIGHT_LANES = [120, 255, 380, 520, 650];
+function nearestEnemyFlightLane(y) {
+  let best = ENEMY_FLIGHT_LANES[0];
+  let bestD = Math.abs(y - best);
+  for (const lane of ENEMY_FLIGHT_LANES) {
+    const d = Math.abs(y - lane);
+    if (d < bestD) { best = lane; bestD = d; }
+  }
+  return best;
+}
+function laneBelow(y) {
+  for (const lane of ENEMY_FLIGHT_LANES) if (lane > y + 20) return lane;
+  return ENEMY_FLIGHT_LANES[ENEMY_FLIGHT_LANES.length - 1];
+}
 
 // Returns the scaled width of a platform (collision + rendering use this)
 function platformWidth(p) {
@@ -663,6 +681,9 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     // transporter birth hands control to flight, not to a long ground walk.
     takeoffStarted: false,
     takeoffTimer: 0,
+    flightLine: birthPad ? laneBelow(y + BIRD_H) : nearestEnemyFlightLane(y),
+    lanePhase: Math.random() * Math.PI * 2,
+    laneRetargetTimer: 0.8 + Math.random() * 0.8,
     invulnTimer: dur,
     alive: true,
   });
@@ -1490,20 +1511,20 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // v0.65 enemy launch: once the birth shimmer ends, snap into flight
-    // immediately. Do not let the bird walk off the silver pad and drop.
-    // The sprite gets a tiny leg-lift and upward velocity, then normal LINET
-    // takes over after a short commitment window.
+    // v0.66 enemy launch: after materializing, do NOT pop upward.
+    // They simply leave the pad into their assigned open-air lane. Flaps are
+    // visual; enemy altitude is lane-guided so they don't fall off a platform
+    // and then "remember" to fly.
     if (!e.takeoffStarted) {
       e.takeoffStarted = true;
-      e.takeoffTimer = 0.72;
-      e.y -= 8;
-      e.vy = Math.min(e.vy, -175);
+      e.takeoffTimer = 0.45;
+      e.flightLine = e.birthPad ? laneBelow(e.y + BIRD_H) : nearestEnemyFlightLane(e.y);
+      e.vy = 0;
       e.onGround = false;
       e.flapTimer = 0;
       e.flapAnimTime = 0;
       e.aiMode = 'level';
-      e.pdist = e.y;
+      e.pdist = e.flightLine;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1571,28 +1592,23 @@ function update(dt) {
     // SELPLY — find a valid target (TARTIM check via invulnTimer).
     const target = (player.alive && player.invulnTimer <= 0) ? player : null;
 
-    // Tracking lines in our world (AOFFL1/2/3 concept from ROM).
-    // v0.65: lines are deliberately BETWEEN our floor rows, not on the pads.
-    // This makes post-birth birds leave the pad and fly through open air.
-    const TRACK_HI  = 240;
-    const TRACK_MID = 430;
-    const TRACK_LO  = 625;
-    const TRACK_BAND = 115;
+    // Enemy route lanes. v0.66: use five open-air lanes based on the
+    // actual floor stack Mike marked, instead of three coarse ROM-scaled
+    // lanes. This keeps enemies between floors and out of platform faces.
     const LAVA_PANIC_Y = getLavaTopY() - 80;
+    const LINE_FLAP_DEADBAND  = 999; // flaps no longer hold enemy altitude
+    const LEVEL_FLAP_DEADBAND = 999;
 
-    // v0.62: tighten enemy flight. The previous pass corrected horizontal
-    // intent, but enemies still flapped the moment they slipped even 1px
-    // below a tracking line. That created the ocean-float wave and drove
-    // birds into platforms. Give normal flight a real deadband so they glide
-    // straighter and only flap after a meaningful drop.
-    const LINE_FLAP_DEADBAND  = 42;
-    const LEVEL_FLAP_DEADBAND = 34;
-
-    // Pick this enemy's current tracking line (LINET lines 197–204):
-    //   start with AOFFL1; if PPOSY ≥ AOFFL1+AOFFUD pick AOFFL2; etc.
-    let trackLine = TRACK_HI;
-    if (e.y >= TRACK_HI + TRACK_BAND)  trackLine = TRACK_MID;
-    if (e.y >= TRACK_MID + TRACK_BAND) trackLine = TRACK_LO;
+    e.laneRetargetTimer = (e.laneRetargetTimer || 0) - dt;
+    let trackLine = e.flightLine || nearestEnemyFlightLane(e.y);
+    if (e.laneRetargetTimer <= 0 && !e.isSmart) {
+      // Dumb LINET wander can occasionally pick the nearest open lane again,
+      // but it does NOT chase the player. This avoids endless laser-straight
+      // screen-saver paths while keeping route-based flight.
+      trackLine = nearestEnemyFlightLane(e.y);
+      e.flightLine = trackLine;
+      e.laneRetargetTimer = 1.4 + Math.random() * 1.8;
+    }
 
     // ─── Promotion check (LNTSMT): when wave has room for more smart
     // enemies, the next wandering bird becomes a hunter. PLAVT gates this
@@ -1607,16 +1623,19 @@ function update(dt) {
 
     let wantFlap = false;
     let steerDir = e.facingLeft ? -1 : 1;
+    let desiredLine = trackLine;
 
     if (!e.isSmart) {
       // ─── LINET — dumb line-tracking wander.
       // If below the tracking line AND not already rising, flap up.
+      desiredLine = trackLine;
       if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 12) wantFlap = true;
       // Otherwise just drift in facing direction. PFACE doesn't change in
       // LINET unless cliff-bump flips it.
     } else if (!target) {
       // Smart but no valid target (player dead/spawning) — fall back to
       // line-tracking so we don't sit still in the air.
+      desiredLine = trackLine;
       if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 12) wantFlap = true;
     } else {
       // ─── Smart AI — tier-specific chase.
@@ -1650,6 +1669,7 @@ function update(dt) {
         e.aiTimer = Math.max(e.aiTimer, 0.20);
 
         // Pure LINET: maintain own lane, drift in current facing direction.
+        desiredLine = trackLine;
         if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 14) wantFlap = true;
         steerDir = e.facingLeft ? -1 : 1;
       } else {
@@ -1663,22 +1683,25 @@ function update(dt) {
             e.aiMode = 'climb';
           } else {
             e.aiMode = 'level';
-            e.pdist = target.y;
+            e.pdist = nearestEnemyFlightLane(target.y);
           }
           e.aiTimer = decideTime;
         }
 
         if (e.aiMode === 'dive') {
           // Nearby-only dive. Let gravity do the work, but cap runaway fall.
+          desiredLine = Math.min(nearestEnemyFlightLane(target.y), e.flightLine || trackLine);
           if (e.vy > tier.dnVyCap) wantFlap = true;
           steerDir = e.facingLeft ? -1 : 1;
         } else if (e.aiMode === 'climb') {
           // Nearby-only climb with short, controlled bursts.
+          desiredLine = Math.max(nearestEnemyFlightLane(target.y), e.flightLine || trackLine);
           wantFlap = e.vy > -105;
           steerDir = e.facingLeft ? -1 : 1;
         } else {
           // Nearby level flight remembers player's altitude briefly, but with
           // a deadband so it does not become ocean-bob homing.
+          desiredLine = e.pdist || trackLine;
           if (e.y > e.pdist + LEVEL_FLAP_DEADBAND && e.vy >= 16) wantFlap = true;
           steerDir = e.facingLeft ? -1 : 1;
         }
@@ -1690,7 +1713,9 @@ function update(dt) {
     // behavior where enemies walked off the platform and fell before flapping.
     if (e.takeoffTimer > 0) {
       steerDir = e.facingLeft ? -1 : 1;
-      if (e.vy > -95 && e.flapTimer <= 0) wantFlap = true;
+      desiredLine = e.flightLine || desiredLine;
+      // no upward launch; just animate the wings as the bird leaves the pad
+      if (e.flapTimer <= 0) { e.flapTimer = 0.18; e.flapAnimTime = 0; }
     }
 
     // ─── Cliff/platform escape override.
@@ -1730,10 +1755,20 @@ function update(dt) {
     // Light air drag so they don't accumulate forever
     e.vx *= 0.985;
 
-    // Apply physics: clamp, gravity, integrate, collisions.
+    // Apply enemy route physics: unlike the player, enemies ride coded
+    // flight lanes. Flapping is mostly animation; vertical motion is a
+    // damped correction toward the chosen open-air line with a tiny wobble.
     e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
-    e.vy += GRAVITY * dt;
-    e.vy = Math.min(e.vy, TERMINAL_VY);
+    const laneWobble = Math.sin((performance.now() / 1000) * 1.7 + (e.lanePhase || 0)) * 7;
+    const laneTarget = clamp((desiredLine || nearestEnemyFlightLane(e.y)) + laneWobble, CEILING + 18, getLavaTopY() - BIRD_H - 25);
+    const laneError = laneTarget - e.y;
+    e.vy += laneError * 3.4 * dt;
+    e.vy *= Math.pow(0.18, dt);
+    e.vy = clamp(e.vy, -115, 115);
+    if (Math.abs(laneError) > 22 && e.flapTimer <= 0) {
+      e.flapTimer = 0.22;
+      e.flapAnimTime = 0;
+    }
 
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
@@ -1754,11 +1789,11 @@ function update(dt) {
         const goUp = Math.random() < 0.5;
         if (goUp) {
           e.bumpVertBias = 'up';
-          e.vy = Math.min(e.vy, e.bumpChain >= 2 ? -110 : -75);
+          e.vy = Math.min(e.vy, e.bumpChain >= 2 ? -65 : -45);
           e.noFlapTimer = 0;
         } else {
           e.bumpVertBias = 'down';
-          e.vy = Math.max(e.vy, e.bumpChain >= 2 ? 125 : 90);
+          e.vy = Math.max(e.vy, e.bumpChain >= 2 ? 75 : 55);
           e.noFlapTimer = e.bumpChain >= 2 ? 0.26 : 0.16;
         }
 
