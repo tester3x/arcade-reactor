@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.51 — Arcade Reactor</title>
+<title>JOUST v0.52 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.51</div>
+    <div class="version-tag" id="versionTag">v0.52</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.51 — Arcade Reactor
+// JOUST v0.52 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -260,6 +260,7 @@ const KNIGHT_TIERS = {
     score: 500,
     flapPower: 0.75,             // weakest flap
     aiAggression: 0.7,           // less aggressive
+    sightWindowX: 180,           // narrow sight cone — easy to flank
     birthSound: 'enemybirth',    // placeholder until specific WAV exists
   },
   hunter: {
@@ -267,6 +268,7 @@ const KNIGHT_TIERS = {
     score: 750,
     flapPower: 0.90,
     aiAggression: 1.0,
+    sightWindowX: 280,           // medium sight cone
     birthSound: 'enemybirth',    // placeholder
   },
   shadowlord: {
@@ -274,6 +276,7 @@ const KNIGHT_TIERS = {
     score: 1000,
     flapPower: 1.00,             // strongest flap, fastest climber
     aiAggression: 1.3,
+    sightWindowX: 380,           // wide sight cone — hard to evade once spotted
     birthSound: 'bluebirth',     // Mike's confirmed WAV
   },
 };
@@ -1421,30 +1424,62 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // Simple AI: occasionally flap toward player's height if below, drift toward player horizontally
+    // Canonical Joust AI (v0.52):
+    // Enemies are NOT homing missiles. They cruise on ballistic horizontal
+    // trajectories and only reverse direction on physical bumps (platform
+    // sides or other birds). They only flap toward the player's altitude
+    // when the player is inside a tier-defined horizontal SIGHT WINDOW —
+    // and even then, not every tick (randomized lock-on chance). Outside
+    // the window they just maintain heading and occasionally flap to fight
+    // gravity. This forces the player to GO HUNT them instead of being
+    // swarmed wherever they stand.
     e.aiTimer -= dt;
     e.flapTimer -= dt;
     e.flapAnimTime += dt;
+
+    const eTier        = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.hunter;
+    const sightWindowX = eTier.sightWindowX || 250;
+    const inSight      = player.alive && Math.abs(player.x - e.x) < sightWindowX;
+    const aggro        = e.aiAggression || 1.0;
+
     if (e.aiTimer <= 0) {
-      e.aiTimer = 0.18 + Math.random() * 0.25;
-      // Flap if we should gain altitude. Tier's flapPower scales the impulse:
-      // Bounder (0.75) = weak; Hunter (0.90) = medium; Shadow Lord (1.00) = strong.
-      const wantAlt = player.alive ? player.y : H / 2;
-      if (e.y > wantAlt + 30 && e.flapTimer <= 0) {
-        const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-        const tierFlap = e.flapPower || 0.9;
-        const impulse = FLAP_IMPULSE * tierFlap * speedFactor;
-        e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-        e.flapTimer = FLAP_COOLDOWN * 1.2;
-        e.flapAnimTime = 0;
-      }
-      // Steer horizontally toward player
-      if (player.alive) {
-        const dx = player.x - e.x;
-        if (Math.abs(dx) > BIRD_W) {
-          e.vx += (dx > 0 ? 1 : -1) * HORIZ_ACCEL * 0.5 * 0.18;
-          e.facingLeft = (dx < 0);
+      e.aiTimer = 0.20 + Math.random() * 0.35;
+
+      if (inSight) {
+        // PLAYER IN SIGHT — consider flapping toward player altitude.
+        // lockOnChance scales with aggression: bounder ~0.64, hunter ~0.70,
+        // shadow lord ~0.76. So even shadow lord misses ~1 in 4 chances,
+        // which gives the player a window to dive on them.
+        const lockOnChance = 0.5 + 0.2 * aggro;
+        if (e.y > player.y + 30 && e.flapTimer <= 0 && Math.random() < lockOnChance) {
+          const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+          const tierFlap    = e.flapPower || 0.9;
+          const impulse     = FLAP_IMPULSE * tierFlap * speedFactor;
+          e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+          e.flapTimer    = FLAP_COOLDOWN * 1.2;
+          e.flapAnimTime = 0;
         }
+      } else {
+        // OUT OF SIGHT — occasional idle flap to fight gravity. Roughly
+        // fires when falling. Keeps them cruising at altitude instead of
+        // sinking into the lava on their own.
+        if (e.vy > 60 && e.flapTimer <= 0 && Math.random() < 0.25) {
+          const tierFlap = e.flapPower || 0.9;
+          const impulse  = FLAP_IMPULSE * tierFlap * 0.85;   // softer idle flap
+          e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+          e.flapTimer    = FLAP_COOLDOWN * 1.5;
+          e.flapAnimTime = 0;
+        }
+      }
+
+      // HORIZONTAL: pick a cruise speed and maintain it in current facing
+      // direction. No tracking. Direction only changes via physical bumps.
+      // Bounder cruises ~155 px/s, hunter ~180, shadow lord ~205.
+      const cruiseSpeed = HORIZ_MAX * (0.50 + 0.20 * aggro);
+      const wantedVx    = e.facingLeft ? -cruiseSpeed : cruiseSpeed;
+      if (Math.abs(e.vx) < Math.abs(wantedVx) - 10) {
+        // Gentle accel toward cruise — don't snap to it, let physics breathe.
+        e.vx += (wantedVx > e.vx ? 1 : -1) * HORIZ_ACCEL * 0.5 * 0.18;
       }
     }
 
@@ -1453,7 +1488,14 @@ function update(dt) {
     e.vy = Math.min(e.vy, TERMINAL_VY);
 
     e.x += e.vx * dt;
-    resolveHorizontalPlatformCollisions(e);
+    const eSideBumped = resolveHorizontalPlatformCollisions(e);
+    // Canonical Joust: side bump REVERSES direction (doesn't just halt). This
+    // is what makes enemies wander corridor-style between platforms instead
+    // of grinding into walls.
+    if (eSideBumped) {
+      e.facingLeft = !e.facingLeft;
+      e.vx = e.facingLeft ? -80 : 80;   // small kick into the new direction
+    }
     // Wrap
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
