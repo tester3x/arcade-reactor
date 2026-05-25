@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.67 SHADOW TEST</div>
+    <div class="version-tag" id="versionTag">v0.68 LANE FLAP TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.67 — Arcade Reactor — Shadow Lord Wave 1 Test
+// JOUST v0.68 — Arcade Reactor — Lane / Flap Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -395,20 +395,20 @@ const platforms = [
   { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
   { sprite: 'floorfourright',    cx: 0.80, y: 185 },
   // Floor 3 — middle shelf
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 295 },
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 257 },
   // Floor 2 — left/right pads
   { sprite: 'floortwoleft',      cx: 0.20, y: 465 },
   { sprite: 'floortworight',     cx: 0.80, y: 465 },
   // small far-right ledge, slightly below floor 2
   { sprite: 'floorfourfarright', cx: 0.92, y: 482 },
   // Floor 1 — wide shelf above base
-  { sprite: 'floorone',          cx: 0.50, y: 575 },
+  { sprite: 'floorone',          cx: 0.50, y: 537 },
 ];
 
 // v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
 // not on the platform tops. These are guide rails for enemy-only motion;
 // wing flaps are mostly visual now. The player still uses real flap physics.
-const ENEMY_FLIGHT_LANES = [120, 255, 380, 520, 650];
+const ENEMY_FLIGHT_LANES = [118, 232, 362, 490, 628];
 function nearestEnemyFlightLane(y) {
   let best = ENEMY_FLIGHT_LANES[0];
   let bestD = Math.abs(y - best);
@@ -421,6 +421,22 @@ function nearestEnemyFlightLane(y) {
 function laneBelow(y) {
   for (const lane of ENEMY_FLIGHT_LANES) if (lane > y + 20) return lane;
   return ENEMY_FLIGHT_LANES[ENEMY_FLIGHT_LANES.length - 1];
+}
+function laneAbove(y) {
+  for (let i = ENEMY_FLIGHT_LANES.length - 1; i >= 0; i--) {
+    const lane = ENEMY_FLIGHT_LANES[i];
+    if (lane < y - 20) return lane;
+  }
+  return ENEMY_FLIGHT_LANES[0];
+}
+function laneIndexOfNearest(y) {
+  let bestI = 0;
+  let bestD = Math.abs(y - ENEMY_FLIGHT_LANES[0]);
+  for (let i = 1; i < ENEMY_FLIGHT_LANES.length; i++) {
+    const d = Math.abs(y - ENEMY_FLIGHT_LANES[i]);
+    if (d < bestD) { bestI = i; bestD = d; }
+  }
+  return bestI;
 }
 
 // Returns the scaled width of a platform (collision + rendering use this)
@@ -680,6 +696,7 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     flightLine: birthPad ? laneBelow(y + BIRD_H) : nearestEnemyFlightLane(y),
     lanePhase: Math.random() * Math.PI * 2,
     laneRetargetTimer: 0.8 + Math.random() * 0.8,
+    visualFlapTimer: Math.random() * 0.25,
     invulnTimer: dur,
     alive: true,
   });
@@ -1507,7 +1524,7 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // v0.66 enemy launch: after materializing, do NOT pop upward.
+    // v0.68 enemy launch: after materializing, do NOT pop upward.
     // They simply leave the pad into their assigned open-air lane. Flaps are
     // visual; enemy altitude is lane-guided so they don't fall off a platform
     // and then "remember" to fly.
@@ -1598,12 +1615,24 @@ function update(dt) {
     e.laneRetargetTimer = (e.laneRetargetTimer || 0) - dt;
     let trackLine = e.flightLine || nearestEnemyFlightLane(e.y);
     if (e.laneRetargetTimer <= 0 && !e.isSmart) {
-      // Dumb LINET wander can occasionally pick the nearest open lane again,
-      // but it does NOT chase the player. This avoids endless laser-straight
-      // screen-saver paths while keeping route-based flight.
-      trackLine = nearestEnemyFlightLane(e.y);
+      // LINET wander: mostly keep the same floor-lane path, sometimes
+      // transition down one lane. This is intentionally NOT player-chase.
+      // Mike's target feel: 70/30-ish patrol-current-lane vs. start moving
+      // to the floor below. Use 80/20 for now because v0.67 was still
+      // drifting downward too much.
+      const i = laneIndexOfNearest(trackLine);
+      const canDrop = i < ENEMY_FLIGHT_LANES.length - 1;
+      const canRise = i > 0;
+      if (canDrop && Math.random() < 0.20) {
+        trackLine = ENEMY_FLIGHT_LANES[i + 1];
+      } else if (!canDrop && canRise && Math.random() < 0.15) {
+        // Bottom lane safety: don't camp the lava lane forever.
+        trackLine = ENEMY_FLIGHT_LANES[i - 1];
+      } else {
+        trackLine = ENEMY_FLIGHT_LANES[i];
+      }
       e.flightLine = trackLine;
-      e.laneRetargetTimer = 1.4 + Math.random() * 1.8;
+      e.laneRetargetTimer = 1.8 + Math.random() * 2.6;
     }
 
     // ─── Promotion check (LNTSMT): when wave has room for more smart
@@ -1752,18 +1781,35 @@ function update(dt) {
     e.vx *= 0.985;
 
     // Apply enemy route physics: unlike the player, enemies ride coded
-    // flight lanes. Flapping is mostly animation; vertical motion is a
-    // damped correction toward the chosen open-air line with a tiny wobble.
+    // flight lanes. Flapping is mostly visual; vertical motion is a damped
+    // correction toward the chosen open-air line with only a slight wobble.
     e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
-    const laneWobble = Math.sin((performance.now() / 1000) * 1.7 + (e.lanePhase || 0)) * 7;
-    const laneTarget = clamp((desiredLine || nearestEnemyFlightLane(e.y)) + laneWobble, CEILING + 18, getLavaTopY() - BIRD_H - 25);
+    const laneWobble = Math.sin((performance.now() / 1000) * 1.15 + (e.lanePhase || 0)) * 3.2;
+    const laneTarget = clamp((desiredLine || nearestEnemyFlightLane(e.y)) + laneWobble, CEILING + 18, getLavaTopY() - BIRD_H - 28);
     const laneError = laneTarget - e.y;
-    e.vy += laneError * 3.4 * dt;
-    e.vy *= Math.pow(0.18, dt);
-    e.vy = clamp(e.vy, -115, 115);
-    if (Math.abs(laneError) > 22 && e.flapTimer <= 0) {
-      e.flapTimer = 0.22;
-      e.flapAnimTime = 0;
+    e.vy += laneError * 2.15 * dt;
+    e.vy *= Math.pow(0.30, dt);
+    e.vy = clamp(e.vy, -88, 88);
+
+    // Visual wing rules:
+    //   falling   -> hold fly2 / wings-up glide, no constant flap
+    //   level     -> casual flap cadence
+    //   climbing  -> fast flap cadence
+    e.visualFlapTimer = (e.visualFlapTimer || 0) - dt;
+    if (e.vy < -18) {
+      if (e.visualFlapTimer <= 0) {
+        e.flapAnimTime = 0;
+        e.visualFlapTimer = 0.10 + Math.random() * 0.035;
+      }
+    } else if (Math.abs(e.vy) <= 18) {
+      if (e.visualFlapTimer <= 0) {
+        e.flapAnimTime = 0;
+        e.visualFlapTimer = 0.26 + Math.random() * 0.10;
+      }
+    } else {
+      // Dropping: wings-up glide frame.
+      e.flapAnimTime = 999;
+      e.visualFlapTimer = Math.max(e.visualFlapTimer, 0.12);
     }
 
     e.x += e.vx * dt;
