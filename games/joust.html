@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.77 — Arcade Reactor</title>
+<title>JOUST v0.78 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.77 FLY SPRITE POLISH</div>
+    <div class="version-tag" id="versionTag">v0.78 DEATH SEQUENCE TIMING</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.77 — Arcade Reactor — Fly Sprite Polish
+// JOUST v0.78 — Arcade Reactor — Death Sequence Timing
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1301,18 +1301,23 @@ function drawParticles() {
 const riderlessBirds = [];
 
 function spawnRiderlessBird(x, y, vx, vy, facingLeft) {
+  // ALWAYS head toward the nearest screen edge with strong velocity,
+  // regardless of player facing or motion at death. This guarantees the
+  // bird exits via the edge condition before the life timeout (no more
+  // vanishing mid-screen) AND that it's gone before the player respawn.
+  const escapeLeft = (x + BIRD_W / 2) < (W / 2);
+  const escapeVx   = escapeLeft ? -550 : 550;
   riderlessBirds.push({
     x: x, y: y,
-    // Inherit the player's velocity but give it an upward kick — bird is
-    // panicking and escapes after the rider vanishes.
-    vx: vx * 0.8 + (facingLeft ? -40 : 40),
+    // mostly the escape vector, plus a small hint of the player's velocity
+    vx: escapeVx + (vx * 0.25),
     vy: vy - 120,
-    facingLeft: facingLeft,
+    facingLeft: escapeLeft,        // face the direction we're flying
     flapTimer: 0,
     flapAnimTime: 0,
     onGround: false,
     isSkidding: false,
-    life: 4.0,  // safety despawn after 4 seconds
+    life: 5.0,  // safety despawn; bird should exit via edge well before this
   });
 }
 
@@ -1410,9 +1415,10 @@ function loseLife() {
     setTimeout(gameOver, 800);
     return;
   }
-  // Respawn after delay
+  // Respawn after delay — long enough for the riderless bird to clear
+  // the screen so the two animations don't visually overlap.
   player.alive = false;
-  player.respawnTimer = 1.0;
+  player.respawnTimer = 2.0;
   eggCatchChain = 0; eggChainTimer = 0;  // death breaks the chain
 }
 
