@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.78 — Arcade Reactor</title>
+<title>JOUST v0.79 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.78 DEATH SEQUENCE TIMING</div>
+    <div class="version-tag" id="versionTag">v0.79 ARCADE DEATH TIMING</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.78 — Arcade Reactor — Death Sequence Timing
+// JOUST v0.79 — Arcade Reactor — Arcade Death Timing
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1301,12 +1301,13 @@ function drawParticles() {
 const riderlessBirds = [];
 
 function spawnRiderlessBird(x, y, vx, vy, facingLeft) {
-  // ALWAYS head toward the nearest screen edge with strong velocity,
-  // regardless of player facing or motion at death. This guarantees the
-  // bird exits via the edge condition before the life timeout (no more
-  // vanishing mid-screen) AND that it's gone before the player respawn.
+  // ALWAYS head toward the nearest screen edge with steady velocity,
+  // regardless of player facing or motion at death. 350 px/sec puts the
+  // exit time in the 0.3-1.9 sec range depending on death position, which
+  // matches the arcade Joust death cadence (panicked bird with time to
+  // flap a few cycles, not Superman streaking off).
   const escapeLeft = (x + BIRD_W / 2) < (W / 2);
-  const escapeVx   = escapeLeft ? -550 : 550;
+  const escapeVx   = escapeLeft ? -350 : 350;
   riderlessBirds.push({
     x: x, y: y,
     // mostly the escape vector, plus a small hint of the player's velocity
