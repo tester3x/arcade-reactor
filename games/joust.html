@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.59 — Arcade Reactor</title>
+<title>JOUST v0.60 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.59</div>
+    <div class="version-tag" id="versionTag">v0.60</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.59 — Arcade Reactor
+// JOUST v0.60 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -1162,6 +1162,7 @@ function updateRiderlessBirds(dt) {
     if (b.flapTimer <= 0) {
       b.vy = Math.max(-180, b.vy - 110);  // upward thrust
       b.flapTimer = 0.35 + Math.random() * 0.15;
+      b.flapAnimTime = 0;                  // restart wing animation each flap
     }
     // Gravity
     b.vy += GRAVITY * dt;
@@ -2199,8 +2200,12 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   if (isSkidding && brakeReady) {
     activeSprite = brakeSprite;
   } else if (inAir && recentFlap && flyReady && fly2Ready) {
-    // Cycle fly + fly2 during the flap animation window
-    const flyFrame = Math.floor(performance.now() / 80) % 2;
+    // Cycle fly + fly2 during the flap animation window.
+    // 140ms per frame (~7Hz) — slower than reality but reads as a clean
+    // flap. At the previous 80ms (12.5Hz) the eye sees alternating
+    // silhouettes as flicker instead of a flap motion. The arcade ROM
+    // ran the wing animation closer to 6-8 Hz.
+    const flyFrame = Math.floor(performance.now() / 140) % 2;
     activeSprite = flyFrame === 0 ? flySprite : fly2Sprite;
   } else if (inAir && fly2Ready) {
     // Gliding in air between flaps — use fly2 (wings level/down) as the
