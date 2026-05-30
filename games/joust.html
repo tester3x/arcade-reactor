@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.74 — Arcade Reactor</title>
+<title>JOUST v0.75 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.74 ENEMY LAVA GUARD TEST</div>
+    <div class="version-tag" id="versionTag">v0.75 ENEMY LAVA GUARD TEST</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.74 — Arcade Reactor — Enemy Lava Guard Test
+// JOUST v0.75 — Arcade Reactor — Enemy Lava Guard Test
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -133,6 +133,8 @@ const sprites = {
   ostrichFly: new Image(),
   ostrichFly2: new Image(),
   ostrichBrake: new Image(),
+  riderlessFly:  new Image(),   // bare ostrich, wings DOWN (after player gets jousted)
+  riderlessFly2: new Image(),   // bare ostrich, wings UP
   buzzard: new Image(),       // Shadow Lord — 1000 pts (currently purple, will be blue)
   buzzardMove: new Image(),
   buzzardFly: new Image(),
@@ -158,6 +160,8 @@ sprites.ostrichMove.src = '../assets/joust/ostrichmove.png';
 sprites.ostrichFly.src  = '../assets/joust/fly.png';
 sprites.ostrichFly2.src = '../assets/joust/fly2.png';
 sprites.ostrichBrake.src = '../assets/joust/ostrichbrake.png';
+sprites.riderlessFly.src  = '../assets/joust/riderlessfly.png';
+sprites.riderlessFly2.src = '../assets/joust/riderlessfly2.png';
 sprites.buzzard.src     = '../assets/joust/buzzard.png';
 sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
 sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
@@ -1322,6 +1326,7 @@ function updateRiderlessBirds(dt) {
     if (b.flapTimer <= 0) {
       b.vy = Math.max(-180, b.vy - 110);  // upward thrust
       b.flapTimer = 0.35 + Math.random() * 0.15;
+      b.flapAnimTime = 0;                  // restart wing animation each flap
     }
     // Gravity
     b.vy += GRAVITY * dt;
@@ -1337,9 +1342,9 @@ function updateRiderlessBirds(dt) {
 
 function drawRiderlessBirds() {
   for (const b of riderlessBirds) {
-    // Use the regular fly sprites — without a brake variant.
-    // If you make riderlessOstrichFly sprites later, swap them in here.
-    drawBird(b, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, null);
+    // Bare ostrich (no rider) — uses dedicated riderlessfly sprites.
+    // No stand/walk/brake variants since the bird is airborne the entire time.
+    drawBird(b, sprites.riderlessFly, sprites.riderlessFly, sprites.riderlessFly, sprites.riderlessFly2, null);
   }
 }
 
@@ -2039,7 +2044,7 @@ function update(dt) {
     }
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // v0.74 enemy lava guard: enemies should never commit suicide into
+    // v0.75 enemy lava guard: enemies should never commit suicide into
     // the lava. In real Joust the player can die down here, eggs can burn,
     // but enemies should panic/recover instead of deleting themselves. If an
     // enemy falls too low, snap it just above the lava line, force the next
