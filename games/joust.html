@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.74 — Arcade Reactor</title>
+<title>JOUST v0.59 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -23,9 +23,9 @@
     min-height: 100vh;
   }
   .wrap {
-    position: relative; width: 1200px; height: 800px;
+    position: relative; width: 1200px; height: 720px;
     max-width: 100vw; max-height: 100vh;
-    aspect-ratio: 3 / 2;
+    aspect-ratio: 4 / 3;
   }
   canvas { display: block; width: 100%; height: 100%; cursor: default; background: #050813; }
 
@@ -92,7 +92,7 @@
 <body>
   <a href="../index.html" class="back-link">← ARCADE REACTOR</a>
   <div class="wrap">
-    <canvas id="game" width="1200" height="800"></canvas>
+    <canvas id="game" width="1200" height="720"></canvas>
     <div class="hud">
       <div class="hud-section">
         <div><span class="hud-label">SCORE</span><span class="hud-value" id="score">0</span></div>
@@ -109,18 +109,18 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.74 ENEMY LAVA GUARD TEST</div>
+    <div class="version-tag" id="versionTag">v0.59</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.74 — Arcade Reactor — Enemy Lava Guard Test
+// JOUST v0.59 — Arcade Reactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width;   // 800
-const H = canvas.height;  // 800
+const H = canvas.height;  // 600
 
 // Disable image smoothing so pixel art stays crisp when scaled
 ctx.imageSmoothingEnabled = false;
@@ -133,6 +133,8 @@ const sprites = {
   ostrichFly: new Image(),
   ostrichFly2: new Image(),
   ostrichBrake: new Image(),
+  riderlessFly:  new Image(),   // bare ostrich, wings DOWN (after player gets jousted)
+  riderlessFly2: new Image(),   // bare ostrich, wings UP
   buzzard: new Image(),       // Shadow Lord — 1000 pts (currently purple, will be blue)
   buzzardMove: new Image(),
   buzzardFly: new Image(),
@@ -158,6 +160,8 @@ sprites.ostrichMove.src = '../assets/joust/ostrichmove.png';
 sprites.ostrichFly.src  = '../assets/joust/fly.png';
 sprites.ostrichFly2.src = '../assets/joust/fly2.png';
 sprites.ostrichBrake.src = '../assets/joust/ostrichbrake.png';
+sprites.riderlessFly.src  = '../assets/joust/riderlessfly.png';
+sprites.riderlessFly2.src = '../assets/joust/riderlessfly2.png';
 sprites.buzzard.src     = '../assets/joust/buzzard.png';
 sprites.buzzardMove.src = '../assets/joust/buzzardmove.png';
 sprites.buzzardFly.src  = '../assets/joust/buzzardfly.png';
@@ -220,7 +224,7 @@ const LAVA_GAP            = 22;       // vertical space where flames sit (betwee
 const TEST_BURN_FROM_WAVE_1 = true;   // false = arcade authentic (burn starts wave 3)
 const FLOOR_BURN_PER_WAVE = 90;       // pixels burned from each side per wave
 const FLOOR_BURN_RATE     = 50;       // pixels/sec animation speed during transition
-const CEILING        = 22;     // hard ceiling near top (v0.65 taller roof)
+const CEILING        = 28;     // hard ceiling near top
 
 // Floor + lava Y positions are dynamic — they follow the base sprite so
 // everything stays aligned even if BASE_WALK_Y_PCT is tuned.
@@ -310,9 +314,13 @@ const NEXT_TIER = {
 };
 // Wave-based enemy mix. Wave 1 = all bounders, harder waves mix in tougher tiers.
 function pickEnemyTierForWave(waveNum) {
-  // TEST BUILD v0.67:
-  // Force Shadow Lords from wave 1 onward so the blue buzzard sprite set
-  // can be verified immediately without grinding to later waves.
+  const r = Math.random();
+  if (waveNum === 1) return 'bounder';
+  if (waveNum === 2) return r < 0.5 ? 'bounder' : 'hunter';
+  if (waveNum === 3) return r < 0.4 ? 'bounder' : (r < 0.8 ? 'hunter' : 'shadowlord');
+  // Wave 4+: mostly hunters/shadowlords
+  if (r < 0.2) return 'bounder';
+  if (r < 0.6) return 'hunter';
   return 'shadowlord';
 }
 
@@ -388,56 +396,19 @@ const PLATFORM_THICKNESS  = 14;
 const PLATFORM_DRAW_SCALE = 0.65;   // smaller = more flying room between platforms
 
 const platforms = [
-  // v0.69: restore lane 2 and lane 4 airspace.
-  // Floor names are Mike's building-count: base, floor 1, floor 2,
-  // floor 3, floor 4. Birth pads stay on the grey/silver strips.
-  // Floor 4 — top left/right pads
-  { sprite: 'floorfourleft',     cx: 0.20, y: 185 },
-  { sprite: 'floorfourright',    cx: 0.80, y: 185 },
-  // Floor 3 — middle shelf (v0.70: up a smidge; v0.69 was too low)
-  { sprite: 'floorthreemiddle',  cx: 0.50, y: 318 },
-  // Floor 2 — left/right pads
-  { sprite: 'floortwoleft',      cx: 0.20, y: 425 },
-  { sprite: 'floortworight',     cx: 0.80, y: 425 },
-  // small far-right ledge, slightly below floor 2
-  { sprite: 'floorfourfarright', cx: 0.92, y: 442 },
-  // Floor 1 — wide shelf above base
-  { sprite: 'floorone',          cx: 0.50, y: 537 },
+  // Top row (small side ledges)
+  { sprite: 'floorfourleft',     cx: 0.20, y: 130 },
+  { sprite: 'floorfourright',    cx: 0.80, y: 130 },
+  // Middle row (single wide)
+  { sprite: 'floorthreemiddle',  cx: 0.50, y: 250 },
+  // Lower row (left + right)
+  { sprite: 'floortwoleft',      cx: 0.20, y: 365 },
+  { sprite: 'floortworight',     cx: 0.80, y: 365 },
+  // floorfourfarright — butted right of floortworight, half-height down
+  { sprite: 'floorfourfarright', cx: 0.92, y: 380 },
+  // Bottom row (wide platform just above base)
+  { sprite: 'floorone',          cx: 0.50, y: 480 },
 ];
-
-// v0.66 enemy flight lanes: birds fly through the OPEN AIR between floors,
-// not on the platform tops. These are guide rails for enemy-only motion;
-// wing flaps are mostly visual now. The player still uses real flap physics.
-const ENEMY_FLIGHT_LANES = [120, 250, 372, 485, 628];
-function nearestEnemyFlightLane(y) {
-  let best = ENEMY_FLIGHT_LANES[0];
-  let bestD = Math.abs(y - best);
-  for (const lane of ENEMY_FLIGHT_LANES) {
-    const d = Math.abs(y - lane);
-    if (d < bestD) { best = lane; bestD = d; }
-  }
-  return best;
-}
-function laneBelow(y) {
-  for (const lane of ENEMY_FLIGHT_LANES) if (lane > y + 20) return lane;
-  return ENEMY_FLIGHT_LANES[ENEMY_FLIGHT_LANES.length - 1];
-}
-function laneAbove(y) {
-  for (let i = ENEMY_FLIGHT_LANES.length - 1; i >= 0; i--) {
-    const lane = ENEMY_FLIGHT_LANES[i];
-    if (lane < y - 20) return lane;
-  }
-  return ENEMY_FLIGHT_LANES[0];
-}
-function laneIndexOfNearest(y) {
-  let bestI = 0;
-  let bestD = Math.abs(y - ENEMY_FLIGHT_LANES[0]);
-  for (let i = 1; i < ENEMY_FLIGHT_LANES.length; i++) {
-    const d = Math.abs(y - ENEMY_FLIGHT_LANES[i]);
-    if (d < bestD) { bestI = i; bestD = d; }
-  }
-  return bestI;
-}
 
 // Returns the scaled width of a platform (collision + rendering use this)
 function platformWidth(p) {
@@ -667,8 +638,6 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     tier: tierName,
     flapPower: tier.flapPower,
     aiAggression: tier.aiAggression,
-    flightAge: 0,              // seconds since birth ended; raises vertical aggression over time
-    bumpCooldown: 0,           // prevents platform-edge pinball double-flips
     // Canonical Joust AI state (ports the 1982 ROM's per-process AI vars):
     //   isSmart  → false until LINET promotes us under WSMART quota
     //   aiMode   → 'level' | 'climb' | 'dive' (set on transitions from BOLEV)
@@ -688,26 +657,6 @@ function spawnEnemyOfTier(tierName, x, y, birthPad) {
     birthDuration: dur,
     birthMode: 'enemy',
     birthPad: birthPad || null,
-    // v0.65: after materializing, enemies lift off immediately instead of
-    // walking off the pad and falling. This approximates the ROM feel where
-    // transporter birth hands control to flight, not to a long ground walk.
-    takeoffStarted: false,
-    takeoffTimer: 0,
-    // v0.70: birth starts on the nearest open-air lane for that pad/floor.
-    // v0.69 used laneBelow(y+BIRD_H), which made every birth immediately
-    // choose the lower lane and felt like 100% drop-down behavior.
-    flightLine: birthPad ? nearestEnemyFlightLane(y + BIRD_H / 2) : nearestEnemyFlightLane(y),
-    lanePhase: Math.random() * Math.PI * 2,
-    laneRetargetTimer: 0.8 + Math.random() * 0.8,
-    visualFlapTimer: Math.random() * 0.25,
-    // v0.73: anti-trap watcher. If a bird sits/bounces in the same upper
-    // platform pocket too long, force a downward lane escape instead of
-    // letting it ping-pong between Floor 4 platforms forever.
-    trapWatchX: x,
-    trapWatchY: y,
-    trapWatchTimer: 0.7,
-    trapStillTimer: 0,
-    forcedLaneEscapeTimer: 0,
     invulnTimer: dur,
     alive: true,
   });
@@ -810,9 +759,6 @@ const audioBuffers = {
   enemybirth:   null,  // generic/unknown enemy birth (fallback)
 };
 
-const AUDIO_CACHE_VERSION = 'v071-audio-mix-test-2';
-function audioUrl(path) { return path + '?v=' + AUDIO_CACHE_VERSION; }
-
 function loadAudioBuffer(name, url) {
   fetch(url)
     .then(r => {
@@ -831,102 +777,24 @@ function loadAudioBuffer(name, url) {
 
 // Kick off loads on script start. Missing files fail silently and the
 // corresponding snd.* function falls back to its built-in synth.
-loadAudioBuffer('flap', audioUrl('../assets/joust/sounds/flap.wav'));
-loadAudioBuffer('egg', audioUrl('../assets/joust/sounds/egg.wav'));
-loadAudioBuffer('skid', audioUrl('../assets/joust/sounds/skid.wav'));
-loadAudioBuffer('jousthit', audioUrl('../assets/joust/sounds/jousthit.wav'));
-loadAudioBuffer('enemycollide', audioUrl('../assets/joust/sounds/enemycollide.wav'));
-loadAudioBuffer('floorbump', audioUrl('../assets/joust/sounds/floorbump.wav'));
-loadAudioBuffer('death', audioUrl('../assets/joust/sounds/death.wav'));
-loadAudioBuffer('spawn', audioUrl('../assets/joust/sounds/spawn.wav'));
-loadAudioBuffer('wave', audioUrl('../assets/joust/sounds/wave.wav'));
-loadAudioBuffer('hundred', audioUrl('../assets/joust/sounds/hundred.wav'));
-loadAudioBuffer('pterodactyl', audioUrl('../assets/joust/sounds/pterodactyl.wav'));
-loadAudioBuffer('lavatroll', audioUrl('../assets/joust/sounds/lavatroll.wav'));
-loadAudioBuffer('mybirth', audioUrl('../assets/joust/sounds/mybirth.wav'));
-loadAudioBuffer('bluebirth', audioUrl('../assets/joust/sounds/bluebirth.wav'));
-loadAudioBuffer('enemybirth', audioUrl('../assets/joust/sounds/enemybirth.wav'));
+loadAudioBuffer('flap',         '../assets/joust/sounds/flap.wav');
+loadAudioBuffer('egg',          '../assets/joust/sounds/egg.wav');
+loadAudioBuffer('skid',         '../assets/joust/sounds/skid.wav');
+loadAudioBuffer('jousthit',     '../assets/joust/sounds/jousthit.wav');
+loadAudioBuffer('enemycollide', '../assets/joust/sounds/enemycollide.wav');
+loadAudioBuffer('floorbump',    '../assets/joust/sounds/floorbump.wav');
+loadAudioBuffer('death',        '../assets/joust/sounds/death.wav');
+loadAudioBuffer('spawn',        '../assets/joust/sounds/spawn.wav');
+loadAudioBuffer('wave',         '../assets/joust/sounds/wave.wav');
+loadAudioBuffer('hundred',      '../assets/joust/sounds/hundred.wav');
+loadAudioBuffer('pterodactyl',  '../assets/joust/sounds/pterodactyl.wav');
+loadAudioBuffer('lavatroll',    '../assets/joust/sounds/lavatroll.wav');
+loadAudioBuffer('mybirth',      '../assets/joust/sounds/mybirth.wav');
+loadAudioBuffer('bluebirth',    '../assets/joust/sounds/bluebirth.wav');
+loadAudioBuffer('enemybirth',   '../assets/joust/sounds/enemybirth.wav');
 
-//── Central arcade sound mixer ──────────────────────────────────────────────
-// Keep WAV files clean/neutral; this table is the cabinet mix. Volume controls
-// loudness, priority controls who wins during crowded moments, duckOthers gives
-// important sounds temporary authority without simply making them obnoxious.
-const SOUND_MIX = {
-  pterodactyl:  { volume: 0.95, priority: 1000, duckOthers: 0.45, duckMs: 450, cooldownMs: 250 },
-  death:        { volume: 0.80, priority: 900,  duckOthers: 0.65, duckMs: 250, cooldownMs: 150 },
-  lavatroll:    { volume: 0.72, priority: 820,  duckOthers: 0.70, duckMs: 250, cooldownMs: 250 },
-  jousthit:     { volume: 0.68, priority: 760,  cooldownMs: 70 },
-  enemycollide: { volume: 0.44, priority: 620,  cooldownMs: 80 },
-  skid:         { volume: 0.48, priority: 650,  cooldownMs: 120 },
-  egg:          { volume: 0.05, priority: 520,  cooldownMs: 80 },
-  hundred:      { volume: 0.30, priority: 500,  cooldownMs: 80 },
-  spawn:        { volume: 0.38, priority: 420,  cooldownMs: 120 },
-  wave:         { volume: 0.46, priority: 700,  duckOthers: 0.75, duckMs: 300, cooldownMs: 250 },
-  mybirth:      { volume: 0.36, priority: 430,  cooldownMs: 150 },
-  bluebirth:    { volume: 0.30, priority: 420,  cooldownMs: 400 },
-  enemybirth:   { volume: 0.36, priority: 400,  cooldownMs: 150 },
-  flap:         { volume: 0.05, priority: 220,  cooldownMs: 45 },
-  wingDown:     { volume: 0.20, priority: 220,  cooldownMs: 45 },
-  wingUp:       { volume: 0.18, priority: 210,  cooldownMs: 45 },
-  floorbump:    { volume: 0.16, priority: 180,  cooldownMs: 90 },
-  clipClop:     { volume: 0.10, priority: 100,  cooldownMs: 70 },
-};
-
-const DEFAULT_SOUND_MIX = { volume: 0.35, priority: 300, cooldownMs: 80 };
-const soundState = {
-  lastPlayed: Object.create(null),
-  activeCount: 0,
-  duckUntil: 0,
-  duckAmount: 1,
-  duckPriorityFloor: 800,
-  activeByKey: Object.create(null),
-};
-
-function getSoundDef(name) {
-  return SOUND_MIX[name] || DEFAULT_SOUND_MIX;
-}
-
-function getMixedVolume(name, volumeScale) {
-  const def = getSoundDef(name);
-  const now = performance.now();
-  const duckActive = now < soundState.duckUntil && def.priority < soundState.duckPriorityFloor;
-  const duckMultiplier = duckActive ? soundState.duckAmount : 1;
-  const scale = volumeScale !== undefined ? volumeScale : 1;
-  return clamp(def.volume * scale * duckMultiplier, 0, 1);
-}
-
-function shouldSkipSound(name, def, now) {
-  const last = soundState.lastPlayed[name] || 0;
-  if (def.cooldownMs && now - last < def.cooldownMs) return true;
-
-  // Old arcade-style voice stealing: background texture gives way first.
-  if (soundState.activeCount >= 8 && def.priority < 400) return true;
-  if (soundState.activeCount >= 12 && def.priority < 800) return true;
-
-  return false;
-}
-
-function stopSound(key, fadeMs) {
-  const handle = soundState.activeByKey[key];
-  if (!handle || !handle.src) return;
-  try {
-    const ac = getAudio();
-    const now = ac.currentTime;
-    const fade = Math.max(0.01, (fadeMs === undefined ? 60 : fadeMs) / 1000);
-    if (handle.gain) {
-      const current = handle.gain.gain.value;
-      handle.gain.gain.cancelScheduledValues(now);
-      handle.gain.gain.setValueAtTime(current, now);
-      handle.gain.gain.linearRampToValueAtTime(0.0001, now + fade);
-    }
-    handle.src.stop(now + fade);
-  } catch (e) {}
-  delete soundState.activeByKey[key];
-}
-
-// Play a loaded buffer with optional pitch + volume variation. Returns the
-// source node if it played, true if intentionally skipped by mixer/singleton,
-// or false if the buffer was not loaded so caller can synth-fallback.
+// Play a loaded buffer with optional pitch + volume variation. Returns true
+// if the buffer played, false if it wasn't loaded (caller can synth-fallback).
 function playBuffer(name, opts) {
   opts = opts || {};
   const buf = audioBuffers[name];
@@ -935,45 +803,16 @@ function playBuffer(name, opts) {
   if (ac._broken) return false;
   if (ac.state === 'suspended') ac.resume();
 
-  const mixKey = opts.mixKey || name;
-  const def = getSoundDef(mixKey);
-  const now = performance.now();
-  const stopKey = opts.stopKey || mixKey;
-
-  // Single-voice sounds, like blue knight birth, should not stack. Stacking
-  // duplicate birth WAVs on the same pad causes harsh comb-filter/chalkboard
-  // artifacts, so keep the first one and ignore later duplicates until it ends.
-  if (opts.singleton && soundState.activeByKey[stopKey]) return true;
-
-  if (!opts.force && shouldSkipSound(mixKey, def, now)) return true;
-  soundState.lastPlayed[mixKey] = now;
-
   const src = ac.createBufferSource();
   src.buffer = buf;
   if (opts.playbackRate !== undefined) src.playbackRate.value = opts.playbackRate;
 
   const g = ac.createGain();
-  g.gain.value = getMixedVolume(mixKey, opts.volumeScale);
+  g.gain.value = opts.volume !== undefined ? opts.volume : 1.0;
 
   src.connect(g); g.connect(ac.destination);
-
-  const handle = { src, gain: g, key: stopKey };
-  soundState.activeByKey[stopKey] = handle;
-  soundState.activeCount++;
-  src.onended = () => {
-    soundState.activeCount = Math.max(0, soundState.activeCount - 1);
-    if (soundState.activeByKey[stopKey] === handle) delete soundState.activeByKey[stopKey];
-  };
-
   src.start();
-
-  if (def.duckOthers) {
-    soundState.duckUntil = now + (def.duckMs || 400);
-    soundState.duckAmount = def.duckOthers;
-    soundState.duckPriorityFloor = def.duckPriorityFloor || 800;
-  }
-
-  return src;
+  return true;
 }
 
 // Cartoon descending whistle skid. Triangle wave, frequency 800 Hz → 80 Hz.
@@ -1015,6 +854,7 @@ const snd = {
     // Subtle pitch variation so rapid flaps don't sound robotic.
     const played = playBuffer('flap', {
       playbackRate: 0.92 + Math.random() * 0.16,  // ±8% pitch variation
+      volume: 0.06,
     });
     if (!played) {
       noiseBurst(0.08, 0.06);
@@ -1022,7 +862,7 @@ const snd = {
     }
   },
   jousthit: () => {
-    const played = playBuffer('jousthit');
+    const played = playBuffer('jousthit', { volume: 0.5 });
     if (!played) {
       tone(660, 0.08, 'square', 0.14);
       setTimeout(() => tone(880, 0.12, 'square', 0.14), 60);
@@ -1031,7 +871,7 @@ const snd = {
   // Bird vs bird contact — fires on ANY bird-vs-bird collision (joust kill OR
   // even-height bounce). Plays alongside jousthit on actual kills.
   enemycollide: () => {
-    const played = playBuffer('enemycollide');
+    const played = playBuffer('enemycollide', { volume: 0.45 });
     if (!played) {
       tone(440, 0.05, 'square', 0.12);
     }
@@ -1039,27 +879,27 @@ const snd = {
   // Bird vs platform side or underside (NOT landing on top — that's silent).
   // Common: flying into the side of a platform during ascent or hitting head.
   floorbump: () => {
-    const played = playBuffer('floorbump');
+    const played = playBuffer('floorbump', { volume: 0.35 });
     if (!played) {
       tone(160, 0.06, 'square', 0.12);
     }
   },
   death:    () => {
-    const played = playBuffer('death');
+    const played = playBuffer('death', { volume: 0.6 });
     if (!played) {
       tone(220, 0.15, 'sawtooth', 0.18);
       setTimeout(() => tone(110, 0.25, 'sawtooth', 0.18), 150);
     }
   },
   spawn:    () => {
-    const played = playBuffer('spawn');
+    const played = playBuffer('spawn', { volume: 0.4 });
     if (!played) {
       tone(180, 0.06, 'triangle', 0.10);
       setTimeout(() => tone(240, 0.06, 'triangle', 0.10), 60);
     }
   },
   egg:      () => {
-    const played = playBuffer('egg');
+    const played = playBuffer('egg', { volume: 0.15 });
     if (!played) {
       // Fallback: bright ascending blip
       tone(880, 0.06, 'triangle', 0.14);
@@ -1069,7 +909,7 @@ const snd = {
   // 100-point pickup (used when player catches a resting egg or chain bonus).
   // Falls back to a brighter version of egg sound if no dedicated wav exists.
   hundred:  () => {
-    const played = playBuffer('hundred');
+    const played = playBuffer('hundred', { volume: 0.3 });
     if (!played) {
       tone(1320, 0.05, 'triangle', 0.18);
       setTimeout(() => tone(1760, 0.08, 'triangle', 0.18), 50);
@@ -1080,12 +920,12 @@ const snd = {
     // the natural arcade pitch (0.95-1.05).
     const played = playBuffer('skid', {
       playbackRate: 0.95 + intensity * 0.1,
-      volumeScale: 0.75 + intensity * 0.55,
+      volume: 0.3 + intensity * 0.4,
     });
     if (!played) skidSound(intensity);
   },
   wave:     () => {
-    const played = playBuffer('wave');
+    const played = playBuffer('wave', { volume: 0.5 });
     if (!played) {
       tone(523, 0.12, 'square', 0.14);
       setTimeout(() => tone(659, 0.12, 'square', 0.14), 130);
@@ -1094,7 +934,7 @@ const snd = {
   },
   // Pterodactyl scream — for future use when pterodactyl enemy is added.
   pterodactyl: () => {
-    const played = playBuffer('pterodactyl');
+    const played = playBuffer('pterodactyl', { volume: 0.5 });
     if (!played) {
       // Fallback: descending sawtooth screech
       tone(1200, 0.08, 'sawtooth', 0.18);
@@ -1104,7 +944,7 @@ const snd = {
   },
   // Lava troll grab — for future use when lava troll mechanic is added.
   lavatroll: () => {
-    const played = playBuffer('lavatroll');
+    const played = playBuffer('lavatroll', { volume: 0.5 });
     if (!played) {
       // Fallback: bubbly low rumble + rising menace
       tone(80, 0.20, 'sawtooth', 0.20);
@@ -1114,7 +954,7 @@ const snd = {
   // Player birth/respawn — plays each time the player materializes on the
   // base platform. Cancels if the player moves before the sound finishes.
   mybirth: () => {
-    const played = playBuffer('mybirth', { stopKey: 'mybirth' });
+    const played = playBuffer('mybirth', { volume: 0.5 });
     if (!played) {
       tone(440, 0.10, 'square', 0.18);
       setTimeout(() => tone(660, 0.10, 'square', 0.18), 90);
@@ -1124,7 +964,7 @@ const snd = {
   },
   // Blue knight (Shadow Lord equivalent) birth — currently our only enemy
   bluebirth: () => {
-    const played = playBuffer('bluebirth', { singleton: true, stopKey: 'bluebirth' });
+    const played = playBuffer('bluebirth', { volume: 0.4 });
     if (!played) {
       tone(330, 0.08, 'sawtooth', 0.15);
       setTimeout(() => tone(440, 0.12, 'sawtooth', 0.15), 80);
@@ -1133,7 +973,7 @@ const snd = {
   },
   // Generic enemy birth — fallback when type isn't determined
   enemybirth: () => {
-    const played = playBuffer('enemybirth');
+    const played = playBuffer('enemybirth', { volume: 0.4 });
     if (!played) {
       tone(280, 0.10, 'sawtooth', 0.15);
     }
@@ -1337,9 +1177,9 @@ function updateRiderlessBirds(dt) {
 
 function drawRiderlessBirds() {
   for (const b of riderlessBirds) {
-    // Use the regular fly sprites — without a brake variant.
-    // If you make riderlessOstrichFly sprites later, swap them in here.
-    drawBird(b, sprites.ostrich, sprites.ostrichMove, sprites.ostrichFly, sprites.ostrichFly2, null);
+    // Bare ostrich (no rider) — uses the dedicated riderlessfly sprites.
+    // No stand/walk/brake variants since the bird is airborne the entire time.
+    drawBird(b, sprites.riderlessFly, sprites.riderlessFly, sprites.riderlessFly, sprites.riderlessFly2, null);
   }
 }
 
@@ -1467,7 +1307,6 @@ function update(dt) {
       if (keys.flapPressed || keys.left || keys.right) {
         player.birthTimer = 0;
         player.invulnTimer = 0;   // cancel protection too
-        stopSound('mybirth', 60); // movement cancels the long neutral birth audio too
       } else {
         player.birthTimer -= dt;
         break playerBlock;        // skip rest of physics — bird frozen on pad
@@ -1645,24 +1484,6 @@ function update(dt) {
       continue;   // skip AI + physics for this enemy this frame
     }
 
-    // v0.68 enemy launch: after materializing, do NOT pop upward.
-    // They simply leave the pad into their assigned open-air lane. Flaps are
-    // visual; enemy altitude is lane-guided so they don't fall off a platform
-    // and then "remember" to fly.
-    if (!e.takeoffStarted) {
-      e.takeoffStarted = true;
-      e.takeoffTimer = 0.45;
-      // v0.70: takeoff stays on the pad/floor's own open-air lane;
-      // the 80/20 lane logic below can decide later whether to drop.
-      e.flightLine = e.birthPad ? nearestEnemyFlightLane(e.y + BIRD_H / 2) : nearestEnemyFlightLane(e.y);
-      e.vy = 0;
-      e.onGround = false;
-      e.flapTimer = 0;
-      e.flapAnimTime = 0;
-      e.aiMode = 'level';
-      e.pdist = e.flightLine;
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // Canonical Joust enemy AI — direct port of Bill Pfutzenreuter's 1982
     // 6809 routines (LINET / BOUNDR / B2UNDR / SHADOW / SELPLY / BOLEV)
@@ -1677,10 +1498,9 @@ function update(dt) {
     //      facing direction. NSMART < WSMART promotes a wandering enemy
     //      to smart mode (LNTSMT).
     //
-    //   2. Smart (BOUNDR / B2UNDR / SHADOW) — tier-specific pressure. The
-    //      enemy calls SELPLY to find a valid target, but v0.64 gates
-    //      player-relative vertical decisions HARD by proximity so it does not
-    //      chase from the top of the board to the bottom.
+    //   2. Smart (BOUNDR / B2UNDR / SHADOW) — tier-specific chase. The
+    //      enemy calls SELPLY to find a valid target, then enters one of
+    //      three sub-states based on relative altitude:
     //
     //        dy > dnRange  → DIVE   (BODN: gravity-fall toward player,
     //                                flap only to cap fall speed)
@@ -1690,10 +1510,11 @@ function update(dt) {
     //                                debounce, periodically reconsider)
     //
     // The smart enemy DOESN'T horizontally home like a missile — it drifts
-    // in its current facing direction. It does NOT intentionally turn toward
-    // the player. Direction flips come from collision/cliff/edge responses
-    // (auto-180), while aggression ramps through vertical choices, flap power,
-    // and shorter decision timers.
+    // in its current facing direction and only flips when the player's
+    // velocity changes (after PRDIR debounce ticks) or it hits a cliff.
+    // This is what makes arcade Joust enemies feel like they have a life
+    // of their own. Most encounters happen because the bird wandered into
+    // your space, not because it's locked-on hunting you.
     //
     // LAVA PANIC: at any altitude below the lava-warn line (~580 in our
     // world; CLIF5=$D3=211 in arcade), if we're falling we force-flap up.
@@ -1703,108 +1524,27 @@ function update(dt) {
     e.plavt     -= dt;
     e.flapTimer -= dt;
     e.flapAnimTime += dt;
-    e.flightAge = (e.flightAge || 0) + dt;
     if (e.prdir > 0)            e.prdir -= dt;
     if (e.facingFlipTimer > 0)  e.facingFlipTimer -= dt;
-    if (e.bumpCooldown > 0)     e.bumpCooldown -= dt;
-    if (e.bumpEscapeTimer > 0)  e.bumpEscapeTimer -= dt;
-    if (e.forcedLaneEscapeTimer > 0) e.forcedLaneEscapeTimer -= dt;
-    if (e.bumpChainTimer > 0)   e.bumpChainTimer -= dt;
-    else e.bumpChain = 0;
-    if (e.noFlapTimer > 0)      e.noFlapTimer -= dt;
-    if (e.takeoffTimer > 0)     e.takeoffTimer -= dt;
 
     const tier = KNIGHT_TIERS[e.tier] || KNIGHT_TIERS.bounder;
-
-    // Arcade-style pressure ramp: the longer a rider lives, the more often
-    // it reconsiders vertical attack and the stronger its flaps get. This is
-    // aggression WITHOUT intentional horizontal turning; facing still only
-    // changes from platform/bird collisions or wrap/edge responses.
-    const agePressure = clamp((e.flightAge || 0) / 28, 0, 1);
-    const aggression  = (e.aiAggression || 1.0) * (1 + agePressure * 0.55);
-    const decideTime  = Math.max(0.08, tier.levelTime / (1 + agePressure * 0.85));
-    const climbRange  = tier.upRange * (1 - agePressure * 0.25);
-    const diveRange   = tier.dnRange * (1 - agePressure * 0.25);
 
     // SELPLY — find a valid target (TARTIM check via invulnTimer).
     const target = (player.alive && player.invulnTimer <= 0) ? player : null;
 
-    // Enemy route lanes. v0.66: use five open-air lanes based on the
-    // actual floor stack Mike marked, instead of three coarse ROM-scaled
-    // lanes. This keeps enemies between floors and out of platform faces.
-    const LAVA_PANIC_Y = getLavaTopY() - 80;
-    const LINE_FLAP_DEADBAND  = 999; // flaps no longer hold enemy altitude
-    const LEVEL_FLAP_DEADBAND = 999;
+    // Tracking lines in our world (AOFFL1/2/3 ×3, tuned to our platforms).
+    // Wide ~100px bands so an enemy can roam vertically a bit on a line.
+    const TRACK_HI  = 120;
+    const TRACK_MID = 380;
+    const TRACK_LO  = 580;
+    const TRACK_BAND = 100;   // AOFFUD ×3
+    const LAVA_PANIC_Y = 600; // CLIF5 lava-panic line ×3
 
-    e.laneRetargetTimer = (e.laneRetargetTimer || 0) - dt;
-    let trackLine = e.flightLine || nearestEnemyFlightLane(e.y);
-    if (e.laneRetargetTimer <= 0 && !e.isSmart) {
-      // LINET wander: mostly hold the current lane, but occasionally migrate
-      // up/down so birds feel alive and controlled-frantic instead of frozen
-      // on rails. This is NOT player chase; facing still does not turn toward
-      // the player. Anti-streak weights prevent a whole wave from choosing
-      // the same downward move repeatedly.
-      const i = laneIndexOfNearest(trackLine);
-      const canDrop = i < ENEMY_FLIGHT_LANES.length - 1;
-      const canRise = i > 0;
-      const recentDrop = (e.lastLaneMove === 'down');
-      const recentRise = (e.lastLaneMove === 'up');
-
-      let dropChance = canDrop ? (recentDrop ? 0.06 : 0.18) : 0;
-      let riseChance = canRise ? (recentRise ? 0.04 : 0.10) : 0;
-      // Bottom lane safety: bias upward near lava so birds don't camp low.
-      if (!canDrop && canRise) riseChance = 0.34;
-      // Top lane safety: allow downward migration from Floor 4 airspace.
-      if (!canRise && canDrop) dropChance = Math.max(dropChance, 0.24);
-
-      const r = Math.random();
-      if (r < dropChance) {
-        trackLine = ENEMY_FLIGHT_LANES[i + 1];
-        e.lastLaneMove = 'down';
-      } else if (r < dropChance + riseChance) {
-        trackLine = ENEMY_FLIGHT_LANES[i - 1];
-        e.lastLaneMove = 'up';
-      } else {
-        trackLine = ENEMY_FLIGHT_LANES[i];
-        e.lastLaneMove = 'same';
-      }
-      e.flightLine = trackLine;
-      e.laneRetargetTimer = 1.6 + Math.random() * 2.4;
-    }
-
-    // v0.73 upper-pocket anti-trap. Floor 4 can create a narrow hallway where
-    // enemies reverse forever. If a bird barely changes position for repeated
-    // samples in the upper half, force a one-lane downward escape with a short
-    // no-flap glide. This creates the authentic sudden drop danger without
-    // making the enemy horizontally home toward the player.
-    e.trapWatchTimer = (e.trapWatchTimer || 0) - dt;
-    if (e.trapWatchTimer <= 0) {
-      const sx = (e.trapWatchX !== undefined) ? e.trapWatchX : e.x;
-      const sy = (e.trapWatchY !== undefined) ? e.trapWatchY : e.y;
-      const moved = Math.hypot(e.x - sx, e.y - sy);
-      const upperPocket = e.y < 285 && e.x > W * 0.10 && e.x < W * 0.90;
-      if (upperPocket && moved < 24) e.trapStillTimer = (e.trapStillTimer || 0) + 0.7;
-      else e.trapStillTimer = Math.max(0, (e.trapStillTimer || 0) - 0.35);
-      e.trapWatchX = e.x;
-      e.trapWatchY = e.y;
-      e.trapWatchTimer = 0.7;
-    }
-    if ((e.trapStillTimer || 0) >= 1.4 && e.forcedLaneEscapeTimer <= 0) {
-      const i = laneIndexOfNearest(trackLine);
-      if (i < ENEMY_FLIGHT_LANES.length - 1) {
-        trackLine = ENEMY_FLIGHT_LANES[i + 1];
-        e.flightLine = trackLine;
-        e.lastLaneMove = 'forcedDown';
-        e.laneRetargetTimer = 1.1 + Math.random() * 0.6;
-        e.forcedLaneEscapeTimer = 0.95;
-        e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.70);
-        e.bumpVertBias = 'down';
-        e.noFlapTimer = Math.max(e.noFlapTimer || 0, 0.34);
-        e.vy = Math.max(e.vy, 75);
-        e.vx = (e.facingLeft ? -1 : 1) * Math.max(165, Math.abs(e.vx));
-      }
-      e.trapStillTimer = 0;
-    }
+    // Pick this enemy's current tracking line (LINET lines 197–204):
+    //   start with AOFFL1; if PPOSY ≥ AOFFL1+AOFFUD pick AOFFL2; etc.
+    let trackLine = TRACK_HI;
+    if (e.y >= TRACK_HI + TRACK_BAND)  trackLine = TRACK_MID;
+    if (e.y >= TRACK_MID + TRACK_BAND) trackLine = TRACK_LO;
 
     // ─── Promotion check (LNTSMT): when wave has room for more smart
     // enemies, the next wandering bird becomes a hunter. PLAVT gates this
@@ -1819,210 +1559,123 @@ function update(dt) {
 
     let wantFlap = false;
     let steerDir = e.facingLeft ? -1 : 1;
-    let desiredLine = trackLine;
 
     if (!e.isSmart) {
       // ─── LINET — dumb line-tracking wander.
       // If below the tracking line AND not already rising, flap up.
-      desiredLine = trackLine;
-      if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 12) wantFlap = true;
+      if (e.y > trackLine && e.vy >= 0) wantFlap = true;
       // Otherwise just drift in facing direction. PFACE doesn't change in
       // LINET unless cliff-bump flips it.
     } else if (!target) {
       // Smart but no valid target (player dead/spawning) — fall back to
       // line-tracking so we don't sit still in the air.
-      desiredLine = trackLine;
-      if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 12) wantFlap = true;
+      if (e.y > trackLine && e.vy >= 0) wantFlap = true;
     } else {
       // ─── Smart AI — tier-specific chase.
       // LAVA PANIC override (BODIRL / BOLAVA): too close to lava, falling,
       // FORCE flap up regardless of mode. Saves us from suicide dives.
-      if ((e.y + BIRD_H > LAVA_PANIC_Y || e.y + BIRD_H > getLavaTopY() - 70) && e.vy >= 0) {
+      if (e.y > LAVA_PANIC_Y && e.vy >= 0) {
         wantFlap = true;
-        e.aiMode = 'climb';
       }
 
       const dy = target.y - e.y;   // positive = player below us
-      const dxAbsRaw = Math.abs((target.x + BIRD_W / 2) - (e.x + BIRD_W / 2));
-      const dxAbs = Math.min(dxAbsRaw, W - dxAbsRaw); // screen-wrap aware distance
+      const dx = target.x - e.x;
 
-      // v0.64: HARD separation between LINET wander and smart engagement.
-      // WSMART makes only a quota of enemies eligible to hunt, but even those
-      // do NOT globally chase altitude. If a smart enemy is not already close
-      // enough to the player, it immediately falls back to LINET-style lane
-      // tracking and the player must go hunt it.
-      const engageX = Math.min(tier.sightWindowX || 220, 135 + 34 * (e.aiAggression || 1.0) + agePressure * 22);
-      const engageY = 70 + agePressure * 15;
-      const playerIsNearby = dxAbs <= engageX && Math.abs(dy) <= engageY;
-      const playerIsLavaBait = target.y > LAVA_PANIC_Y - 80;
+      // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout),
+      // OR on the very first frame after promotion (aiMode default).
+      // BOUNDR's top-level decision: dy >= dnRange → DIVE; dy ≤ -upRange
+      // → CLIMB; otherwise LEVEL.
+      if (e.aiTimer <= 0) {
+        if (dy >= tier.dnRange) {
+          e.aiMode = 'dive';
+        } else if (dy <= -tier.upRange) {
+          e.aiMode = 'climb';
+        } else {
+          e.aiMode = 'level';
+          e.pdist  = target.y;       // PDIST: remember player's Y line
+          // PRDIR-like wander flip: ~25% chance to try the other direction
+          // when transitioning into LEVEL. Breaks lock-step parallel chases
+          // when multiple smart birds drift together along the same lane.
+          // Arcade's BOLEVB does an equivalent "flip if stalemated" check.
+          if (Math.random() < 0.25) e.facingLeft = !e.facingLeft;
+        }
+        e.aiTimer = tier.levelTime;
+      }
 
-      if (!playerIsNearby) {
-        // Do NOT preserve old dive/climb after the player leaves the nearby
-        // window. This was the v0.63 bug: a bird could stay in dive and keep
-        // falling toward a player who had moved to the bottom/lava.
-        e.aiMode = 'level';
-        e.pdist = trackLine;
-        e.aiTimer = Math.max(e.aiTimer, 0.20);
-
-        // Pure LINET: maintain own lane, drift in current facing direction.
-        desiredLine = trackLine;
-        if (e.y > trackLine + LINE_FLAP_DEADBAND && e.vy >= 14) wantFlap = true;
+      if (e.aiMode === 'dive') {
+        // BODN1: drop using gravity. Only flap if we're falling TOO fast
+        // (BODNVY cap — keeps the dive controlled, not a missile drop).
+        // CRITICAL: arcade BODN does NOT update PFACE toward the player.
+        // The bird dives in its current facing direction — that's why
+        // arcade enemies don't feel like guided missiles. Facing only
+        // changes via BOLEV's mirror-velocity check (when the player turns).
+        if (e.vy > tier.dnVyCap) wantFlap = true;
+        steerDir = e.facingLeft ? -1 : 1;
+      } else if (e.aiMode === 'climb') {
+        // BOUP1: flap up. Same rule as DIVE: don't update facing toward
+        // player. The bird climbs in its current facing direction. The
+        // mirror-velocity check in BOLEV is the ONLY way smart facing
+        // turns — and it only fires when the PLAYER changes direction.
+        wantFlap = true;
         steerDir = e.facingLeft ? -1 : 1;
       } else {
-        // Re-decide mode whenever aiTimer expires (BOLEV's PJOYT timeout).
-        // Only now do we use player altitude. This gives the arcade "one of
-        // them is on me" pressure without the whole wave suicide-chasing.
-        if (e.aiTimer <= 0) {
-          if (dy >= diveRange && !playerIsLavaBait) {
-            e.aiMode = 'dive';
-          } else if (dy <= -climbRange) {
-            e.aiMode = 'climb';
-          } else {
-            e.aiMode = 'level';
-            e.pdist = nearestEnemyFlightLane(target.y);
-          }
-          e.aiTimer = decideTime;
-        }
-
-        if (e.aiMode === 'dive') {
-          // Nearby-only dive. Let gravity do the work, but cap runaway fall.
-          desiredLine = Math.min(nearestEnemyFlightLane(target.y), e.flightLine || trackLine);
-          if (e.vy > tier.dnVyCap) wantFlap = true;
-          steerDir = e.facingLeft ? -1 : 1;
-        } else if (e.aiMode === 'climb') {
-          // Nearby-only climb with short, controlled bursts.
-          desiredLine = Math.max(nearestEnemyFlightLane(target.y), e.flightLine || trackLine);
-          wantFlap = e.vy > -105;
-          steerDir = e.facingLeft ? -1 : 1;
-        } else {
-          // Nearby level flight remembers player's altitude briefly, but with
-          // a deadband so it does not become ocean-bob homing.
-          desiredLine = e.pdist || trackLine;
-          if (e.y > e.pdist + LEVEL_FLAP_DEADBAND && e.vy >= 16) wantFlap = true;
-          steerDir = e.facingLeft ? -1 : 1;
-        }
-      }
-    }
-
-    // v0.65 takeoff commitment: for the first fraction of a second after
-    // materializing, fly immediately away from the pad. This prevents the old
-    // behavior where enemies walked off the platform and fell before flapping.
-    if (e.takeoffTimer > 0) {
-      steerDir = e.facingLeft ? -1 : 1;
-      desiredLine = e.flightLine || desiredLine;
-      // no upward launch; just animate the wings as the bird leaves the pad
-      if (e.flapTimer <= 0) { e.flapTimer = 0.18; e.flapAnimTime = 0; }
-    }
-
-    // ─── Cliff/platform escape override.
-    // Direction remains pure arcade: the rider keeps its current facing unless
-    // it physically bumps something. The important missing piece is vertical
-    // separation after a bump. Same-row platforms can otherwise create a
-    // back-and-forth hallway, so a bump gives the bird a short committed escape
-    // and a small up/down bias chosen at the moment of contact.
-    if (e.bumpEscapeTimer > 0 || e.forcedLaneEscapeTimer > 0) {
-      steerDir = e.facingLeft ? -1 : 1;
-
-      if (e.noFlapTimer > 0) {
-        // Down-bias escape: don't instantly flap back into the same shelf.
-        wantFlap = false;
-      } else if (e.bumpVertBias === 'up' && e.vy > -25 && e.flapTimer <= 0) {
-        // Up-bias escape: one small correction to clear the shelf line.
-        wantFlap = true;
+        // BOLEV — LEVEL FLIGHT. Match remembered player altitude (pdist).
+        // Crucially: NO HORIZONTAL CHASE. The bird drifts in its current
+        // facing direction and wraps around screen edges. Encounters happen
+        // because the bird's drift trajectory crosses the player, not
+        // because it's locked-on hunting. This is THE secret of arcade
+        // Joust enemy feel — they have their own life. The wander-flip on
+        // LEVEL mode-entry above provides the occasional direction change.
+        //
+        // BOLEV1 + BOFAST: if we're below pdist AND falling → BOFAST flap.
+        //                  otherwise leave wings up and let gravity drift.
+        if (e.y > e.pdist && e.vy >= 0) wantFlap = true;
+        steerDir = e.facingLeft ? -1 : 1;
       }
     }
 
     // ─── Apply flap (ADDFLP analog).
     if (wantFlap && e.flapTimer <= 0) {
       const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
-      const tierFlap    = (e.flapPower || 0.9) * (0.76 + agePressure * 0.18);
+      const tierFlap    = e.flapPower || 0.9;
       const impulse     = FLAP_IMPULSE * tierFlap * speedFactor;
       e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
-      e.flapTimer    = FLAP_COOLDOWN * Math.max(1.05, 1.45 - agePressure * 0.25);
+      e.flapTimer    = FLAP_COOLDOWN * 1.2;
       e.flapAnimTime = 0;
     }
 
     // ─── Apply horizontal steer (joystick into PVELX). Mild acceleration
     // — enemies don't snap to speed, they drift up to it like the player.
     if (steerDir !== 0) {
-      const accel = HORIZ_ACCEL * 0.45 * (0.85 + 0.25 * aggression);
+      const accel = HORIZ_ACCEL * 0.45 * (0.85 + 0.25 * (e.aiAggression || 1.0));
       e.vx += steerDir * accel * dt;
     }
     // Light air drag so they don't accumulate forever
     e.vx *= 0.985;
 
-    // Apply enemy route physics: unlike the player, enemies ride coded
-    // flight lanes. Flapping is mostly visual; vertical motion is a damped
-    // correction toward the chosen open-air line with only a slight wobble.
+    // Apply physics: clamp, gravity, integrate, collisions.
     e.vx = clamp(e.vx, -HORIZ_MAX, HORIZ_MAX);
-    const laneWobble = Math.sin((performance.now() / 1000) * 1.15 + (e.lanePhase || 0)) * 3.2;
-    const laneTarget = clamp((desiredLine || nearestEnemyFlightLane(e.y)) + laneWobble, CEILING + 18, getLavaTopY() - BIRD_H - 28);
-    const laneError = laneTarget - e.y;
-    e.vy += laneError * 2.15 * dt;
-    e.vy *= Math.pow(0.30, dt);
-    e.vy = clamp(e.vy, -88, 88);
-
-    // Visual wing rules:
-    //   falling   -> hold fly2 / wings-up glide, no constant flap
-    //   level     -> casual flap cadence
-    //   climbing  -> fast flap cadence
-    e.visualFlapTimer = (e.visualFlapTimer || 0) - dt;
-    if (e.vy < -18) {
-      if (e.visualFlapTimer <= 0) {
-        e.flapAnimTime = 0;
-        e.visualFlapTimer = 0.10 + Math.random() * 0.035;
-      }
-    } else if (Math.abs(e.vy) <= 18) {
-      if (e.visualFlapTimer <= 0) {
-        e.flapAnimTime = 0;
-        e.visualFlapTimer = 0.26 + Math.random() * 0.10;
-      }
-    } else {
-      // Dropping: wings-up glide frame.
-      e.flapAnimTime = 999;
-      e.visualFlapTimer = Math.max(e.visualFlapTimer, 0.12);
-    }
+    e.vy += GRAVITY * dt;
+    e.vy = Math.min(e.vy, TERMINAL_VY);
 
     e.x += e.vx * dt;
     const eSideBumped = resolveHorizontalPlatformCollisions(e);
-    // Cliff/platform side hit = forced auto-180. This is the only normal
-    // horizontal turn source. To avoid same-level platform pinball, the bump
-    // also gets a 50/50 vertical escape: up to clear the shelf line, or down
-    // to drop out of the lane. Repeated fast bonks get a little stronger bias,
-    // but still no player-facing turn.
+    // Cliff/wall response: in the arcade, B2DIR/SHDIR PREDICTIVELY check
+    // BCKXTB lookahead and flap UP to climb over obstacles — they don't
+    // bounce off them. Two enemies on the same tracking line would
+    // otherwise ping-pong forever between platform sides. Our approximation:
+    // on a side-bump, FORCE A FLAP and dampen horizontal velocity hard.
+    // The bird gains altitude immediately and continues over the platform
+    // instead of reversing into another bird's path.
     if (eSideBumped) {
-      snd.floorbump();
-      if (e.bumpCooldown <= 0) {
-        e.bumpChain = (e.bumpChainTimer > 0 ? (e.bumpChain || 0) + 1 : 1);
-        e.bumpChainTimer = 0.85;
-
-        e.facingLeft = !e.facingLeft;
-        const away = e.facingLeft ? -1 : 1;
-        e.vx = away * (e.bumpChain >= 2 ? 180 : 145);
-
-        // In the cramped upper Floor 4 pocket, upward escape just keeps
-        // re-entering the same trap. Bias those bumps downward.
-        const goUp = e.y < 285 ? false : Math.random() < 0.5;
-        if (goUp) {
-          e.bumpVertBias = 'up';
-          e.vy = Math.min(e.vy, e.bumpChain >= 2 ? -65 : -45);
-          e.noFlapTimer = 0;
-        } else {
-          e.bumpVertBias = 'down';
-          e.vy = Math.max(e.vy, e.bumpChain >= 2 ? 75 : 55);
-          e.noFlapTimer = e.bumpChain >= 2 ? 0.26 : 0.16;
-        }
-
-        e.bumpEscapeTimer = e.bumpChain >= 2 ? 0.55 : 0.42;
-        e.aiTimer = Math.max(e.aiTimer, 0.20);
-        e.facingFlipTimer = 0.45;
-        e.bumpCooldown = 0.24;
-      } else {
-        // Still inside cooldown: keep committing away from the last wall, but
-        // don't auto-180 again. This prevents left-right-left-right chatter.
-        const away = e.facingLeft ? -1 : 1;
-        e.vx = away * Math.max(120, Math.abs(e.vx));
-      }
+      e.vx *= 0.3;                       // soft damp, not a hard reverse
+      // Force-flap up to clear the obstacle (climb-over behavior)
+      const speedFactor = 1 + FLAP_SPEED_BONUS * (Math.abs(e.vx) / HORIZ_MAX);
+      const tierFlap    = e.flapPower || 0.9;
+      const impulse     = FLAP_IMPULSE * tierFlap * 1.15 * speedFactor;
+      e.vy = Math.max(MAX_VY_UP, e.vy + impulse);
+      e.flapTimer    = FLAP_COOLDOWN * 0.8;
+      e.flapAnimTime = 0;
     }
     if (e.x + BIRD_W < 0) e.x = W;
     if (e.x > W) e.x = -BIRD_W;
@@ -2030,31 +1683,13 @@ function update(dt) {
     e.y += e.vy * dt;
     const eVRes = resolveVerticalPlatformCollisions(e);
     e.onGround = eVRes.onGround;
-    if (eVRes.bumpedHead) {
-      snd.floorbump();
-      // Underside bonks are another shelf-pocket symptom. Don't reverse
-      // facing here; just stop the immediate re-flap and drift out.
-      e.noFlapTimer = Math.max(e.noFlapTimer || 0, 0.18);
-      e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.25);
-    }
     if (e.y < CEILING) { e.y = CEILING; e.vy = Math.max(0, e.vy); }
 
-    // v0.74 enemy lava guard: enemies should never commit suicide into
-    // the lava. In real Joust the player can die down here, eggs can burn,
-    // but enemies should panic/recover instead of deleting themselves. If an
-    // enemy falls too low, snap it just above the lava line, force the next
-    // lane upward, and give it a short climb/escape impulse.
+    // Lava death — enemy bottom touches lava surface = instant kill.
     {
-      const lavaTop = getLavaTopY();
       const ebottom = e.y + BIRD_H;
-      if (ebottom > lavaTop - 6) {
-        e.y = lavaTop - BIRD_H - 10;
-        e.vy = Math.min(e.vy, -95);
-        e.flightLine = laneAbove(e.y + BIRD_H / 2);
-        e.aiMode = 'climb';
-        e.noFlapTimer = 0;
-        e.bumpEscapeTimer = Math.max(e.bumpEscapeTimer || 0, 0.35);
-        e.laneRetargetTimer = Math.max(e.laneRetargetTimer || 0, 0.9);
+      if (ebottom > getLavaTopY()) {
+        e.alive = false;
       }
     }
   }
@@ -2584,7 +2219,7 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
   } else if (isWalking) {
     bobY = Math.sin(performance.now() / 80) * 2;
   } else if (inAir && recentFlap) {
-    bobY = Math.cos(performance.now() / 35) * 1.0;
+    bobY = Math.cos(performance.now() / 25) * 2.5;
   }
   const drawY = b.y + bobY;
 
