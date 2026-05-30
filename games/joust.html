@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JOUST v0.79 — Arcade Reactor</title>
+<title>JOUST v0.80 — Arcade Reactor</title>
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/favicon-32.png">
 <style>
   @font-face {
@@ -109,12 +109,12 @@
       <p style="margin-top: 16px;">A/D or ←→ to move · Space/W/↑ to flap</p>
       <button id="startBtn">START</button>
     </div>
-    <div class="version-tag" id="versionTag">v0.79 ARCADE DEATH TIMING</div>
+    <div class="version-tag" id="versionTag">v0.80 RENDER BOX REFACTOR</div>
   </div>
 
 <script>
 //──────────────────────────────────────────────────────────────────────────────
-// JOUST v0.79 — Arcade Reactor — Arcade Death Timing
+// JOUST v0.80 — Arcade Reactor — Render Box Refactor
 //──────────────────────────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('game');
@@ -211,6 +211,16 @@ const FLAP_COOLDOWN  = 0.16;   // sec — minimum between flaps (key must be re-
 const BIRD_W         = 56;
 const BIRD_H         = 52;
 const BIRD_JOUST_INSET_X = 12;  // horizontal inset for joust collision (excludes lance + tail)
+// Render box is LARGER than the collision box so wing-extension art can extend
+// above/beside the bird's body without inflating the hitbox. Williams Joust
+// hardware had this implicitly — dramatic wing flaps didn't affect collision.
+// Sprite anchor convention: feet/body-bottom at canvas BOTTOM, body horizontally
+// centered. Render box's bottom and horizontal center align with the collision
+// box's bottom and horizontal center.
+const BIRD_RENDER_W = 84;
+const BIRD_RENDER_H = 80;
+const BIRD_RENDER_DX = (BIRD_RENDER_W - BIRD_W) / 2;   // 14 — horizontal offset render-from-collision
+const BIRD_RENDER_DY = BIRD_RENDER_H - BIRD_H;          // 28 — vertical offset (render extends UP)
 const LANCE_OFFSET_Y = 22;     // lance is in the MIDDLE of the sprite (helmet above, body below)
 const LANCE_TOLERANCE= 9;      // pixels — if lances within this, both bounce
 
@@ -2602,21 +2612,28 @@ function drawBird(b, sprite, walkSprite, flySprite, fly2Sprite, brakeSprite) {
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
+  // Render box positioned so its BOTTOM aligns with the collision rect's
+  // bottom (feet land on platforms correctly) and its horizontal CENTER
+  // aligns with the collision rect's center. Wings extend up/sideways into
+  // the extra render space without affecting the BIRD_W × BIRD_H hitbox.
+  const renderX = b.x - BIRD_RENDER_DX;
+  const renderY = drawY - BIRD_RENDER_DY;
   if (b.facingLeft) {
-    ctx.translate(b.x + BIRD_W, drawY);
+    ctx.translate(renderX + BIRD_RENDER_W, renderY);
     ctx.scale(-1, 1);
-    ctx.drawImage(activeSprite, 0, 0, BIRD_W, BIRD_H);
+    ctx.drawImage(activeSprite, 0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   } else {
-    ctx.drawImage(activeSprite, b.x, drawY, BIRD_W, BIRD_H);
+    ctx.drawImage(activeSprite, renderX, renderY, BIRD_RENDER_W, BIRD_RENDER_H);
   }
   ctx.restore();
 }
 
 // Offscreen canvas used to tint a sprite by source-atop compositing.
-// Persistent so we don't allocate every frame.
+// Persistent so we don't allocate every frame. Sized to BIRD_RENDER_W × H
+// so wing-extension art is included in the tint mask.
 const _tintCanvas = document.createElement('canvas');
-_tintCanvas.width = BIRD_W;
-_tintCanvas.height = BIRD_H;
+_tintCanvas.width = BIRD_RENDER_W;
+_tintCanvas.height = BIRD_RENDER_H;
 const _tintCtx = _tintCanvas.getContext('2d');
 
 function drawPlayer() {
@@ -2662,26 +2679,26 @@ function drawBirthSilhouette(b, sprite, totalDuration, mode) {
 // Helper: draws the bird's sprite outline filled with a single solid color.
 // Uses source-atop on an offscreen canvas so only the bird's pixels are tinted.
 function drawSolidTintBird(b, sprite, color, facingLeft) {
-  _tintCtx.clearRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.clearRect(0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   _tintCtx.imageSmoothingEnabled = false;
-  _tintCtx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
+  _tintCtx.drawImage(sprite, 0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   _tintCtx.globalCompositeOperation = 'source-atop';
   _tintCtx.fillStyle = color;
-  _tintCtx.fillRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.fillRect(0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   _tintCtx.globalCompositeOperation = 'source-over';
   blitTintCanvas(b, facingLeft);
 }
 
 // Helper: top half = topColor, bottom half = bottomColor, masked to bird outline
 function drawTwoToneBird(b, sprite, topColor, bottomColor, facingLeft) {
-  _tintCtx.clearRect(0, 0, BIRD_W, BIRD_H);
+  _tintCtx.clearRect(0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   _tintCtx.imageSmoothingEnabled = false;
-  _tintCtx.drawImage(sprite, 0, 0, BIRD_W, BIRD_H);
+  _tintCtx.drawImage(sprite, 0, 0, BIRD_RENDER_W, BIRD_RENDER_H);
   _tintCtx.globalCompositeOperation = 'source-atop';
   _tintCtx.fillStyle = topColor;
-  _tintCtx.fillRect(0, 0, BIRD_W, BIRD_H / 2);
+  _tintCtx.fillRect(0, 0, BIRD_RENDER_W, BIRD_RENDER_H / 2);
   _tintCtx.fillStyle = bottomColor;
-  _tintCtx.fillRect(0, BIRD_H / 2, BIRD_W, BIRD_H / 2);
+  _tintCtx.fillRect(0, BIRD_RENDER_H / 2, BIRD_RENDER_W, BIRD_RENDER_H / 2);
   _tintCtx.globalCompositeOperation = 'source-over';
   blitTintCanvas(b, facingLeft);
 }
@@ -2689,12 +2706,16 @@ function drawTwoToneBird(b, sprite, topColor, bottomColor, facingLeft) {
 function blitTintCanvas(b, facingLeft) {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
+  // Same render-from-collision offset as drawBird so tint lands in the
+  // exact same place as the sprite would
+  const renderX = b.x - BIRD_RENDER_DX;
+  const renderY = b.y - BIRD_RENDER_DY;
   if (facingLeft) {
-    ctx.translate(b.x + BIRD_W, b.y);
+    ctx.translate(renderX + BIRD_RENDER_W, renderY);
     ctx.scale(-1, 1);
     ctx.drawImage(_tintCanvas, 0, 0);
   } else {
-    ctx.drawImage(_tintCanvas, b.x, b.y);
+    ctx.drawImage(_tintCanvas, renderX, renderY);
   }
   ctx.restore();
 }
