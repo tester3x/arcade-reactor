@@ -495,6 +495,59 @@ function pollGamepad() {
 window.addEventListener('gamepadconnected',   e => { padIndex = e.gamepad.index; });
 window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === padIndex) padIndex = -1; });
 
+// A mouse drag around a closed rim acts like the arcade dial. Relative
+// angular travel rotates the player; clicking a distant lane does not
+// teleport there or skip the lanes between.
+let dialPointerId = null;
+let dialLastAngle = 0;
+let dialAngleTravel = 0;
+let dialSteps = 0;
+let dialCooldown = 0;
+function pointerAngle(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * GW / rect.width;
+  const y = (e.clientY - rect.top) * GH / rect.height;
+  return Math.atan2(y - CY, x - CX);
+}
+function releaseDial(e) {
+  if (e.pointerId !== dialPointerId) return;
+  dialPointerId = null;
+  dialAngleTravel = 0;
+}
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch' || !state || !state.geometry.closed ||
+      !['play', 'warpWarn', 'warpOut'].includes(state.phase)) return;
+  dialPointerId = e.pointerId;
+  dialLastAngle = pointerAngle(e);
+  dialAngleTravel = 0;
+  dialSteps = 0;
+  dialCooldown = 0;
+  canvas.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerId !== dialPointerId || !state || !state.geometry.closed) return;
+  const angle = pointerAngle(e);
+  let delta = angle - dialLastAngle;
+  if (delta > Math.PI) delta -= TWOPI;
+  if (delta < -Math.PI) delta += TWOPI;
+  dialLastAngle = angle;
+  dialAngleTravel += delta;
+  const laneAngle = TWOPI / state.geometry.lanes;
+  while (dialAngleTravel >= laneAngle) {
+    dialSteps = Math.min(state.geometry.lanes, dialSteps + 1);
+    dialAngleTravel -= laneAngle;
+  }
+  while (dialAngleTravel <= -laneAngle) {
+    dialSteps = Math.max(-state.geometry.lanes, dialSteps - 1);
+    dialAngleTravel += laneAngle;
+  }
+  e.preventDefault();
+});
+canvas.addEventListener('pointerup', releaseDial);
+canvas.addEventListener('pointercancel', releaseDial);
+canvas.addEventListener('lostpointercapture', releaseDial);
+
 
 // ── Utilities ────────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -866,6 +919,19 @@ function handleLaneInput() {
   } else {
     state.holdTimer = 0;
     state.moveCooldown = 0;
+  }
+
+  // Mouse dial follows clockwise/counterclockwise hand movement one lane
+  // at a time, including the final steps after a quick release. Keyboard
+  // input wins if both are used at once.
+  if (leftDown || rightDown) dialSteps = 0;
+  else if (dialSteps !== 0) {
+    if (dialCooldown > 0) dialCooldown--;
+    if (dialCooldown === 0) {
+      if (dialSteps < 0) { stepLeft(); dialSteps++; }
+      else               { stepRight(); dialSteps--; }
+      dialCooldown = Math.max(1, Math.floor(moveCooldownForLevel(state.level) / 2));
+    }
   }
 
   // Smooth visual position — bumped from 0.4 to 0.55 so the player
@@ -1400,9 +1466,10 @@ function draw() {
     drawCentered('WEB  REACTOR',                   CY - 60, 36);
     drawCentered('PRESS  ENTER  TO  START',        CY - 20, 15);
     if (!touchMode)
-      drawCentered('A / D  MOVE  ·  SPACE  FIRE  ·  X  ZAP',  CY + 10, 12, 0.5);
+      drawCentered('A / D  ROTATE  ·  SPACE  FIRE  ·  X  ZAP', CY + 10, 12, 0.5);
     else
       drawCentered('TAP  ANY  BUTTON  TO  START',  CY + 10, 12, 0.5);
+    if (!touchMode) drawCentered('DRAG AROUND THE RIM TO USE THE DIAL', CY + 35, 11, 0.5);
     return;
   }
 
