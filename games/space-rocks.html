@@ -978,14 +978,27 @@ function draw() {
 // GAME LOOP
 // ================================================================
 
-function loop() {
+// Gameplay uses 60 updates per second regardless of display refresh rate.
+const STEP_MS = 1000 / 60;
+let lastFrameTime = null;
+let stepAccumulator = 0;
+function loop(now) {
+  if (lastFrameTime === null) lastFrameTime = now;
+  stepAccumulator += Math.min(now - lastFrameTime, 100);
+  lastFrameTime = now;
   pollGamepad();
-  update();
+  let steps = 0;
+  while (stepAccumulator >= STEP_MS && steps < 5) {
+    update();
+    stepAccumulator -= STEP_MS;
+    steps++;
+  }
+  if (steps === 5) stepAccumulator = 0; // Do not fast-forward after a stalled tab.
   draw();
   requestAnimationFrame(loop);
 }
 
-loop();
+requestAnimationFrame(loop);
 </script>
 
 <!-- ================================================================

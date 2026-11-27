@@ -1509,9 +1509,23 @@ function draw() {
 // LOOP
 // ================================================================
 
-function loop() {
+// Keep frame-based movement and timers at 60 updates per second.
+const STEP_MS = 1000 / 60;
+let lastFrameTime = null;
+let stepAccumulator = 0;
+function loop(now) {
+  if (lastFrameTime === null) lastFrameTime = now;
+  stepAccumulator += Math.min(now - lastFrameTime, 100);
+  lastFrameTime = now;
   pollGamepad();
-  update();
+  let steps = 0;
+  while (stepAccumulator >= STEP_MS && steps < 5) {
+    update();
+    if (state) snapshotInput();
+    stepAccumulator -= STEP_MS;
+    steps++;
+  }
+  if (steps === 5) stepAccumulator = 0; // Do not fast-forward after a stalled tab.
   // Reflect superzapper availability on the on-screen button
   const zapBtn = document.getElementById('btn-zap');
   if (zapBtn) {
@@ -1519,11 +1533,10 @@ function loop() {
     if (avail) zapBtn.removeAttribute('disabled');
     else       zapBtn.setAttribute('disabled', 'true');
   }
-  if (state) snapshotInput();
   draw();
   requestAnimationFrame(loop);
 }
-loop();
+requestAnimationFrame(loop);
 </script>
 
 <!-- Arcade Reactor score bridge -->
