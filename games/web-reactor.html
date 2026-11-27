@@ -226,8 +226,8 @@
    • Warp transition between levels: tube zooms out past camera,
      new tube zooms in. During the outbound zoom, spikes on your
      lane KILL you — dodge with A/D or ◁/▷.
-   • Spikes cannot be cleared mid-level (removed bullet-nibble).
-     Their purpose: threaten you during the warp.
+   • Only spikers leave spikes at the rim. Shots can clear them before
+     the warp; an uncleared spike still threatens your lane.
    • Slower player controls (cooldown 6→10 frames)
    ================================================================ */
 
@@ -762,6 +762,8 @@ var state = null;
 const MOVE_COOLDOWN     = 8;   // base cadence at level 1 (lower = faster)
 const MOVE_REPEAT_DELAY = 11;  // frames of no-move before hold-to-repeat kicks in (~180ms @ 60fps)
 const MOVE_MIN          = 3;   // fastest allowed cooldown at high levels
+const SPIKE_LENGTH      = 0.4;
+const SPIKE_CLEAR_SHOT  = 0.15; // three shots clear a full spike
 // Scales repeat speed with level — enemies get faster, you should too.
 // Level 1  → cooldown ~8   (snappy)
 // Level 10 → cooldown ~5
@@ -1026,7 +1028,8 @@ function update() {
   if (zapTap && state.zapAvailable) {
     state.zapAvailable = false;
     state.zapFlashT    = 20;   // 20-frame bright flash
-    // Kill every enemy on screen; score half points (emergency = no prowess bonus)
+    // Kill every enemy and clear spikes; score half points for enemies
+    // (emergency = no prowess bonus).
     let zapScore = 0;
     for (const e of state.enemies) {
       const pts = e.type === 'flipper' ? 50 : e.type === 'tanker' ? 75 : 100;
@@ -1045,6 +1048,7 @@ function update() {
     state.enemiesKilled += state.enemies.length;
     state.score += zapScore;
     state.enemies = [];
+    state.spikes = [];
     // Radial zap pulse from hub
     for (let i = 0; i < 80; i++) {
       const a = Math.random() * TWOPI;
@@ -1058,17 +1062,23 @@ function update() {
   }
   if (state.zapFlashT > 0) state.zapFlashT--;
 
-  // Bullets travel inward (depth 1 → 0). Stop at spike tip.
+  // Bullets travel inward (depth 1 → 0). Clear a spike before reaching
+  // enemies behind it; the lane becomes usable again after three shots.
   for (const b of state.bullets) {
     const L = laneLength(b.lane);
+    b.previousDepth = b.depth;
     b.depth -= 14 / L;
   }
   state.bullets = state.bullets.filter(b => {
     if (b.depth <= 0) return false;
-    const sp = state.spikes.find(s => s.lane === b.lane);
-    if (sp && b.depth > 1 - sp.length) return false;   // absorbed, no nibble
+    const sp = state.spikes.find(s => s.lane === b.lane && s.length > 0);
+    if (sp && b.previousDepth >= 1 - sp.length) {
+      sp.length = Math.max(0, sp.length - SPIKE_CLEAR_SHOT);
+      return false;
+    }
     return true;
   });
+  state.spikes = state.spikes.filter(s => s.length > 0);
 
   // Spawn enemies until quota
   if (state.enemiesSpawned < state.plan.enemyQuota) {
@@ -1084,11 +1094,6 @@ function update() {
     const L = laneLength(e.lane);
     e.depth += e.speed / L;
     e.pulse += 0.15;
-    if (e.type === 'spiker') {
-      let sp = state.spikes.find(s => s.lane === e.lane);
-      if (!sp) { sp = { lane: e.lane, length: 0 }; state.spikes.push(sp); }
-      sp.length = Math.max(sp.length, Math.min(0.55, e.depth * 0.9));
-    }
   }
 
   // Bullet × Enemy
@@ -1101,6 +1106,9 @@ function update() {
       if (deadEnemies.has(ei)) continue;
       const e = state.enemies[ei];
       if (e.lane !== b.lane) continue;
+      // An enemy occupying the spike is protected until the hazard is cleared.
+      const spike = state.spikes.find(s => s.lane === e.lane);
+      if (spike && e.depth >= 1 - spike.length) continue;
       if (Math.abs(e.depth - b.depth) < 0.05) {
         deadBullets.add(bi);
         deadEnemies.add(ei);
@@ -1132,13 +1140,16 @@ function update() {
   state.bullets = state.bullets.filter((_, i) => !deadBullets.has(i));
   state.enemies = state.enemies.filter((_, i) => !deadEnemies.has(i)).concat(spawnedFromSplits);
 
-  // Enemies reaching rim → drop spike, grab player if on lane
+  // Only spikers reaching the rim leave a hazard. Every enemy can still
+  // collide with the player on its lane.
   const survivors = [];
   for (const e of state.enemies) {
     if (e.depth >= 1) {
-      let sp = state.spikes.find(s => s.lane === e.lane);
-      if (!sp) { sp = { lane: e.lane, length: 0 }; state.spikes.push(sp); }
-      sp.length = Math.max(sp.length, 0.55);
+      if (e.type === 'spiker') {
+        let sp = state.spikes.find(s => s.lane === e.lane);
+        if (!sp) { sp = { lane: e.lane, length: 0 }; state.spikes.push(sp); }
+        sp.length = Math.max(sp.length, SPIKE_LENGTH);
+      }
       if (state.invincible === 0 && e.lane === state.lane) {
         state.lives--;
         state.invincible = 120;
